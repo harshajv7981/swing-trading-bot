@@ -11,10 +11,13 @@ run the scorer. Nothing here talks to a broker or places orders.
 
 ## Inputs
 
-- An events file (CSV or JSONL). Default to `data/sample/events.csv` if the user
-  names none.
-- A prices directory for scoring. Default `data/sample/prices` with
-  `--benchmark NIFTY50`.
+- An events file (CSV or JSONL). Use `data/raw/news/events.csv` if it exists
+  (built by the fetchers in `scripts/`, see the README), otherwise
+  `data/sample/events.csv`. Briefs and the scorer drop news from before the
+  training cutoff (1 July 2026 by default); tell the user how many were dropped.
+- A prices directory for scoring: `data/raw/prices` for real news (fill it with
+  `scripts/fetch_prices.py --events <events>`), `data/sample/prices` for the
+  sample. Use `--benchmark NIFTY50` with either.
 - A views file to write: `runs/views.jsonl` unless the user names another.
 
 If `swingbot-briefs` is not on the PATH, run `pip install -e .` first.
