@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swingbot"
+version = "0.1.0"
+description = "Phase 1 sandbox: replay historical NSE news through a persona swarm and score its calls against real price moves."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["pandas>=2.0", "numpy>=1.24"]
+
+[project.optional-dependencies]
+llm = ["anthropic>=2.0", "pydantic>=2.0"]
+data = ["yfinance>=0.2"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+swingbot-backtest = "swingbot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
