@@ -8,6 +8,7 @@ reads, and the gate records every verdict with the order's fingerprint.
     swingbot-risk odds runs/plan.json --hold 10      # the Time Machine
     swingbot-risk size runs/plan.json --portfolio portfolio.json --mood runs/mood.json --out runs/order.json
     swingbot-risk check runs/order.json --portfolio portfolio.json --results-date 2026-11-14
+    swingbot-risk ticket runs/order.json --out runs/ticket.json   # paper only
     swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
     swingbot-risk kill-switch                     # status
     swingbot-risk kill-switch --reset --by Harsha # Harsha only, by hand
@@ -33,7 +34,10 @@ from .exits import ExitPlan, PlanRefused, plan_exit, trail_stop
 from .gate import DEFAULT_STATE_DIR, KillSwitch, check_order
 from .portfolio import Order, Portfolio, load_sectors
 from .sizing import SizingRefused, size_position
-from .timemachine import NotEnoughHistory, run as run_timemachine
+from .ticket import TicketRefused, latest_verdict, make_ticket
+from .ticket import describe as describe_ticket
+from .timemachine import NotEnoughHistory
+from .timemachine import run as run_timemachine
 from .. import regime
 
 
@@ -133,6 +137,16 @@ def cmd_check(args, config: RiskConfig) -> int:
     return 0 if verdict.passed else 1
 
 
+def cmd_ticket(args, config: RiskConfig) -> int:
+    order = Order.from_json(json.loads(Path(args.order).read_text()))
+    verdict = latest_verdict(Path(args.state_dir) / "risk_verdicts.jsonl", order.fingerprint)
+    ticket = make_ticket(order, verdict, parse_as_of(args.as_of).date(), config,
+                         kill_switch_latched=KillSwitch(args.state_dir).latched)
+    print(describe_ticket(ticket))
+    _write(ticket, args.out)
+    return 0
+
+
 def cmd_trail(args, config: RiskConfig) -> int:
     bars = _bars(args.ticker, parse_as_of(args.as_of), args.data_config)
     new, why = trail_stop(bars, args.entry_date, args.entry, args.initial_stop, args.stop, config)
@@ -198,6 +212,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--mood", help="a swingbot-risk mood file (default: the one the order was sized under)")
     s.add_argument("--no-write", action="store_true", help="do not log the verdict or latch the kill switch")
 
+    s = sub.add_parser("ticket", help="the paper broker orders for a PASSed order (never sent)")
+    s.add_argument("order")
+    s.add_argument("--as-of", help="the day of the PASS; default today")
+    s.add_argument("--out")
+
     s = sub.add_parser("trail", help="the trailing stop for an open position (R7)")
     s.add_argument("ticker")
     s.add_argument("--entry-date", required=True)
@@ -211,11 +230,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--by", help="who is resetting it")
 
     args = p.parse_args(argv)
-    commands = {"mood": cmd_mood, "plan": cmd_plan, "odds": cmd_odds, "size": cmd_size, "check": cmd_check, "trail": cmd_trail,
-                "kill-switch": cmd_kill_switch}
+    commands = {"mood": cmd_mood, "plan": cmd_plan, "odds": cmd_odds, "size": cmd_size, "check": cmd_check,
+                "ticket": cmd_ticket, "trail": cmd_trail, "kill-switch": cmd_kill_switch}
     try:
         return commands[args.cmd](args, RiskConfig.load(args.config))
-    except (PlanRefused, SizingRefused, NotEnoughHistory) as e:
+    except (PlanRefused, SizingRefused, TicketRefused, NotEnoughHistory) as e:
         print(f"refused: {e}", file=sys.stderr)
         return 1
     except (DataError, FileNotFoundError, ValueError, KeyError) as e:

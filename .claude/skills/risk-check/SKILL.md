@@ -34,6 +34,7 @@ swingbot-risk plan TICKER --stop atr:2 --target 2R --out runs/risk/plan.json
 swingbot-risk odds runs/risk/plan.json --hold 10
 swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --mood runs/risk/mood.json --out runs/risk/order.json
 swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-date YYYY-MM-DD
+swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # only after a PASS
 ```
 
 - **mood** (R11): bullish, neutral, defensive or unknown, from the Nifty's
@@ -61,6 +62,11 @@ swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-da
 - **check**: PASS or BLOCK with every rule's line. Ask the user for the next
   results date (from the company's board meeting notice) and pass it with
   `--results-date`; without it R9 cannot be checked and the tool says so.
+- **ticket** (after a PASS only): the paper broker orders, a DAY limit buy
+  and, once it fills, an OCO target and stop. Show the user its printed lines
+  and say it is paper only and was not sent. A refusal (no PASS today, a later
+  BLOCK, the kill switch) is final: report it as printed, never edit the
+  order or the verdict log to get a ticket.
 - **trail** (open positions): `swingbot-risk trail TICKER --entry-date D
   --entry E --initial-stop S0 --stop S`. The stop only ever moves up.
 

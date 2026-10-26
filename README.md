@@ -222,6 +222,7 @@ swingbot-risk plan RELIANCE --stop atr:2 --target 2R --out runs/risk/plan.json
 swingbot-risk odds runs/risk/plan.json --hold 10     # the Time Machine
 swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --mood runs/risk/mood.json --out runs/risk/order.json
 swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-date 2026-11-14
+swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # paper only, never sent
 swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
 swingbot-risk kill-switch                       # status; --reset --by NAME is for Harsha only
 ```
@@ -253,6 +254,15 @@ swingbot-risk kill-switch                       # status; --reset --by NAME is f
   Delivery (CNC) only, long only. A sell that only reduces a holding is never
   blocked. Every verdict is logged with a fingerprint of the exact order in
   `data/state/risk_verdicts.jsonl`.
+* **ticket** writes the broker orders a PASSed order would become, for the
+  paper journal and as the shape for the Dhan adapter: a DAY limit buy (CNC),
+  then, once it fills, an OCO pair kept at the broker (target sell, and a stop
+  that triggers at the stop with its limit 0.5% lower so a small gap still
+  fills). It copies the risk engine's numbers and adds none. It refuses unless
+  the latest logged verdict for the exact order (same fingerprint) is a PASS
+  from `--as-of` (default today) and the kill switch is not latched. Nothing
+  sends it: Dhan's security id and request fields are the adapter's job, to be
+  checked in Dhan's sandbox.
 * **trail** moves the stop to breakeven after +1R, then 2 x ATR under the
   highest close (R7). It never moves a stop down.
 * **mood** (R11, new) calls the whole market bullish, neutral or defensive
@@ -275,7 +285,10 @@ and add each new year). Not yet covered: R1's 60-second stop confirmation and
 R10 order rate limits, which belong to the broker adapter. The exit-planner,
 Time Machine, sizing and gate structure borrow ideas from Jake Schincariol's
 [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT);
-the code and the rules are this repo's own. In Claude Code, the `risk-check`
+the code and the rules are this repo's own. The ticket step borrows the idea of
+a final execution agent from The Swarm Corporation's
+[AutoHedge](https://github.com/The-Swarm-Corporation/AutoHedge) (MIT), with
+plain code in place of an LLM. In Claude Code, the `risk-check`
 skill runs these steps after `market-research`.
 
 ## Paper account: `swingbot-paper`
