@@ -26,7 +26,12 @@ MARKET_CLOSE = time(15, 30)
 
 def known_bars(bars: pd.DataFrame, event: NewsEvent) -> pd.DataFrame:
     """The bars a trader could have seen when `event` was published."""
-    ts = pd.Timestamp(event.published_at).tz_convert(IST)
+    return bars_known_at(bars, event.published_at)
+
+
+def bars_known_at(bars: pd.DataFrame, when) -> pd.DataFrame:
+    """The bars whose close had printed by `when` (a timezone-aware time)."""
+    ts = pd.Timestamp(when).tz_convert(IST)
     day = ts.tz_localize(None).normalize()
     if ts.time() >= MARKET_CLOSE:
         return bars[bars.index <= day]
@@ -108,6 +113,11 @@ def snapshot(prices: PriceSource, event: NewsEvent) -> str:
         bars = known_bars(prices.daily(event.ticker), event)
     except (FileNotFoundError, LookupError) as e:
         return f"Technicals: unavailable ({e})."
+    return describe(bars)
+
+
+def describe(bars: pd.DataFrame) -> str:
+    """The fact sheet for bars already cut to what was known (see `bars_known_at`)."""
     if len(bars) < 20:
         return f"Technicals: unavailable (only {len(bars)} sessions of history before the news)."
 
@@ -118,7 +128,7 @@ def snapshot(prices: PriceSource, event: NewsEvent) -> str:
     if v["boll_upper"] is not None and v["boll_upper"] != v["boll_lower"]:
         boll_pos = (c - v["boll_lower"]) / (v["boll_upper"] - v["boll_lower"])
     return "\n".join([
-        f"Technicals as of the {bars.index[-1]:%Y-%m-%d} close (last session known when the news broke):",
+        f"Technicals as of the {bars.index[-1]:%Y-%m-%d} close (the last session that had closed by then):",
         f"- Last close {_num(c)}; change 1d {_pct(v['ret_1d'])}, 5d {_pct(v['ret_5d'])}, 20d {_pct(v['ret_20d'])}",
         f"- Trend: EMA10 {_vs(c, v['ema_10'])}; SMA50 {_vs(c, v['sma_50'])}; SMA200 {_vs(c, v['sma_200'])}",
         f"- Momentum: RSI14 {_num(v['rsi_14'], 1)}; MACD {_num(v['macd'])} vs signal {_num(v['macd_signal'])}"

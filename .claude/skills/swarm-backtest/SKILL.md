@@ -56,6 +56,22 @@ result worthless, and nobody will be able to tell.
    with-technicals runs in separate views files, e.g. `runs/views-tech.jsonl`,
    so they can be compared.
 
+   `--with-context` also adds each stock's earlier news and filings from the
+   past week and its latest results filing, all taken from the events file and
+   cut to the moment the story broke. Never run `swingbot-data` during a
+   backtest: the brief is the only data you may use, because it is the part
+   that is cut to the right time.
+
+1b. **Analyst reports** (only when the brief has data sections). For each event,
+   follow the analyst section of the brief and append one line per report:
+
+   ```json
+   {"event_id": "e01", "role": "analyst", "analyst": "market", "report": "Downtrend into the news: close 4.8% under EMA10, RSI 15, near the lower Bollinger band."}
+   ```
+
+   `analyst` is `market`, `news` or `fundamentals`. In rounds 1 and 2 the
+   personas read these reports, not the raw data sections.
+
 2. **Round 1.** For every event in the brief, write one view per persona, each
    formed on its own without considering the other personas. Append one JSON
    object per line to `runs/views.jsonl`:

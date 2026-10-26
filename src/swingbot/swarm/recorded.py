@@ -19,6 +19,11 @@ following the researcher and research-manager roles in TradingAgents
     {"event_id": "e01", "role": "bear", "round": 1, "argument": "..."}
     {"event_id": "e01", "role": "judge", "stance": 0.3, "conviction": 0.5, "rationale": "..."}
 
+Analyst reports written before the personas are kept for the record and not
+scored:
+
+    {"event_id": "e01", "role": "analyst", "analyst": "market", "report": "..."}
+
 When an event has a judge line, the judge's call is the signal and the crowd is
 kept for the record. `crowd_only()` ignores the debate, so one views file can
 score both ways.
@@ -52,6 +57,21 @@ After the persona rounds for an event, argue it out before deciding:
 
 Every claim must come from this brief. Do not invent numbers."""
 
+ANALYST_PROMPT = """## Analyst reports, before the personas
+
+Each event above comes with data. Before any persona speaks, write up to three
+short analyst reports per event, the way TradingAgents' analysts do, and have
+the personas read the reports rather than the raw data:
+
+- Market analyst: what the technicals say about trend, momentum and volatility
+  going into the news. Quote numbers only from the snapshot.
+- News analyst: what the week's earlier news and filings add to this story.
+- Fundamentals analyst: what the latest results filing says, if there is one.
+
+Where a section says NO_DATA, WITHHELD or DATA_UNAVAILABLE, the report says the
+data is missing. Never fill a gap with an estimate or with what you remember."""
+
+ANALYSTS = ("market", "news", "fundamentals")
 DEBATE_ROLES = ("bull", "bear")
 
 
@@ -85,6 +105,7 @@ class RecordedSwarm(SwarmEngine):
         self.report_agent = report_agent or ReportAgent()
         self.use_debate = True
         self.debates: dict[str, Debate] = {}
+        self.reports: dict[str, dict[str, str]] = defaultdict(dict)  # event -> analyst -> report
         self.views = self._load()
 
     def crowd_only(self) -> None:
@@ -103,6 +124,11 @@ class RecordedSwarm(SwarmEngine):
             try:
                 r = json.loads(line)
                 role = r.get("role")
+                if role == "analyst":
+                    if r.get("analyst") not in ANALYSTS:
+                        raise ValueError(f"unknown analyst {r.get('analyst')!r} (use {', '.join(ANALYSTS)})")
+                    self.reports[str(r["event_id"])][r["analyst"]] = str(r["report"])
+                    continue
                 if role in DEBATE_ROLES:
                     arguments[str(r["event_id"])].append((int(r.get("round", 1)), role, str(r["argument"])))
                     continue
@@ -115,7 +141,7 @@ class RecordedSwarm(SwarmEngine):
                     )
                     continue
                 if role is not None:
-                    raise ValueError(f"unknown role {role!r} (use bull, bear or judge)")
+                    raise ValueError(f"unknown role {role!r} (use analyst, bull, bear or judge)")
                 if r["persona"] not in known:
                     raise ValueError(f"unknown persona {r['persona']!r}")
                 view = PersonaView(

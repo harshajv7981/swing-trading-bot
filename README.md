@@ -88,6 +88,43 @@ Two ideas borrowed from [TradingAgents](https://github.com/TauricResearch/Tradin
   researcher and a judge. The judge's stance becomes the signal. Score the same
   views file with `--crowd-only` to see the persona crowd without the debate.
 
+## Market data: `swingbot-data`
+
+All price, news, filings and fundamentals reads go through one router in
+`src/swingbot/data/`, modelled on the data layer of
+[TradingAgents](https://github.com/TauricResearch/TradingAgents):
+
+* **Sources are chains** set in `config/data_sources.toml`, tried left to right.
+  Prices default to saved CSVs, then Yahoo (downloads are saved back to
+  `data/raw/prices`). Switching to Dhan prices at paper trading is a config line
+  once its adapter exists.
+* **Every read has an as-of time.** Nothing that closed or was published later
+  is served. A bare date means the end of that day; news at 11:00 does not get
+  that day's close.
+* **Gaps are said, not hidden.** A missing or failed source comes back as one
+  line starting `NO_DATA`, `DATA_UNAVAILABLE`, `WITHHELD` or `NOT_CONFIGURED`,
+  telling the model not to estimate. `WITHHELD` covers present-day-only data,
+  such as Yahoo's ratios, asked for at a past date.
+* **Fundamentals are point in time** where possible: the latest NSE results
+  filing comes first, because it carries the exchange timestamp.
+
+```bash
+swingbot-data technicals RELIANCE                # now
+swingbot-data news TCS --as-of 2026-08-03 --days 5
+swingbot-data all INFY --as-of "2026-08-03 11:00"
+```
+
+The router feeds the agents in the two ways TradingAgents does:
+
+* **Pre-fetch, for backtests.** `swingbot-briefs --with-technicals <prices dir>
+  --with-context` adds technicals, the week's earlier news and filings, and the
+  latest results filing to each event, cut to the moment it broke. Claude Code
+  writes Market, News and Fundamentals analyst reports from that before the
+  personas speak. It never calls `swingbot-data` during a backtest.
+* **Tool calls, for paper and live research.** The `market-research` skill has
+  Claude Code call `swingbot-data` itself, write the analyst reports, run the
+  personas and the debate, and log the view to `runs/research.jsonl`.
+
 ## Running on real data
 
 ```bash
