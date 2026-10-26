@@ -210,6 +210,48 @@ about June 2026 and it may remember what happened next. Change it with
 `src/swingbot/events.py` forward when the swarm moves to a newer model.
 Synthetic sample events are never dropped.
 
+## Risk engine: `swingbot-risk`
+
+Plain, tested Python that the swarm cannot override, following the build
+plan's risk rules. Limits live in `config/risk.toml`, which the bot only reads.
+Nothing here talks to a broker.
+
+```bash
+swingbot-risk plan RELIANCE --stop atr:2 --target 2R --out runs/risk/plan.json
+swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --out runs/risk/order.json
+swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-date 2026-11-14
+swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
+swingbot-risk kill-switch                       # status; --reset --by NAME is for Harsha only
+```
+
+* **plan** sets the stop (ATR multiple, percent, price, or under a recent low)
+  and the target (a multiple of the risk) from bars known at `--as-of`, rounded
+  down to a 0.05 tick, and refuses a stop above the entry or tighter than half
+  an ATR.
+* **size** buys the most whole shares that fit every limit at once: 1% of
+  equity lost at the stop, sized as if the open gaps 0.5% through it (R2, R9),
+  15% of equity per position (R3), cash with no margin, and the room left under
+  5% total open risk (R4). It names the limit that decided.
+* **check** gives PASS or BLOCK with a line per rule: stop and target present
+  (R1), risk per trade (R2), position cap (R3), 5 positions, 2 per sector and 5%
+  open risk (R4), the weekly -5% kill switch, which latches until reset by hand
+  (R5), the daily -2% pause (R6), close above the 200-day SMA and Rs 10 crore
+  average daily value (R8), and no entry within 2 sessions of results (R9).
+  Delivery (CNC) only, long only. A sell that only reduces a holding is never
+  blocked. Every verdict is logged with a fingerprint of the exact order in
+  `data/state/risk_verdicts.jsonl`.
+* **trail** moves the stop to breakeven after +1R, then 2 x ATR under the
+  highest close (R7). It never moves a stop down.
+
+Sectors come from `data/universe/sectors.csv`; NSE holidays from
+`config/nse_holidays.toml` (2026 only so far: check it against NSE's circular
+and add each new year). Not yet covered: R1's 60-second stop confirmation and
+R10 order rate limits, which belong to the broker adapter. The exit-planner,
+sizing and gate structure borrows ideas from Jake Schincariol's
+[day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT);
+the code and the rules are this repo's own. In Claude Code, the `risk-check`
+skill runs these steps after `market-research`.
+
 ## Things that can make this backtest lie
 
 * **The LLM may remember the outcome.** For news inside the model's training

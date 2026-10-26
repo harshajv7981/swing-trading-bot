@@ -1,0 +1,33 @@
+# The risk engine's limits (build plan rules R2 to R9). The bot only reads this
+# file: it never writes it, and Claude must not edit it. Change a limit by hand,
+# in a commit of its own, so the history shows who changed what and when.
+
+[per_trade]
+risk_pct = 1.0              # R2: loss at the stop, as % of equity
+hard_max_risk_pct = 2.0     # R2: risk_pct above this is refused when the file loads
+gap_allowance_pct = 0.5     # R9: size as if the stop fills this % below its price (a gap)
+max_position_pct = 15.0     # R3: notional of one position, as % of equity
+min_reward_risk = 1.0       # target distance / stop distance, at least this
+cash_buffer_pct = 0.0       # % of equity that always stays in cash (no margin, ever)
+
+[portfolio]
+max_open_positions = 5      # R4
+max_per_sector = 2          # R4
+max_open_risk_pct = 5.0     # R4: sum of every open position's loss at its stop
+allow_adding = false        # a second entry in a stock already held is blocked
+
+[circuit_breakers]
+weekly_kill_pct = 5.0       # R5: equity this far below the week's Monday open latches the kill switch
+daily_loss_pct = 2.0        # R6: equity this far below today's open pauses entries for the day
+
+[filters]
+trend_sma = 200             # R8: no long entry with the close below this SMA
+min_traded_value_cr = 10.0  # R8: 20-day average daily traded value, in crore rupees
+results_blackout_sessions = 2   # R9: no entry this many sessions or fewer before results
+require_results_date = false    # true: block when the next results date is unknown
+
+[exits]
+atr_period = 14
+min_stop_atr = 0.5          # a stop closer than this many ATRs is noise, refused
+trail_atr = 2.0             # R7: trail this many ATRs below the highest close after +1R
+tick = 0.05                 # prices round to this; a 0.05 step is valid on every NSE tick grid

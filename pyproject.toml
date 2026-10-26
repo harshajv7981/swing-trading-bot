@@ -20,6 +20,7 @@ swingbot-backtest = "swingbot.cli:main"
 swingbot-briefs = "swingbot.cli:briefs_main"
 swingbot-data = "swingbot.data.cli:main"
 swingbot-memory = "swingbot.memory.cli:main"
+swingbot-risk = "swingbot.risk.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
