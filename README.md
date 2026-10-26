@@ -88,6 +88,41 @@ Two ideas borrowed from [TradingAgents](https://github.com/TauricResearch/Tradin
   researcher and a judge. The judge's stance becomes the signal. Score the same
   views file with `--crowd-only` to see the persona crowd without the debate.
 
+### Learning memory: the Verifier and past lessons
+
+Blueprint Section 2. After trades close, Claude Code plays a Verifier that
+reviews each one and writes a lesson; later briefs show the swarm the lessons
+from similar past trades. All of it sits in one local SQLite file,
+`runs/memory.db`, so it costs nothing and needs no API key.
+
+```bash
+swingbot-memory ingest --results runs/<run>/results.csv --run base --views runs/views.jsonl
+swingbot-memory review --closed-before 2026-08-01 --out runs/verify.md   # Claude Code writes runs/lessons.jsonl
+swingbot-memory learn --lessons runs/lessons.jsonl
+swingbot-briefs --events <events> --with-lessons runs/memory.db --until 2026-08-08 --views runs/views-mem.jsonl
+swingbot-memory compare --without runs/<base>/results.csv --with runs/<mem>/results.csv
+swingbot-memory audit
+```
+
+* **Ledger** (`trades`): news, the swarm's call and reasoning, the outcome.
+  Backtest trades close at 15:30 IST on their exit session; paper trades will
+  use their fill time.
+* **Lessons**: a verdict (`right_for_right_reason`, `right_for_wrong_reason`,
+  `wrong`, `no_call`), one or two sentences, and tags.
+* **Retrieval** (`src/swingbot/memory/retrieval.py`): TF-IDF word overlap on
+  headline, lesson and tags, plus a bonus for the same stock. A lesson is only
+  eligible for news published strictly after its trade closed, so a backtest
+  can't learn from a trade that was still open. Every retrieval is logged and
+  `swingbot-memory audit` fails if any broke that rule.
+* **Measuring it**: `compare` scores the run without lessons against the run
+  with them on the same events, with a sign test on the events where the result
+  changed. The `trade-verifier` skill walks through the week-by-week
+  walk-forward that keeps the Verifier from reading ahead.
+
+This is memory, not reinforcement learning: no weights change. The swarm gets
+better only if reading its own past mistakes changes its calls, which is what
+`compare` measures.
+
 ## Market data: `swingbot-data`
 
 All price, news, filings and fundamentals reads go through one router in
@@ -189,7 +224,7 @@ Synthetic sample events are never dropped.
 
 ## Roadmap
 
-Following the blueprint: Phase 2 adds the Verifier agent and episodic memory on
-top of these results, Phase 3 adds paper trading through the DhanHQ API with
+Following the blueprint: Phase 2 (the Verifier and episodic memory) is in place
+and needs a real walk-forward run to show whether it helps. Phase 3 adds paper trading through the DhanHQ API with
 bracket orders, 1 to 2 percent position sizing and a weekly kill switch.
 Live money comes only after months of paper trading.

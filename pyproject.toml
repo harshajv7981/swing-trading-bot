@@ -19,6 +19,7 @@ dev = ["pytest>=8"]
 swingbot-backtest = "swingbot.cli:main"
 swingbot-briefs = "swingbot.cli:briefs_main"
 swingbot-data = "swingbot.data.cli:main"
+swingbot-memory = "swingbot.memory.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
