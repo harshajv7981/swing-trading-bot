@@ -81,21 +81,25 @@ if __name__ == "__main__":
 
 
 def briefs_main(argv: list[str] | None = None) -> int:
-    """swingbot-briefs: write the news-only brief Claude Code role-plays from.
+    """swingbot-briefs: write the brief Claude Code role-plays from.
 
-    The brief holds the personas and the events, never prices. Events that
+    By default the brief holds the personas and the events, never prices.
+    --with-technicals and --with-context add data known when each story broke. Events that
     already have views in --views are left out, so a long run can be done in
     batches.
     """
     from .swarm import DEFAULT_PERSONAS
     from .swarm.reasoners import SYSTEM_PROMPT
-    from . import technicals
-    from .swarm.recorded import DEBATE_PROMPT, RecordedSwarm
+    from .data import DataConfig, Router
+    from .swarm.recorded import ANALYST_PROMPT, DEBATE_PROMPT, RecordedSwarm
 
     p = argparse.ArgumentParser(description=briefs_main.__doc__)
     p.add_argument("--events", required=True)
     p.add_argument("--with-technicals", metavar="PRICES_DIR",
                    help="add a technical snapshot per event, built only from bars known at publication")
+    p.add_argument("--with-context", action="store_true",
+                   help="add the week's earlier news, filings and the latest results filing for each "
+                        "event's stock, taken from the same events file")
     p.add_argument("--views", help="existing views JSONL; events already in it are skipped")
     p.add_argument("--limit", type=int, default=10, help="max events in this brief")
     p.add_argument("--out", default="runs/brief.md")
@@ -110,7 +114,14 @@ def briefs_main(argv: list[str] | None = None) -> int:
         from .memory import MemoryStore
         from .memory.retrieval import MEMORY_PROMPT, brief_section
         memory = MemoryStore(args.with_lessons)
-    technicals_from = CSVPriceSource(args.with_technicals) if args.with_technicals else None
+    # Pre-fetch through the same data router swingbot-data uses, but offline only:
+    # saved CSVs and the events file, each cut to the moment the news broke.
+    router = Router(DataConfig(
+        sources={"prices": "csv", "news": "events", "filings": "events", "fundamentals": "nse_results"},
+        prices_dir=Path(args.with_technicals or "."), events_file=Path(args.events), cache_prices=False,
+    ))
+    sections = (["technicals"] if args.with_technicals else []) + (
+        ["news", "filings", "fundamentals"] if args.with_context else [])
 
     done: set[str] = set()
     if args.views and Path(args.views).exists():
@@ -133,11 +144,13 @@ def briefs_main(argv: list[str] | None = None) -> int:
         ]
         if e.body:
             lines.append(f"Details: {e.body}")
-        if technicals_from:
-            lines.append(technicals.snapshot(technicals_from, e))
+        for section in sections:
+            lines += ["", router.text(section, e.ticker, e.published_at, exclude_event=e.event_id)]
         if memory:
             lines += ["", brief_section(memory, e, k=args.lessons_k)]
         lines.append("")
+    if sections:
+        lines += [ANALYST_PROMPT, ""]
     lines += [DEBATE_PROMPT, ""]
 
     out = Path(args.out)
