@@ -1,0 +1,17 @@
+# Where swingbot-data and the swarm briefs get each kind of data.
+# Each line is a chain: sources are tried left to right until one serves the
+# request. Available: prices = csv, yfinance, dhan (not built yet);
+# news = events; filings = events; fundamentals = nse_results, yfinance.
+
+[sources]
+prices = "csv,yfinance"      # saved CSVs first, then Yahoo (downloads are saved back)
+news = "events"              # GDELT rows in the events file
+filings = "events"           # NSE filing rows in the events file
+fundamentals = "nse_results,yfinance"  # results filings first; Yahoo only for today
+
+[paths]
+prices_dir = "data/raw/prices"
+events_file = "data/raw/news/events.csv"
+
+[options]
+cache_prices = true
