@@ -38,6 +38,8 @@ daily OHLC  ──> entry/exit rules ──┴──> hit / miss, return after c
    * `claude`: the same personas, each role-played by Claude with structured
      output. Needs `pip install -e ".[llm]"` and an Anthropic API key. Cost is
      events x 4 personas x rounds calls, so start small.
+   * `recorded`: scores persona views written to a JSONL file. This is how
+     Claude Code plays the swarm with no API key (see below).
    * `mirofish`: placeholder adapter with the contract filled in and the call
      left as `NotImplementedError` until MiroFish is evaluated.
    * Personas run for `--rounds` rounds. From round 2 each persona sees the
@@ -55,6 +57,21 @@ daily OHLC  ──> entry/exit rules ──┴──> hit / miss, return after c
 
 Each run writes `runs/<timestamp>-<engine>/results.csv` (one row per event,
 including each persona's view) and `summary.json`.
+
+## Running the swarm in Claude Code (no API key)
+
+Open this repo in Claude Code and ask it to "run the swarm backtest". The
+`swarm-backtest` skill in `.claude/skills/` has Claude Code:
+
+1. write a news-only brief with `swingbot-briefs` (personas and headlines, no prices),
+2. play each persona itself for two rounds and append the views to `runs/views.jsonl`,
+3. only then score them with `swingbot-backtest --engine recorded --views runs/views.jsonl`.
+
+It runs on your Claude plan instead of API credits. The tradeoffs: it only runs
+while you have a session open (no unattended or scheduled runs), one model
+plays every persona in a single context so the views are less independent than
+separate API calls, and large event files need several batches. The views file
+is saved, so a run can be re-scored or compared later without redoing it.
 
 ## Running on real data
 

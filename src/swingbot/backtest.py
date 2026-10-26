@@ -21,6 +21,7 @@ import pandas as pd
 from .models import IST, NewsEvent, Sentiment, Signal
 from .prices import PriceSource
 from .swarm.base import SwarmEngine
+from .swarm.recorded import MissingViews
 
 MARKET_OPEN = time(9, 15)
 
@@ -109,7 +110,11 @@ def run_backtest(
             rows.append({**row, "status": f"no_prices: {e}"})
             continue
 
-        signal = engine.simulate(ev)
+        try:
+            signal = engine.simulate(ev)
+        except MissingViews as e:
+            rows.append({**row, "status": f"no_signal: {e}"})
+            continue
         row.update(
             sentiment=signal.sentiment.value,
             confidence=signal.confidence,
