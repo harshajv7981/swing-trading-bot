@@ -8,10 +8,23 @@ from datetime import datetime
 from pathlib import Path
 
 from .backtest import run_backtest
-from .events import load_events
+from .events import DEFAULT_LLM_CUTOFF, apply_cutoff, load_events
 from .metrics import format_summary, summarise
 from .prices import CSVPriceSource, YFinancePriceSource
 from .swarm import build_engine
+
+CUTOFF_HELP = (
+    "drop news published before this date (YYYY-MM-DD) so an LLM swarm can't "
+    f"remember the outcome; 'none' turns it off. Default {DEFAULT_LLM_CUTOFF} for "
+    "the claude and recorded engines and for briefs, off for lexicon"
+)
+
+
+def _load(path: str, cutoff: str | None) -> list:
+    events, dropped = apply_cutoff(load_events(path), cutoff)
+    if dropped:
+        print(f"Dropped {dropped} events published before the {cutoff} training cutoff.")
+    return events
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -28,13 +41,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--benchmark", help="ticker of a benchmark series, e.g. NIFTY50 (CSV) or ^NSEI (Yahoo)")
     p.add_argument("--cost-bps", type=float, default=25.0, help="round-trip cost per trade in bps")
     p.add_argument("--out", default="runs", help="directory for results")
+    p.add_argument("--cutoff", help=CUTOFF_HELP)
     args = p.parse_args(argv)
 
     if bool(args.prices) == bool(args.yahoo):
         p.error("pass exactly one of --prices or --yahoo")
     prices = CSVPriceSource(args.prices) if args.prices else YFinancePriceSource(*args.yahoo)
 
-    events = load_events(args.events)
+    cutoff = args.cutoff or (DEFAULT_LLM_CUTOFF if args.engine in ("claude", "recorded") else None)
+    events = _load(args.events, cutoff)
     engine = build_engine(args.engine, rounds=args.rounds, horizon=args.horizon, model=args.model, views=args.views)
     results = run_backtest(events, engine, prices, benchmark=args.benchmark, cost_bps=args.cost_bps)
     summary = summarise(results)
@@ -72,12 +87,13 @@ def briefs_main(argv: list[str] | None = None) -> int:
     p.add_argument("--views", help="existing views JSONL; events already in it are skipped")
     p.add_argument("--limit", type=int, default=10, help="max events in this brief")
     p.add_argument("--out", default="runs/brief.md")
+    p.add_argument("--cutoff", default=DEFAULT_LLM_CUTOFF, help=CUTOFF_HELP)
     args = p.parse_args(argv)
 
     done: set[str] = set()
     if args.views and Path(args.views).exists():
         done = set(RecordedSwarm(args.views).views)
-    todo = [e for e in load_events(args.events) if e.event_id not in done][: args.limit]
+    todo = [e for e in _load(args.events, args.cutoff) if e.event_id not in done][: args.limit]
 
     lines = ["# Swarm brief", "", SYSTEM_PROMPT, "", "## Personas", ""]
     lines += [f"- **{p.name}**: {p.description}" for p in DEFAULT_PERSONAS]

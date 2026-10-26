@@ -84,9 +84,44 @@ swingbot-backtest --events data/my_events.csv --prices data/raw/prices \
 ```
 
 Prices come from Yahoo Finance (`TICKER.NS`), split- and bonus-adjusted.
-Sourcing the news file is still open: candidates are NSE corporate
-announcements, broker research feeds and paid news APIs. Whatever the source,
-`published_at` must be the time the news first became public.
+
+### Getting real news
+
+Two fetchers build `data/raw/news/events.csv` for the stocks in
+`data/universe/large_caps.csv` (edit that list freely; check symbols against NSE).
+Both merge into the file, so running them again, or daily with `--start`
+set to yesterday, only adds new items.
+
+```bash
+# Headlines from Indian outlets, via GDELT. Free, no key, open licence.
+python scripts/fetch_gdelt_news.py --start 2026-07-01 --end 2026-10-15
+
+# NSE exchange filings, timestamped to the second. Read --help first.
+python scripts/fetch_nse_announcements.py --accept-nse-terms --start 2026-07-01 --end 2026-10-15
+```
+
+* **GDELT** stamps each article with the time it first saw it, usually within 15
+  minutes of publication. Its DOC API only promises the last three months, so
+  pull older windows soon. It matches body text, so the fetcher keeps only
+  headlines that name the company. Cite "The GDELT Project" if you publish results.
+* **NSE filings** use the exchange dissemination time. Routine paperwork
+  (trading window, newspaper ads, ESOP allotments) is dropped unless you pass
+  `--keep-routine`. NSE's terms of use forbid automated collection and
+  "simulation" use, so this is for private research only: it runs slowly,
+  writes under the git-ignored `data/raw/`, and its output must not be
+  committed or shared.
+
+Neither source has been run end to end yet; the parsing is tested against
+sample records. Spot-check a few rows before trusting a run.
+
+### Training cutoff
+
+The `claude` and `recorded` engines, and `swingbot-briefs`, drop news
+published before 1 July 2026 by default, because Claude's training data runs to
+about June 2026 and it may remember what happened next. Change it with
+`--cutoff YYYY-MM-DD` (or `--cutoff none`), and move `DEFAULT_LLM_CUTOFF` in
+`src/swingbot/events.py` forward when the swarm moves to a newer model.
+Synthetic sample events are never dropped.
 
 ## Things that can make this backtest lie
 

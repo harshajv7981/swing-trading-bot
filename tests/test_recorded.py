@@ -57,7 +57,19 @@ def test_briefs_skip_done_events_and_hold_no_prices(tmp_path):
     views = tmp_path / "v.jsonl"
     write(views, [{"event_id": "e1", "persona": p, "stance": 0.1, "conviction": 0.5} for p in PERSONAS])
     out = tmp_path / "brief.md"
-    briefs_main(["--events", str(events), "--views", str(views), "--out", str(out)])
+    briefs_main(["--events", str(events), "--views", str(views), "--out", str(out), "--cutoff", "none"])
     text = out.read_text()
     assert "Second story" in text and "First story" not in text
     assert "close" not in text.lower() and "price" not in text.lower()
+
+
+def test_briefs_drop_news_before_training_cutoff(tmp_path):
+    events = tmp_path / "events.csv"
+    events.write_text("event_id,ticker,published_at,headline,source\n"
+                      "old,UP,2026-03-02 08:00,Old story,gdelt:x\n"
+                      "fake,UP,2026-03-02 08:00,Made up story,synthetic\n"
+                      "new,UP,2026-08-03 08:00,New story,gdelt:x\n")
+    out = tmp_path / "brief.md"
+    briefs_main(["--events", str(events), "--out", str(out)])
+    text = out.read_text()
+    assert "New story" in text and "Made up story" in text and "Old story" not in text
