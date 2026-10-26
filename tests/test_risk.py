@@ -6,8 +6,8 @@ import pandas as pd
 import pytest
 
 from swingbot.risk import (
-    KillSwitch, NSECalendar, Order, PlanRefused, Portfolio, Position, RiskConfig, SizingRefused,
-    check_order, plan_exit, size_position, trail_stop,
+    KillSwitch, NSECalendar, Order, PlanRefused, Portfolio, Position, RiskConfig, SizingRefused, TicketRefused,
+    check_order, make_ticket, plan_exit, size_position, trail_stop,
 )
 from swingbot.risk.cli import main as risk_main
 from swingbot.risk.exits import ExitPlan
@@ -282,3 +282,64 @@ def test_cli_plan_size_check_and_kill_switch(tmp_path, capsys):
     assert risk_main([*common, "kill-switch", "--reset"]) == 2  # needs --by
     assert risk_main([*common, "kill-switch", "--reset", "--by", "Harsha"]) == 0
     assert not KillSwitch(state).latched
+
+
+# --- the paper ticket ---------------------------------------------------------------
+
+def passed(order, at="2026-10-26 10:15", status="PASS"):
+    return {"at": at, "status": status, "fingerprint": order.fingerprint}
+
+
+def test_ticket_copies_the_passed_order_and_puts_the_stop_limit_a_gap_below():
+    o = entry(qty=30, price=1000.0, stop=960.0, target=1080.0)
+    t = make_ticket(o, passed(o), date(2026, 10, 26), CFG)
+    assert t["paper_only"] and t["fingerprint"] == o.fingerprint
+    assert t["entry"] == {"exchangeSegment": "NSE_EQ", "productType": "CNC", "tradingSymbol": "RELIANCE",
+                          "securityId": None, "transactionType": "BUY", "orderType": "LIMIT",
+                          "validity": "DAY", "quantity": 30, "price": 1000.0}
+    x = t["exits"]
+    assert x["orderFlag"] == "OCO" and x["target"]["price"] == 1080.0 and x["target"]["quantity"] == 30
+    assert x["stop"]["triggerPrice"] == 960.0 and x["stop"]["price"] == 955.2  # 960 less 0.5%, on the tick
+    assert t["loss_at_stop"] == 1200.0 and t["loss_at_stop_limit"] == 1344.0
+
+
+@pytest.mark.parametrize("verdict, today, latched, words", [
+    (None, "2026-10-26", False, "no verdict"),
+    ("BLOCK", "2026-10-26", False, "BLOCK, not PASS"),
+    ("PASS", "2026-10-27", False, "not 2026-10-27"),
+    ("PASS", "2026-10-26", True, "kill switch"),
+])
+def test_ticket_is_refused_without_a_fresh_pass(verdict, today, latched, words):
+    o = entry()
+    v = passed(o, status=verdict) if verdict else None
+    with pytest.raises(TicketRefused, match=words):
+        make_ticket(o, v, date.fromisoformat(today), CFG, kill_switch_latched=latched)
+
+
+def test_ticket_refuses_sells_and_orders_without_exits():
+    sell = entry(side="sell")
+    with pytest.raises(TicketRefused, match="long entries only"):
+        make_ticket(sell, passed(sell), date(2026, 10, 26), CFG)
+    bare = entry(stop=None)
+    with pytest.raises(TicketRefused, match="no stop"):
+        make_ticket(bare, passed(bare), date(2026, 10, 26), CFG)
+
+
+def test_cli_ticket_follows_the_latest_verdict_for_the_order(tmp_path, capsys):
+    o = entry()
+    (tmp_path / "order.json").write_text(json.dumps(o.to_json()))
+    state = tmp_path / "state"
+    state.mkdir()
+    log = state / "risk_verdicts.jsonl"
+    other = entry(qty=31)
+    log.write_text("\n".join(json.dumps(v) for v in (passed(o), passed(other, status="BLOCK"))) + "\n")
+    args = ["--state-dir", str(state), "ticket", str(tmp_path / "order.json"), "--as-of", "2026-10-26"]
+
+    assert risk_main([*args, "--out", str(tmp_path / "ticket.json")]) == 0
+    assert "PAPER  buy 30 RELIANCE" in capsys.readouterr().out
+    assert json.loads((tmp_path / "ticket.json").read_text())["entry"]["quantity"] == 30
+
+    with log.open("a") as fh:  # a later BLOCK of the same order wins
+        fh.write(json.dumps(passed(o, at="2026-10-26 14:00", status="BLOCK")) + "\n")
+    assert risk_main(args) == 1
+    assert "not PASS" in capsys.readouterr().err
