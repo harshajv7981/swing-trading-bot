@@ -45,6 +45,14 @@ result worthless, and nobody will be able to tell.
 
    Read `runs/brief.md`. It holds the persona descriptions and the events.
 
+   If the user wants the swarm to see charts as well as news, add
+   `--with-technicals <prices dir>`. Each event then carries a technical
+   snapshot (trend, RSI, MACD, Bollinger, ATR, volume) built only from sessions
+   that had closed when the news broke. Reading that snapshot in the brief is
+   fine; opening the prices directory yourself is still not. Keep news-only and
+   with-technicals runs in separate views files, e.g. `runs/views-tech.jsonl`,
+   so they can be compared.
+
 2. **Round 1.** For every event in the brief, write one view per persona, each
    formed on its own without considering the other personas. Append one JSON
    object per line to `runs/views.jsonl`:
@@ -64,7 +72,20 @@ result worthless, and nobody will be able to tell.
    would. A retail bull is easily swayed; an institutional bear barely moves.
    Append these as `"round": 2`. The scorer uses the last round per event.
 
-4. **Repeat** steps 1 to 3 until `swingbot-briefs` reports 0 events left.
+3b. **Bull/Bear debate and judge.** For each event, follow the debate section at
+   the end of the brief: write a Bull researcher argument, a Bear researcher
+   argument that rebuts it, then the judge's verdict. Append:
+
+   ```json
+   {"event_id": "e01", "role": "bull", "argument": "Record order adds a year of revenue; retail and media are both leaning in."}
+   {"event_id": "e01", "role": "bear", "argument": "Highway contracts are low margin and the stock is already stretched."}
+   {"event_id": "e01", "role": "judge", "stance": 0.4, "conviction": 0.55, "rationale": "The order size outweighs margin worries over three days."}
+   ```
+
+   The judge's call becomes the signal for that event. Base every argument on
+   the brief and the persona views; never invent figures.
+
+4. **Repeat** steps 1 to 3b until `swingbot-briefs` reports 0 events left.
    Write views in batches so a long file doesn't have to fit in one go.
 
 5. **Score it**, only now:
@@ -74,9 +95,13 @@ result worthless, and nobody will be able to tell.
        --engine recorded --views runs/views.jsonl
    ```
 
+   Then score the same file without the debate, so the judge can be compared
+   with the plain persona crowd: add `--crowd-only` to the same command.
+
 6. **Report** to the user: number of events scored, hit rate and its p-value,
-   average return after costs, Brier score, and how it compares with the
-   `lexicon` baseline on the same events
+   average return after costs, Brier score, for the judge and for the crowd
+   (`--crowd-only`), and how both compare with the `lexicon` baseline on the same
+   events
    (`swingbot-backtest ... --engine lexicon`). Say plainly when the sample is too
    small to mean anything, or when it is the synthetic sample. Mention any events
    you marked `[recalled]`.
