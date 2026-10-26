@@ -218,6 +218,7 @@ Nothing here talks to a broker.
 
 ```bash
 swingbot-risk plan RELIANCE --stop atr:2 --target 2R --out runs/risk/plan.json
+swingbot-risk odds runs/risk/plan.json --hold 10     # the Time Machine
 swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --out runs/risk/order.json
 swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-date 2026-11-14
 swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
@@ -228,6 +229,16 @@ swingbot-risk kill-switch                       # status; --reset --by NAME is f
   and the target (a multiple of the risk) from bars known at `--as-of`, rounded
   down to a 0.05 tick, and refuses a stop above the entry or tighter than half
   an ATR.
+* **odds** (the Time Machine) asks how often the plan hits its target first,
+  its stop first, or neither within `--hold` sessions. It replays the hold
+  10,000 times, each session drawn at random from the stock's own last 500
+  sessions as ratios to the previous close (seed 19, so results repeat). An
+  open below the stop fills at the open, so gaps cost more than 1R; a session
+  touching both sides counts as the stop. It also runs the same stop (in ATRs)
+  and reward:risk from every past close on the real bars that followed: a base
+  rate any signal has to beat. The verdict compares the target-first share
+  with break-even, 1 / (1 + R). Costs are left out, and it is a reality check
+  built from the past, not a prediction. It needs 120 sessions of history.
 * **size** buys the most whole shares that fit every limit at once: 1% of
   equity lost at the stop, sized as if the open gaps 0.5% through it (R2, R9),
   15% of equity per position (R3), cash with no margin, and the room left under
@@ -247,7 +258,7 @@ Sectors come from `data/universe/sectors.csv`; NSE holidays from
 `config/nse_holidays.toml` (2026 only so far: check it against NSE's circular
 and add each new year). Not yet covered: R1's 60-second stop confirmation and
 R10 order rate limits, which belong to the broker adapter. The exit-planner,
-sizing and gate structure borrows ideas from Jake Schincariol's
+Time Machine, sizing and gate structure borrow ideas from Jake Schincariol's
 [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT);
 the code and the rules are this repo's own. In Claude Code, the `risk-check`
 skill runs these steps after `market-research`.
