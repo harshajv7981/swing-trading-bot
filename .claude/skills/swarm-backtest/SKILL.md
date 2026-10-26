@@ -118,3 +118,10 @@ result worthless, and nobody will be able to tell.
   schedule unattended the way an API-backed engine could.
 - It uses the user's Claude plan limits. Around 10 events per batch keeps each
   batch manageable.
+
+## Learning memory
+
+To test whether lessons from past trades improve the calls, use the
+`trade-verifier` skill. It reuses this skill's steps with
+`swingbot-briefs --with-lessons runs/memory.db --until <date>`, one week at a
+time.

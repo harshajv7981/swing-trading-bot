@@ -7,9 +7,12 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 from .backtest import run_backtest
 from .events import DEFAULT_LLM_CUTOFF, apply_cutoff, load_events
 from .metrics import format_summary, summarise
+from .models import IST
 from .prices import CSVPriceSource, YFinancePriceSource
 from .swarm import build_engine
 
@@ -97,16 +100,31 @@ def briefs_main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=10, help="max events in this brief")
     p.add_argument("--out", default="runs/brief.md")
     p.add_argument("--cutoff", default=DEFAULT_LLM_CUTOFF, help=CUTOFF_HELP)
+    p.add_argument("--with-lessons", metavar="MEMORY_DB",
+                   help="add the Verifier's lessons from similar trades that closed before each story broke")
+    p.add_argument("--lessons-k", type=int, default=3, help="max lessons per event")
+    p.add_argument("--until", help="only events published before this date (one walk-forward window)")
     args = p.parse_args(argv)
+    memory = None
+    if args.with_lessons:
+        from .memory import MemoryStore
+        from .memory.retrieval import MEMORY_PROMPT, brief_section
+        memory = MemoryStore(args.with_lessons)
     technicals_from = CSVPriceSource(args.with_technicals) if args.with_technicals else None
 
     done: set[str] = set()
     if args.views and Path(args.views).exists():
         done = set(RecordedSwarm(args.views).views)
-    todo = [e for e in _load(args.events, args.cutoff) if e.event_id not in done][: args.limit]
+    todo = [e for e in _load(args.events, args.cutoff) if e.event_id not in done]
+    if args.until:
+        until = pd.Timestamp(args.until, tz=IST)
+        todo = [e for e in todo if e.published_at < until]
+    todo = todo[: args.limit]
 
     lines = ["# Swarm brief", "", SYSTEM_PROMPT, "", "## Personas", ""]
     lines += [f"- **{p.name}**: {p.description}" for p in DEFAULT_PERSONAS]
+    if memory:
+        lines += ["", "## Memory", "", MEMORY_PROMPT]
     lines += ["", f"## Events ({len(todo)} in this batch)", ""]
     for e in todo:
         lines += [
@@ -117,6 +135,8 @@ def briefs_main(argv: list[str] | None = None) -> int:
             lines.append(f"Details: {e.body}")
         if technicals_from:
             lines.append(technicals.snapshot(technicals_from, e))
+        if memory:
+            lines += ["", brief_section(memory, e, k=args.lessons_k)]
         lines.append("")
     lines += [DEBATE_PROMPT, ""]
 
