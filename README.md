@@ -73,6 +73,21 @@ plays every persona in a single context so the views are less independent than
 separate API calls, and large event files need several batches. The views file
 is saved, so a run can be re-scored or compared later without redoing it.
 
+### Technicals and the Bull/Bear debate
+
+Two ideas borrowed from [TradingAgents](https://github.com/TauricResearch/TradingAgents)
+(Apache 2.0; the code here is our own):
+
+* `swingbot-briefs --with-technicals <prices dir>` adds a technical snapshot to
+  each event: EMA10, SMA50/200, RSI14, MACD, Bollinger bands, ATR14, VWMA20,
+  20-day range and relative volume (`src/swingbot/technicals.py`). It uses only
+  sessions that had closed when the news broke: news at 11:00 does not get that
+  day's close. Missing or short history is written as "unavailable", never as a
+  flat chart. Without the flag the brief stays news-only, as before.
+* After the persona rounds, Claude Code plays a Bull researcher, a Bear
+  researcher and a judge. The judge's stance becomes the signal. Score the same
+  views file with `--crowd-only` to see the persona crowd without the debate.
+
 ## Running on real data
 
 ```bash

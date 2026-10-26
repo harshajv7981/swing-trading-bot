@@ -35,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="fetch NSE bars from Yahoo instead, e.g. --yahoo 2025-01-01 2026-10-01")
     p.add_argument("--engine", default="lexicon", choices=["lexicon", "claude", "recorded", "mirofish"])
     p.add_argument("--views", help="persona views JSONL for --engine recorded")
+    p.add_argument("--crowd-only", action="store_true",
+                   help="with --engine recorded, ignore the Bull/Bear judge and score the persona crowd")
     p.add_argument("--model", help="Claude model for --engine claude")
     p.add_argument("--rounds", type=int, default=2, help="swarm interaction rounds")
     p.add_argument("--horizon", default="72h", help="signal horizon, e.g. 48h or 72h")
@@ -51,6 +53,10 @@ def main(argv: list[str] | None = None) -> int:
     cutoff = args.cutoff or (DEFAULT_LLM_CUTOFF if args.engine in ("claude", "recorded") else None)
     events = _load(args.events, cutoff)
     engine = build_engine(args.engine, rounds=args.rounds, horizon=args.horizon, model=args.model, views=args.views)
+    if args.crowd_only:
+        if args.engine != "recorded":
+            p.error("--crowd-only only applies to --engine recorded")
+        engine.crowd_only()
     results = run_backtest(events, engine, prices, benchmark=args.benchmark, cost_bps=args.cost_bps)
     summary = summarise(results)
 
@@ -80,15 +86,19 @@ def briefs_main(argv: list[str] | None = None) -> int:
     """
     from .swarm import DEFAULT_PERSONAS
     from .swarm.reasoners import SYSTEM_PROMPT
-    from .swarm.recorded import RecordedSwarm
+    from . import technicals
+    from .swarm.recorded import DEBATE_PROMPT, RecordedSwarm
 
     p = argparse.ArgumentParser(description=briefs_main.__doc__)
     p.add_argument("--events", required=True)
+    p.add_argument("--with-technicals", metavar="PRICES_DIR",
+                   help="add a technical snapshot per event, built only from bars known at publication")
     p.add_argument("--views", help="existing views JSONL; events already in it are skipped")
     p.add_argument("--limit", type=int, default=10, help="max events in this brief")
     p.add_argument("--out", default="runs/brief.md")
     p.add_argument("--cutoff", default=DEFAULT_LLM_CUTOFF, help=CUTOFF_HELP)
     args = p.parse_args(argv)
+    technicals_from = CSVPriceSource(args.with_technicals) if args.with_technicals else None
 
     done: set[str] = set()
     if args.views and Path(args.views).exists():
@@ -105,7 +115,10 @@ def briefs_main(argv: list[str] | None = None) -> int:
         ]
         if e.body:
             lines.append(f"Details: {e.body}")
+        if technicals_from:
+            lines.append(technicals.snapshot(technicals_from, e))
         lines.append("")
+    lines += [DEBATE_PROMPT, ""]
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
