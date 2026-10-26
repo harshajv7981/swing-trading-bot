@@ -26,6 +26,10 @@ min_traded_value_cr = 10.0  # R8: 20-day average daily traded value, in crore ru
 results_blackout_sessions = 2   # R9: no entry this many sessions or fewer before results
 require_results_date = false    # true: block when the next results date is unknown
 
+[market_mood]
+defensive_risk_scale = 0.5  # R11: when swingbot-risk mood says defensive, risk this share of risk_pct
+                            # per trade (0.5 = half). 1 turns it off; 0 blocks every new entry.
+
 [exits]
 atr_period = 14
 min_stop_atr = 0.5          # a stop closer than this many ATRs is noise, refused
