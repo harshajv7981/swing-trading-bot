@@ -27,6 +27,7 @@ class RiskConfig:
     min_traded_value_cr: float = 10.0
     results_blackout_sessions: int = 2
     require_results_date: bool = False
+    defensive_risk_scale: float = 0.5
     atr_period: int = 14
     min_stop_atr: float = 0.5
     trail_atr: float = 2.0
@@ -40,6 +41,8 @@ class RiskConfig:
             )
         if self.hard_max_risk_pct > 2.0:
             raise ValueError(f"hard_max_risk_pct {self.hard_max_risk_pct} is over the build plan's 2% cap")
+        if not 0 <= self.defensive_risk_scale <= 1:
+            raise ValueError(f"defensive_risk_scale {self.defensive_risk_scale} must be between 0 and 1")
         if self.gap_allowance_pct < 0 or self.tick <= 0:
             raise ValueError("gap_allowance_pct must be >= 0 and tick > 0")
 
@@ -59,3 +62,9 @@ class RiskConfig:
         if unknown:
             raise ValueError(f"unknown risk settings in {path}: {', '.join(unknown)}")
         return cls(**flat)
+
+    def risk_pct_for(self, mood_verdict: str | None) -> float:
+        """R2's limit for a new entry: cut by `defensive_risk_scale` when the market mood is defensive."""
+        if mood_verdict == "defensive":
+            return self.risk_pct * self.defensive_risk_scale
+        return self.risk_pct

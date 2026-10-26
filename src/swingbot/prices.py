@@ -14,6 +14,15 @@ import pandas as pd
 
 COLUMNS = ["open", "high", "low", "close", "volume"]
 
+# Saved names for series that are not NSE stocks, and their Yahoo symbols.
+# The market-mood checks (swingbot.regime) read these.
+YAHOO_SYMBOLS = {
+    "NIFTY50": "^NSEI",
+    "NIFTYFMCG": "^CNXFMCG",
+    "INDIAVIX": "^INDIAVIX",
+    "USDINR": "INR=X",
+}
+
 
 class PriceSource(Protocol):
     def daily(self, ticker: str) -> pd.DataFrame: ...
@@ -59,6 +68,8 @@ class YFinancePriceSource:
         self._cache: dict[str, pd.DataFrame] = {}
 
     def symbol(self, ticker: str) -> str:
+        if ticker in YAHOO_SYMBOLS:
+            return YAHOO_SYMBOLS[ticker]
         return ticker if ticker.startswith("^") else f"{ticker}{self.suffix}"
 
     def daily(self, ticker: str) -> pd.DataFrame:

@@ -66,6 +66,7 @@ class Order:
     sector: str = ""
     product: str = "CNC"  # delivery; the bot never uses intraday or margin products
     plan: dict = field(default_factory=dict, compare=False)
+    mood: dict = field(default_factory=dict, compare=False)  # the market mood it was sized under
 
     def to_json(self) -> dict:
         return asdict(self)

@@ -91,3 +91,33 @@ def format_summary(s: dict) -> str:
     if s.get("avg_excess_trade_ret_vs_benchmark") is not None:
         lines.append(f"Avg directional return vs benchmark: {pct(s['avg_excess_trade_ret_vs_benchmark'])}")
     return "\n".join(lines)
+
+
+def benjamini_hochberg(p_values: list[float | None]) -> list[float | None]:
+    """Benjamini-Hochberg q-values, in the input order; None stays None.
+
+    When many hit rates are tested at once (every persona, every month), a few
+    will beat p < 0.05 by luck alone. A q-value is the p-value adjusted for how
+    many were tested: q < 0.10 means at most about 1 in 10 such findings is a
+    fluke. The idea is borrowed from HKUDS/AI-Trader's research scripts.
+    """
+    present = sorted((p, i) for i, p in enumerate(p_values) if p is not None and not math.isnan(p))
+    m = len(present)
+    q: list[float | None] = [None] * len(p_values)
+    running = 1.0
+    for rank in range(m, 0, -1):
+        p, i = present[rank - 1]
+        running = min(running, p * m / rank)
+        q[i] = min(running, 1.0)
+    return q
+
+
+def bootstrap_ci(values, n: int = 2000, seed: int = 19, level: float = 0.95) -> tuple[float, float] | None:
+    """Percentile bootstrap interval for the mean; None with fewer than 2 values."""
+    v = np.asarray(list(values), dtype=float)
+    if len(v) < 2:
+        return None
+    rng = np.random.default_rng(seed)
+    means = v[rng.integers(0, len(v), size=(n, len(v)))].mean(axis=1)
+    lo, hi = np.quantile(means, [(1 - level) / 2, 1 - (1 - level) / 2])
+    return float(lo), float(hi)

@@ -217,9 +217,10 @@ plan's risk rules. Limits live in `config/risk.toml`, which the bot only reads.
 Nothing here talks to a broker.
 
 ```bash
+swingbot-risk mood --out runs/risk/mood.json         # bullish, neutral or defensive market
 swingbot-risk plan RELIANCE --stop atr:2 --target 2R --out runs/risk/plan.json
 swingbot-risk odds runs/risk/plan.json --hold 10     # the Time Machine
-swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --out runs/risk/order.json
+swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --mood runs/risk/mood.json --out runs/risk/order.json
 swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-date 2026-11-14
 swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
 swingbot-risk kill-switch                       # status; --reset --by NAME is for Harsha only
@@ -247,12 +248,26 @@ swingbot-risk kill-switch                       # status; --reset --by NAME is f
   (R1), risk per trade (R2), position cap (R3), 5 positions, 2 per sector and 5%
   open risk (R4), the weekly -5% kill switch, which latches until reset by hand
   (R5), the daily -2% pause (R6), close above the 200-day SMA and Rs 10 crore
-  average daily value (R8), and no entry within 2 sessions of results (R9).
+  average daily value (R8), no entry within 2 sessions of results (R9), and the
+  market mood (R11, below).
   Delivery (CNC) only, long only. A sell that only reduces a holding is never
   blocked. Every verdict is logged with a fingerprint of the exact order in
   `data/state/risk_verdicts.jsonl`.
 * **trail** moves the stop to breakeven after +1R, then 2 x ATR under the
   highest close (R7). It never moves a stop down.
+* **mood** (R11, new) calls the whole market bullish, neutral or defensive
+  from five checks on free daily prices: the Nifty's 20-session trend, the
+  Nifty against its 200-day average, the Nifty against Nifty FMCG (money
+  hiding in staples), gold and USD/INR (a flight to safety), and India VIX.
+  Two more bullish than defensive checks is bullish, and the reverse is
+  defensive. Fewer than three available checks is "unknown", never neutral.
+  Every series is cut to the closes known at `--as-of`. When the mood is
+  defensive, `size` and `check --mood` cut the risk per trade to
+  `defensive_risk_scale` of the usual 1% (0.5 by default; 1 turns it off, 0
+  blocks new entries). Save the series with `scripts/fetch_prices.py --mood`;
+  the Yahoo symbols are `^NSEI`, `^CNXFMCG`, `GOLDBEES.NS`, `INR=X` and
+  `^INDIAVIX`. `swingbot-briefs --with-mood <prices dir>` shows the swarm the
+  mood as of each story.
 
 Sectors come from `data/universe/sectors.csv`; NSE holidays from
 `config/nse_holidays.toml` (2026 only so far: check it against NSE's circular
@@ -262,6 +277,64 @@ Time Machine, sizing and gate structure borrow ideas from Jake Schincariol's
 [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT);
 the code and the rules are this repo's own. In Claude Code, the `risk-check`
 skill runs these steps after `market-research`.
+
+## Paper account: `swingbot-paper`
+
+The account the paper-trading phase is judged on. Record each fill the paper
+broker makes; the tool replays the ledger into cash, positions and a daily
+equity curve.
+
+```bash
+swingbot-paper open --cash 1000000 --at 2026-11-02
+swingbot-paper fill buy --order runs/risk/order.json --qty 30 --price 1451.5 --at "2026-11-03 09:20"
+swingbot-paper stop RELIANCE 1450 --at "2026-11-06 15:40"
+swingbot-paper fill sell RELIANCE --qty 30 --price 1530 --at "2026-11-10 10:05" --costs 61.2
+swingbot-paper report --out runs/paper          # summary.json, equity.csv, trades.csv
+swingbot-paper portfolio --out portfolio.json   # what swingbot-risk size/check read
+```
+
+* **The ledger** (`data/state/paper_ledger.jsonl`, git-ignored) is append-only
+  JSON lines. A buy made with `--order` carries the order's stop, target and
+  sector, and is stamped PASS only if `swingbot-risk check` passed that exact
+  order (same fingerprint) on the fill's day. Charges default to 12.5 bps a
+  side; pass `--costs` with the contract note's figure when you have it.
+* **The report** gives equity and return, the return of the Nifty over the
+  same sessions, the worst drawdown with its dates, closed trades with win
+  rate, average R (against the initial stop), expectancy and profit factor,
+  costs paid, and progress to the build plan's paper gate (6 months and 50
+  trades, with no rule breaks). It exits 1 when any rule was broken.
+* **Rule breaks** found on replay: a buy with no PASS, no stop or a stop at or
+  above the fill, risk over 1% of equity or a position over 15% (with 2% slack
+  for fill prices), more than 5 positions or 2 per sector, adding to a holding,
+  a buy while the account sat 5% under the week's open, cash below zero, a sale
+  of more than is held, and a stop moved down. It also notes any session that
+  traded through a stop without a sell recorded, because the broker holds the
+  stop and the ledger never invents its fill.
+* **The portfolio file** takes today's open as the last close and Monday's open
+  as the previous week's last close, since the ledger only has daily closes.
+
+The replay idea, start from cash, apply trades in order, mark at each close and
+flag rule breaks, comes from the challenge scoring in
+[HKUDS/AI-Trader](https://github.com/HKUDS/AI-Trader) (its README says MIT, but
+the repository has no licence file); the code and rules are this repo's own.
+
+## Persona scorecard: `swingbot-scorecard`
+
+Scores each persona's final stance, the judge and the final call as separate
+calls on the same price moves the backtest measured:
+
+```bash
+swingbot-scorecard --run runs/<run>/results.csv runs/views.jsonl --by month --out runs/scorecard.csv
+```
+
+Per row: calls and no-calls, hit rate with its coin-flip p-value, average
+return per call after costs with a 95% bootstrap range (seed 19), Brier score
+of conviction, and rank IC of stance against the move. With four personas, a
+judge and a final call, possibly by month, some row will look good by luck, so
+every p-value also gets a Benjamini-Hochberg q-value and only q under 0.10 is
+marked as beating luck. `benjamini_hochberg` and `bootstrap_ci` live in
+`metrics.py` for other comparisons too. The scorecard only reports; it does
+not change persona weights. The leaderboard idea is from AI-Trader.
 
 ## Things that can make this backtest lie
 
@@ -278,6 +351,7 @@ skill runs these steps after `market-research`.
 ## Roadmap
 
 Following the blueprint: Phase 2 (the Verifier and episodic memory) is in place
-and needs a real walk-forward run to show whether it helps. Phase 3 adds paper trading through the DhanHQ API with
+and needs a real walk-forward run to show whether it helps. The paper account
+(`swingbot-paper`) is ready to record fills. Phase 3 adds paper trading through the DhanHQ API with
 bracket orders, 1 to 2 percent position sizing and a weekly kill switch.
 Live money comes only after months of paper trading.

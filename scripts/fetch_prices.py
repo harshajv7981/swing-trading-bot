@@ -1,7 +1,11 @@
 """Cache NSE daily bars from Yahoo Finance to CSV so runs are repeatable.
 
     python scripts/fetch_prices.py --events data/my_events.csv \
-        --start 2025-01-01 --end 2026-10-01 --out data/raw/prices --benchmark ^NSEI
+        --start 2025-01-01 --end 2026-10-01 --out data/raw/prices --benchmark ^NSEI --mood
+
+--mood adds the series swingbot.regime reads (Nifty FMCG, gold ETF, USD/INR,
+India VIX). The mood's 200-day check needs about 10 months before the first
+date you test, so start early enough.
 
 Needs `pip install -e .[data]`. Check the files before trusting them: Yahoo has
 gaps and the odd bad print.
@@ -24,9 +28,13 @@ def main() -> None:
     p.add_argument("--end", required=True)
     p.add_argument("--out", default="data/raw/prices")
     p.add_argument("--benchmark", default="^NSEI", help="saved as NIFTY50.csv")
+    p.add_argument("--mood", action="store_true",
+                   help="also save the market-mood series: NIFTYFMCG, GOLDBEES, USDINR, INDIAVIX")
     args = p.parse_args()
 
     tickers = set(args.tickers)
+    if args.mood:
+        tickers |= {"NIFTYFMCG", "GOLDBEES", "USDINR", "INDIAVIX"}
     if args.events:
         tickers |= {e.ticker for e in load_events(args.events)}
 

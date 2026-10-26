@@ -2,7 +2,7 @@
 
 This is the hard boundary in the build plan: the swarm proposes, and only an
 order that passes here may go on to the (paper, later live) broker. Rules R1
-to R9 are checked; R10 (order rate) and the 60-second stop confirmation in R1
+to R9 and R11 (market mood) are checked; R10 (order rate) and the 60-second stop confirmation in R1
 belong to the broker adapter, which does not exist yet.
 
 Getting out is never blocked: a sell that only reduces a holding passes every
@@ -105,8 +105,13 @@ def _pct(x: float) -> str:
 def check_order(order: Order, portfolio: Portfolio, config: RiskConfig | None = None, *,
                 bars: pd.DataFrame | None = None, today: date | None = None,
                 results_date: date | None = None, calendar: NSECalendar | None = None,
-                kill_switch_latched: bool = False, last_price: float | None = None) -> Verdict:
-    """Check one order. `bars` must be cut to what is known today (for R8)."""
+                kill_switch_latched: bool = False, last_price: float | None = None,
+                mood: dict | None = None) -> Verdict:
+    """Check one order. `bars` must be cut to what is known today (for R8).
+
+    `mood` is a `swingbot-risk mood` result (default: the one the order was
+    sized under). A defensive verdict cuts R2's limit by `defensive_risk_scale`.
+    """
     config = config or RiskConfig()
     calendar = calendar or NSECalendar()
     v = Verdict(order)
@@ -159,11 +164,13 @@ def check_order(order: Order, portfolio: Portfolio, config: RiskConfig | None = 
     rr = (target - entry) / (entry - stop)
     add("reward:risk", rr >= config.min_reward_risk, f"{rr:.2f} (minimum {config.min_reward_risk})")
 
+    risk_pct = _market_mood(add, v, mood if mood is not None else order.mood, today, config)
     loss = order.qty * gap_risk_per_share(entry, stop, config)
-    limit = eq * config.risk_pct / 100
+    limit = eq * risk_pct / 100
     add("R2 risk per trade", loss <= limit + 1e-6,
         f"loss at the stop with a {config.gap_allowance_pct}% gap {loss:,.0f} "
-        f"= {_pct(loss / eq * 100)} of equity (limit {config.risk_pct}%)")
+        f"= {_pct(loss / eq * 100)} of equity (limit {risk_pct:g}%"
+        + (", cut for the defensive mood)" if risk_pct < config.risk_pct else ")"))
 
     notional = order.qty * entry
     add("R3 position cap", notional <= eq * config.max_position_pct / 100 + 1e-6,
@@ -187,6 +194,26 @@ def check_order(order: Order, portfolio: Portfolio, config: RiskConfig | None = 
     _trend_filter(add, bars, config)
     _results_blackout(add, v, today, results_date, calendar, config)
     return v
+
+
+def _market_mood(add, v: Verdict, mood: dict | None, today: date | None, config: RiskConfig) -> float:
+    """R11: the market mood. Returns R2's limit in % of equity."""
+    if not mood:
+        v.warnings.append("market mood not checked; run `swingbot-risk mood` and pass --mood")
+        return config.risk_pct
+    verdict, as_of = mood.get("verdict"), str(mood.get("as_of", ""))
+    if today and not as_of.startswith(f"{today:%Y-%m-%d}"):
+        v.warnings.append(f"market mood is from {as_of or 'an unknown time'}, not {today}; run it again")
+    if verdict == "unknown":
+        v.warnings.append("market mood unknown (too few series); risk per trade not cut")
+    risk_pct = config.risk_pct_for(verdict)
+    if verdict == "defensive" and risk_pct <= 0:
+        add("R11 market mood", False, "defensive, and defensive_risk_scale is 0: no new entries")
+    elif verdict == "defensive":
+        add("R11 market mood", True, f"defensive: risk per trade cut to {risk_pct:g}% of equity")
+    else:
+        add("R11 market mood", True, f"{verdict}: full risk per trade")
+    return risk_pct
 
 
 def _trend_filter(add, bars: pd.DataFrame | None, config: RiskConfig) -> None:
