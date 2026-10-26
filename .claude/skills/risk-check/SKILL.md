@@ -1,6 +1,6 @@
 ---
 name: risk-check
-description: Turn a swarm view into a sized, rule-checked paper order with swingbot-risk (exit plan, position size, PASS/BLOCK gate), or move the trailing stop on an open position. Use after market-research gives a bullish view, or when asked "how many shares", "where's my stop", "can I take this trade", "is this safe", "trail my stop". Never places an order.
+description: Turn a swarm view into a sized, rule-checked paper order with swingbot-risk (exit plan, Time Machine odds, position size, PASS/BLOCK gate), or move the trailing stop on an open position. Use after market-research gives a bullish view, or when asked "how many shares", "where's my stop", "can I take this trade", "is this safe", "what are the odds", "run the time machine", "trail my stop". Never places an order.
 ---
 
 # Risk check, run by Claude Code
@@ -29,6 +29,7 @@ change its limits.
 
 ```bash
 swingbot-risk plan TICKER --stop atr:2 --target 2R --out runs/risk/plan.json
+swingbot-risk odds runs/risk/plan.json --hold 10
 swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --out runs/risk/order.json
 swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-date YYYY-MM-DD
 ```
@@ -36,6 +37,16 @@ swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-da
 - **plan**: stop rules are `atr:K`, `pct:X`, `price:X`, `low:N`; targets `2R` or
   `price:X`. Leave out `--entry` to use the last close known at `--as-of`. A
   refusal is one sentence: tell the user it as printed.
+- **odds** (the Time Machine): replays the hold 10,000 times from the stock's
+  own past sessions (seed 19), then runs the same stop and target on every
+  past day as a base rate. Tell the user, in this order: the replay odds
+  (target first, stop first, neither, and how often it gapped through the
+  stop), the 5 to 95% range of the price at the end, the base rate line, then
+  the verdict and any line under it exactly as printed. Say the seed. If the
+  verdict is a coin flip or close to break-even, say so plainly; if the
+  replays and the base rate disagree, say that too. It is built from the past
+  and is not a prediction, and it leaves costs out. It never blocks a trade:
+  the user decides.
 - **size**: prints the shares, which limit decided them, and the loss at the
   stop. A refusal means even one share breaks a limit.
 - **check**: PASS or BLOCK with every rule's line. Ask the user for the next

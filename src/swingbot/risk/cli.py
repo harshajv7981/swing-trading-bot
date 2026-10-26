@@ -4,6 +4,7 @@ Nothing here talks to a broker. Each step writes a small JSON file the next one
 reads, and the gate records every verdict with the order's fingerprint.
 
     swingbot-risk plan RELIANCE --stop atr:2 --target 2R --out runs/plan.json
+    swingbot-risk odds runs/plan.json --hold 10      # the Time Machine
     swingbot-risk size runs/plan.json --portfolio portfolio.json --out runs/order.json
     swingbot-risk check runs/order.json --portfolio portfolio.json --results-date 2026-11-14
     swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
@@ -31,6 +32,7 @@ from .exits import ExitPlan, PlanRefused, plan_exit, trail_stop
 from .gate import DEFAULT_STATE_DIR, KillSwitch, check_order
 from .portfolio import Order, Portfolio, load_sectors
 from .sizing import SizingRefused, size_position
+from .timemachine import NotEnoughHistory, run as run_timemachine
 
 
 def _bars(ticker: str, as_of: pd.Timestamp, data_config: str | None) -> pd.DataFrame:
@@ -56,6 +58,17 @@ def cmd_plan(args, config: RiskConfig) -> int:
           f"target {plan.target:,.2f} ({plan.target_rule}); risk {plan.risk_per_share:,.2f}/share, "
           f"reward:risk {plan.reward_risk:.2f}, ATR {plan.atr:,.2f}, bars to {plan.as_of}")
     _write(plan.to_json(), args.out)
+    return 0
+
+
+def cmd_odds(args, config: RiskConfig) -> int:
+    plan = ExitPlan.from_json(json.loads(Path(args.plan).read_text()))
+    bars = _bars(plan.ticker, parse_as_of(plan.as_of), args.data_config)
+    report = run_timemachine(plan, bars, hold=args.hold, replays=args.replays, seed=args.seed,
+                             lookback=args.lookback, atr_period=config.atr_period)
+    print(report.text())
+    if args.out:
+        _write(report.to_json(), args.out)
     return 0
 
 
@@ -136,6 +149,14 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--as-of", help="YYYY-MM-DD or 'YYYY-MM-DD HH:MM' IST; default now")
     s.add_argument("--out")
 
+    s = sub.add_parser("odds", help="the Time Machine: odds of target, stop or neither over the hold")
+    s.add_argument("plan")
+    s.add_argument("--hold", type=int, default=10, help="sessions to hold at most (default 10)")
+    s.add_argument("--replays", type=int, default=10_000)
+    s.add_argument("--seed", type=int, default=19)
+    s.add_argument("--lookback", type=int, default=500, help="past sessions to draw from (default 500)")
+    s.add_argument("--out")
+
     s = sub.add_parser("size", help="whole shares for a plan")
     s.add_argument("plan")
     s.add_argument("--portfolio", required=True)
@@ -163,11 +184,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--by", help="who is resetting it")
 
     args = p.parse_args(argv)
-    commands = {"plan": cmd_plan, "size": cmd_size, "check": cmd_check, "trail": cmd_trail,
+    commands = {"plan": cmd_plan, "odds": cmd_odds, "size": cmd_size, "check": cmd_check, "trail": cmd_trail,
                 "kill-switch": cmd_kill_switch}
     try:
         return commands[args.cmd](args, RiskConfig.load(args.config))
-    except (PlanRefused, SizingRefused) as e:
+    except (PlanRefused, SizingRefused, NotEnoughHistory) as e:
         print(f"refused: {e}", file=sys.stderr)
         return 1
     except (DataError, FileNotFoundError, ValueError, KeyError) as e:
