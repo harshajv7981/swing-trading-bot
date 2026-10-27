@@ -23,5 +23,5 @@ memory_db = "runs/memory.db"               # the Verifier's lessons
 batch = 10              # news items per brief; `swingbot-daily brief` writes the next batch
 with_technicals = true  # a technical snapshot per stock, from closed sessions only
 with_context = true     # the week's earlier news and filings, and the latest results
-with_mood = true        # the market mood (R11)
+with_mood = true        # the market mood (R12)
 with_lessons = true     # past lessons from runs/memory.db, once it exists

@@ -45,8 +45,9 @@ daily OHLC  ──> entry/exit rules ──┴──> hit / miss, return after c
    * Personas run for `--rounds` rounds. From round 2 each persona sees the
      others' views and can update, which is the "social contagion" step.
      A `ReportAgent` turns the final round into one signal.
-3. **Timing** (`src/swingbot/backtest.py`). News before 09:15 IST on a trading
-   day enters at that day's open; anything later enters at the next session's
+3. **Timing** (`src/swingbot/backtest.py`). News before 09:08 IST on a trading
+   day (when pre-open order entry closes; the auction then sets the 09:15 open)
+   enters at that day's open; anything later enters at the next session's
    open. The exit is the close of session N, where N = ceil(horizon / 24h), so
    72h means 3 sessions.
 4. **Scoring** (`src/swingbot/metrics.py`). Two scores, kept apart:
@@ -286,7 +287,7 @@ swingbot-risk kill-switch --reset --by Harsha   # Harsha only, typed at a termin
   open risk (R4), the weekly -5% kill switch, which latches until reset by hand
   (R5), the daily -2% pause (R6), close above the 200-day SMA and Rs 10 crore
   average daily value (R8), no entry within 2 sessions of results (R9), and the
-  market mood (R11, below).
+  market mood (R12, below).
   Delivery (CNC) only, long only. A sell that only reduces a holding is never
   blocked. Every verdict is logged with a fingerprint of the exact order in
   `data/state/risk_verdicts.jsonl`.
@@ -309,7 +310,7 @@ swingbot-risk kill-switch --reset --by Harsha   # Harsha only, typed at a termin
   latch it again (the gate still blocks entries while the week is 5% down).
 * **trail** moves the stop to breakeven after +1R, then 2 x ATR under the
   highest close (R7). It never moves a stop down.
-* **mood** (R11, new) calls the whole market bullish, neutral or defensive
+* **mood** (R12, new) calls the whole market bullish, neutral or defensive
   from five checks on free daily prices: the Nifty's 20-session trend, the
   Nifty against its 200-day average, the Nifty against Nifty FMCG (money
   hiding in staples), gold and USD/INR (a flight to safety), and India VIX.
@@ -324,9 +325,11 @@ swingbot-risk kill-switch --reset --by Harsha   # Harsha only, typed at a termin
   mood as of each story.
 
 Sectors come from `data/universe/sectors.csv`; NSE holidays from
-`config/nse_holidays.toml` (2026 only so far: check it against NSE's circular
-and add each new year). Not yet covered: R1's 60-second stop confirmation and
-R10 order rate limits, which belong to the broker adapter. The exit-planner,
+`config/nse_holidays.toml` (2026 only so far: add each new year from NSE's
+circular; the daily loop places no entries in a year that is missing). Not yet
+covered: R1's 60-second stop confirmation and R10 order rate limits, which
+belong to the broker adapter. The build plan's R11 is the live-mode flag (off
+by default), which arrives with the Dhan adapter; the market mood is R12. The exit-planner,
 Time Machine, sizing and gate structure borrow ideas from Jake Schincariol's
 [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT);
 the code and the rules are this repo's own. The ticket step borrows the idea of
@@ -483,8 +486,8 @@ swingbot-daily status
   in `config/nse_holidays.toml` are off) and a finish before the 15:30 close.
   Starting after 09:15 works but says the entries go in late. On other days
   the loop still settles exits, writes the report and runs the Verifier.
-* **News window.** Everything published since the previous session's 09:15
-  open, which matches the backtest's timing: that news is first tradeable at
+* **News window.** Everything published since 09:08 on the previous session
+  (the close of pre-open order entry), which matches the backtest's timing: that news is first tradeable at
   today's open. Older news had a session to be priced in.
 * **Kill switch.** `start` checks the paper account against the week's open
   and latches the switch at a 5% loss itself, instead of waiting for an order

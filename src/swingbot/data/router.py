@@ -191,7 +191,7 @@ class Router:
             raise NoData(f"{vendor}: no session closed by then")
         tail = known.tail(rows).round(2)
         return (f"# Daily bars for {ticker}: last {len(tail)} sessions to the {known.index[-1]:%Y-%m-%d} "
-                f"close (source: {vendor})\n" + tail.to_csv())
+                f"close (source: {vendor})\n{technicals.ADJUSTED_NOTE[2:]}\n" + tail.to_csv())
 
     def _format_technicals(self, ticker, as_of, vendor, bars, **_):
         return f"{technicals.describe(technicals.bars_known_at(bars, as_of))}\n(source: {vendor})"

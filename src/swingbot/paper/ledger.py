@@ -37,6 +37,7 @@ import pandas as pd
 from ..models import IST
 from ..risk.config import RiskConfig
 from ..risk.portfolio import Portfolio, Position
+from ..risk.sizing import gap_risk_per_share
 
 DEFAULT_LEDGER = Path("data/state/paper_ledger.jsonl")
 DEFAULT_COST_BPS = 12.5   # per side: half the backtest's 25 bps round trip; record real charges with --costs
@@ -359,10 +360,13 @@ def _buy(rp: Replay, holdings: dict[str, Holding], r: dict, at: str, equity: flo
     if t in holdings and not config.allow_adding:
         brk("adding", f"bought more while already holding {holdings[t].qty}")
     if stop is not None and float(stop) < price:
-        risk = qty * (price - float(stop))
-        if risk > equity * config.risk_pct / 100 * (1 + SLACK):
-            brk("R2 risk per trade", f"{risk:,.0f} at the stop = {risk / equity * 100:.2f}% of equity "
-                                     f"(limit {config.risk_pct}%)")
+        # Measured as the gate measures it: with the gap allowance (R9), and with
+        # the defensive-mood cut (R12) when the fill says which mood it was sized under.
+        risk = qty * gap_risk_per_share(price, float(stop), config)
+        limit_pct = config.risk_pct_for(r.get("mood"))
+        if risk > equity * limit_pct / 100 * (1 + SLACK):
+            brk("R2 risk per trade", f"{risk:,.0f} at the stop with a {config.gap_allowance_pct}% gap "
+                                     f"= {risk / equity * 100:.2f}% of equity (limit {limit_pct:g}%)")
     if qty * price > equity * config.max_position_pct / 100 * (1 + SLACK):
         brk("R3 position cap", f"{qty * price:,.0f} = {qty * price / equity * 100:.1f}% of equity "
                                f"(limit {config.max_position_pct}%)")

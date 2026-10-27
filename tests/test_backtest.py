@@ -31,6 +31,8 @@ B = bars([100, 101, 102, 103, 104, 105, 106, 107])  # Mon 5 Jan .. Wed 14 Jan 20
     "ts, expected_date",
     [
         ("2026-01-05 08:00", "2026-01-05"),  # before open: same day
+        ("2026-01-05 09:07", "2026-01-05"),  # in pre-open order entry: same day
+        ("2026-01-05 09:10", "2026-01-06"),  # after pre-open order entry closed: next session
         ("2026-01-05 09:15", "2026-01-06"),  # at the open: too late for that open
         ("2026-01-05 15:45", "2026-01-06"),  # after close: next session
         ("2026-01-10 11:00", "2026-01-12"),  # Saturday: Monday

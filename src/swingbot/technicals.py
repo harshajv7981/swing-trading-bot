@@ -23,6 +23,12 @@ from .prices import PriceSource
 
 MARKET_CLOSE = time(15, 30)
 
+# Saved prices are adjusted for splits, bonuses and dividends paid since, so on
+# a past date a rupee level here can differ from the price quoted in that day's
+# news. Percent changes and indicator positions are unaffected.
+ADJUSTED_NOTE = ("- Prices are adjusted for later splits, bonuses and dividends: a rupee level may not "
+                 "match the price quoted in the news; compare percentages, not levels.")
+
 
 def known_bars(bars: pd.DataFrame, event: NewsEvent) -> pd.DataFrame:
     """The bars a trader could have seen when `event` was published."""
@@ -138,4 +144,5 @@ def describe(bars: pd.DataFrame) -> str:
         f" (close at {'n/a' if boll_pos is None else f'{boll_pos:.0%}'} of the band)",
         f"- Range and volume: 20-day range {_num(v['low_20'])} to {_num(v['high_20'])};"
         f" VWMA20 {_num(v['vwma_20'])}; last volume {_num(v['volume_vs_20d'], 1)}x its 20-day average",
+        ADJUSTED_NOTE,
     ])

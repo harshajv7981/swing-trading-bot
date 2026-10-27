@@ -55,6 +55,16 @@ def test_each_persona_is_scored_on_its_own_calls(tmp_path):
     assert list(card.index[:2]) == [FINAL, JUDGE]
 
 
+def test_short_calls_are_graded_but_earn_nothing(tmp_path):
+    # The bot is long-only: the bear's calls count for direction, never as money made.
+    results, views, _ = fixture(tmp_path)
+    card = scorecard(calls(results, views)).set_index("who")
+    bear = card.loc["Institutional Bear"]
+    assert bear["calls"] == 12 and bear["long_calls"] == 0
+    assert bear["avg_trade_ret"] is None or pd.isna(bear["avg_trade_ret"])
+    assert card.loc["Retail Bull", "long_calls"] == 12
+
+
 def test_by_month_splits_rows(tmp_path):
     results, views, _ = fixture(tmp_path)
     card = scorecard(calls(results, views), by="month")

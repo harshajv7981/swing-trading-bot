@@ -2,9 +2,10 @@
 
 Timing rules (the part that most often makes a backtest lie):
 
-* NSE cash market opens 09:15 IST. News published before the open on a trading
+* NSE cash market opens 09:15 IST, at a price set by the pre-open auction,
+  whose order entry closes at 09:08. News published before 09:08 on a trading
   day can be acted on at that day's open. Anything later enters at the *next*
-  trading day's open. We never enter at a price printed before the news.
+  trading day's open. We never enter at a price set before the news.
 * The exit is the close of the Nth trading session, counting the entry session
   as session 1, where N = ceil(horizon_hours / 24). 72h -> 3 sessions.
 * The swarm only receives the NewsEvent. It never sees prices.
@@ -25,18 +26,15 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import time
 
 import pandas as pd
 
-from .models import IST, NewsEvent, Sentiment, Signal
+from .models import AUCTION_CUTOFF, IST, NewsEvent, Sentiment, Signal
 from .prices import PriceSource
 from .risk.config import RiskConfig
 from .risk.exits import PlanRefused, plan_exit, trail_stop
 from .swarm.base import SwarmEngine
 from .swarm.recorded import MissingViews
-
-MARKET_OPEN = time(9, 15)
 
 
 @dataclass(frozen=True)
@@ -59,7 +57,7 @@ def entry_index(bars: pd.DataFrame, event: NewsEvent) -> int | None:
     if on_or_after >= len(bars):
         return None
     same_day = bars.index[on_or_after] == day
-    if same_day and ts.time() >= MARKET_OPEN:
+    if same_day and ts.time() >= AUCTION_CUTOFF:
         on_or_after += 1
     return on_or_after if on_or_after < len(bars) else None
 

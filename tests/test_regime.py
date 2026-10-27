@@ -79,7 +79,7 @@ def test_mood_round_trips_through_json():
     assert again.verdict == mood.verdict and again.checks == mood.checks
 
 
-# --- R11 in sizing and the gate -----------------------------------------------
+# --- R12 in sizing and the gate -----------------------------------------------
 
 PLAN = ExitPlan("RELIANCE", "2026-10-23", 1000.0, 960.0, "atr:2", 1080.0, "2R", 20.0)
 DEFENSIVE = {"as_of": "2026-10-26 09:00 IST", "verdict": "defensive"}
@@ -110,7 +110,7 @@ def test_gate_cuts_r2_when_defensive():
     assert check(order, account, mood=BULLISH).passed
     v = check(order, account, mood=DEFENSIVE)
     assert "R2 risk per trade" in {c.rule for c in v.checks if not c.ok}
-    assert any(c.rule == "R11 market mood" and c.ok for c in v.checks)
+    assert any(c.rule == "R12 market mood" and c.ok for c in v.checks)
 
 
 def test_gate_uses_the_mood_the_order_was_sized_under():
@@ -154,3 +154,20 @@ def test_briefs_show_the_mood_as_of_each_story(tmp_path):
     text = out.read_text()
     assert "## Market mood" in text
     assert "Market mood as of 2026-10-20 08:30 IST: BULLISH" in text
+
+
+def test_usdinr_bar_is_known_only_from_next_morning():
+    from swingbot.regime import fx_bars_known_at
+    bars = flat(84.0, n=5)
+    last = bars.index[-1]  # 2026-10-23
+    assert fx_bars_known_at(bars, AS_OF).index[-1] < last  # 18:00 the same day: not yet
+    later = pd.Timestamp("2026-10-24 07:00", tz="Asia/Kolkata")
+    assert fx_bars_known_at(bars, later).index[-1] == last
+    # The mood's dollar-rupee check uses the cut, so a jump on the news day is not seen yet.
+    s = risk_on()
+    s["usdinr"] = s["usdinr"].copy()
+    s["usdinr"].iloc[-1, s["usdinr"].columns.get_loc("close")] *= 1.05
+    havens = {c.id: c for c in assess(s, AS_OF).checks}["safe_havens"]
+    assert havens.status != "defensive"
+    havens = {c.id: c for c in assess(s, later).checks}["safe_havens"]
+    assert havens.status == "defensive"
