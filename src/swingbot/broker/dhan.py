@@ -14,7 +14,9 @@ the paper broker:
                 /forever/orders, both legs MARKET) and R1's check that Dhan
                 lists it, with the right stop, within 60 seconds.
 - cancel:       DELETE /orders/{id}, entries only.
-- close:        DELETE /forever/orders/{id}, then a MARKET sell.
+- close:        DELETE /forever/orders/{id}, then a MARKET sell. A sell that
+                Dhan rejects or lets lapse (a lower circuit, say) is dropped
+                on the next sync, so the position gets its stop back.
 - time exit:    a holding whose ticket's `exit_by` session has reached 15:15
                 (or passed) drops its Forever OCO and sells at market.
 - modify_stop:  PUT /forever/orders/{id} on the STOP_LOSS_LEG; up only, at most
@@ -25,6 +27,20 @@ R1, 60 seconds: a stop that Dhan does not show within 60 seconds of placing
 it, or shows with the wrong trigger, is cancelled and placed once more. If the
 second try fails too the position is sold at market (`flatten_unprotected`,
 on by default), because a holding with no stop is what R1 forbids.
+
+Splits and bonuses: on the ex-date the exchange cancels pending orders and the
+price halves (for a 1:1 bonus). The adapter reads the same
+`<state_dir>/corporate_actions.csv` as the paper broker and moves a holding's
+share count, stop and target onto the new terms before placing its stop
+again; the OCO covers only the shares Dhan already shows in holdings (bonus
+shares arrive a few days after the ex-date) and is placed again for all of
+them once they are in. A split nobody has listed yet looks like a cancelled
+stop with the old numbers: the re-placed stop triggers at once or is refused,
+and R1 sells, so keep the file current (`swingbot-refresh` adds to it).
+
+Run `swingbot-dhan sync` after 09:15 on every session day (`--at-open` waits
+for 09:16), because Dhan takes a Forever Order only while the market is open
+and R1 can only confirm it then.
 
 R10, order rate: every call goes through `RateLimit`, kept in
 `<state_dir>/dhan_rate.json` so separate runs count together. Dhan's own
@@ -62,9 +78,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from .. import corporate
 from ..models import IST
 from ..risk.calendar import NSECalendar
 from ..risk.config import RiskConfig
+from ..risk.exits import round_down
 from ..risk.portfolio import load_sectors
 from .base import Fill, OrderRefused, StopMove
 
@@ -265,18 +283,32 @@ def _rows(data) -> list[dict]:
     return []
 
 
+OPEN_SYNC = (9, 16)   # a minute after the open, so Dhan takes the Forever Orders
+
+
+def wait_for_open(now: pd.Timestamp, calendar: NSECalendar) -> float:
+    """Seconds until 09:16 IST today if that is still ahead on a session day, else 0."""
+    now = _ts(now)
+    at = now.normalize() + pd.Timedelta(hours=OPEN_SYNC[0], minutes=OPEN_SYNC[1])
+    if not calendar.is_session(now.date()) or now >= at:
+        return 0.0
+    return (at - now).total_seconds()
+
+
 class DhanBroker:
     """Same methods as `PaperBroker`. Save only after the fills from `sync` are in the ledger."""
 
     def __init__(self, api: DhanAPI, risk: RiskConfig | None = None, calendar: NSECalendar | None = None,
                  scrips: dict[str, str] | None = None, clock: Callable[[], float] = time.time,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep, actions: dict | None = None):
         self.api = api
         self.config = api.config
         self.risk = risk or RiskConfig()
         self.calendar = calendar or NSECalendar()
         self._scrips = scrips
         self.clock, self.sleep = clock, sleep
+        # Splits and bonuses, as the paper broker reads them (swingbot.corporate).
+        self.actions = corporate.load(self.config.state_dir) if actions is None else actions
         self.path = self.config.state_dir / "dhan_book.json"
         state = json.loads(self.path.read_text()) if self.path.exists() else {}
         self.orders: list[dict] = state.get("orders", [])
@@ -379,11 +411,24 @@ class DhanBroker:
             o["forever_id"] = ""
         return self._sell(o, why)
 
+    def _left(self, o: dict) -> int:
+        """Shares the book still holds."""
+        return o["filled"] - o.get("sold", 0)
+
+    def _at_dhan(self, o: dict) -> int:
+        """Shares an exit can cover: all of them, except after a bonus whose shares Dhan hasn't credited yet."""
+        if not o.get("actions"):
+            return self._left(o)
+        held = sum(int(r.get("totalQty") or 0) for r in _rows(self.api.call("GET", "/holdings"))
+                   if str(r.get("securityId")) == o["security_id"])
+        return min(self._left(o), held)
+
     def _sell(self, o: dict, why: str) -> str:
+        qty = self._at_dhan(o)
         resp = self.api.call("POST", "/orders", {
             "correlationId": f"{o['id']}X", "transactionType": "SELL", "exchangeSegment": "NSE_EQ",
             "productType": "CNC", "orderType": "MARKET", "validity": "DAY", "securityId": o["security_id"],
-            "quantity": o["filled"], "disclosedQuantity": 0, "price": 0.0, "triggerPrice": 0.0,
+            "quantity": qty, "disclosedQuantity": 0, "price": 0.0, "triggerPrice": 0.0,
             "afterMarketOrder": False})
         o["exit_id"], o["exit_reason"] = str(resp.get("orderId", "")), why
         return o["exit_id"]
@@ -400,20 +445,21 @@ class DhanBroker:
             raise OrderRefused(f"{ticker}: Dhan allows {MAX_MODIFICATIONS} changes per order; this one has used them.")
         self.api.call("PUT", f"/forever/orders/{o['forever_id']}", {
             "orderId": o["forever_id"], "orderFlag": "OCO", "orderType": "MARKET", "legName": "STOP_LOSS_LEG",
-            "quantity": o["filled"], "price": 0.0, "triggerPrice": stop, "disclosedQuantity": 0, "validity": "DAY"})
+            "quantity": o.get("covered") or self._left(o), "price": 0.0, "triggerPrice": stop,
+            "disclosedQuantity": 0, "validity": "DAY"})
         o["modifications"] += 1
         o["stop"] = stop
         return StopMove(o["id"], f"{_ts(at):%Y-%m-%d %H:%M}", o["ticker"], stop, reason)
 
-    def _place_oco(self, o: dict) -> str:
+    def _place_oco(self, o: dict, qty: int) -> str:
         # First leg (price, triggerPrice) is the TARGET_LEG, second (price1, triggerPrice1)
         # the STOP_LOSS_LEG, per Dhan's modify docs. R1's read-back checks it either way.
         resp = self.api.call("POST", "/forever/orders", {
             "correlationId": f"{o['id']}F", "orderFlag": "OCO", "transactionType": "SELL",
             "exchangeSegment": "NSE_EQ", "productType": "CNC", "orderType": "MARKET", "validity": "DAY",
-            "securityId": o["security_id"], "quantity": o["filled"], "disclosedQuantity": 0,
+            "securityId": o["security_id"], "quantity": qty, "disclosedQuantity": 0,
             "price": 0.0, "triggerPrice": o["target"], "price1": 0.0, "triggerPrice1": o["stop"],
-            "quantity1": o["filled"]})
+            "quantity1": qty})
         return str(resp.get("orderId", ""))
 
     def _confirmed(self, o: dict, forever_id: str) -> str:
@@ -436,13 +482,21 @@ class DhanBroker:
             self.sleep(5)
 
     def _protect(self, o: dict) -> None:
+        qty = self._at_dhan(o)
+        if qty <= 0:
+            self.notes.append(f"{o['ticker']}: Dhan shows none of the {self._left(o)} shares in holdings, so no "
+                              "stop can go in yet; check the account by hand (R1)")
+            return
         for attempt in (1, 2):
-            fid = self._place_oco(o)
+            fid = self._place_oco(o, qty)
             problem = self._confirmed(o, fid)
             if not problem:
-                o.update(forever_id=fid, protected_at=pd.Timestamp.now(IST).strftime("%Y-%m-%d %H:%M:%S"))
+                o.update(forever_id=fid, covered=qty,
+                         protected_at=pd.Timestamp.now(IST).strftime("%Y-%m-%d %H:%M:%S"))
+                short = self._left(o) - qty
                 self.notes.append(f"{o['ticker']}: stop {o['stop']:,.2f} and target {o['target']:,.2f} "
-                                  f"confirmed at Dhan (R1)")
+                                  f"confirmed at Dhan (R1)" + (f"; it covers {qty} shares, and the other {short} "
+                                                               "get it once Dhan credits them" if short else ""))
                 return
             try:
                 self.api.call("DELETE", f"/forever/orders/{fid}")
@@ -478,6 +532,7 @@ class DhanBroker:
         mine = [o for o in self.orders if o["status"] in ("open", "held")]
         if not mine:
             return []
+        self._corporate(as_of.date().isoformat())
         since = min(date.fromisoformat(o["session"]) for o in mine) - timedelta(days=1)
         buys: dict[str, list[dict]] = {}
         sells: dict[str, list[dict]] = {}   # by security id: a triggered Forever leg gets an order id of its own
@@ -504,6 +559,7 @@ class DhanBroker:
         for sec, ts in sells.items():
             self.notes.append(f"a sell of {sum(int(t.get('tradedQuantity', 0)) for t in ts)} of security {sec} "
                               "at Dhan matches no position here; check it by hand")
+        self._check_exits()
         self._check_stops()
         self._time_exits(as_of)   # first, so a position due out is not given a fresh stop
         session_open = self.calendar.is_session(as_of.date()) and as_of.hour * 60 + as_of.minute >= 9 * 60 + 15
@@ -530,19 +586,77 @@ class DhanBroker:
                 self.notes.append(f"{o['ticker']} is past its time exit {o['exit_by']}; sync during market "
                                   "hours to sell it")
 
+    def _corporate(self, d: str) -> None:
+        """On a split or bonus ex-date, move holdings and entries onto the new terms (see the module notes)."""
+        tick = self.risk.tick
+        for o in self.open_orders():
+            for a in self.actions.get(o["ticker"], []):
+                ex = a.ex_date.isoformat()
+                if ex > d or ex in o.get("actions", []) or o.get("submitted_at", "") >= a.noted:
+                    continue
+                r = a.ratio
+                for k in ("qty", "filled", "sold"):
+                    if o.get(k):
+                        o[k] = corporate.shares(o[k], r)
+                o["limit"] = round(o["limit"] / r, 2)
+                o["stop"], o["target"] = round_down(o["stop"] / r, tick), round_down(o["target"] / r, tick)
+                o["actions"] = o.get("actions", []) + [ex]
+                if o["forever_id"]:
+                    o["replace_stop"] = True   # whatever Dhan still shows is priced for the old shares
+                self.notes.append(f"{o['id']} {o['ticker']}: {r:g}-for-1 split or bonus on {ex}; now "
+                                  f"{o['filled'] or o['qty']} shares, stop {o['stop']:,.2f}")
+
+    def _check_exits(self) -> None:
+        """A market sell Dhan rejected or let lapse leaves the shares held: forget it, so R1 protects them again."""
+        for o in self.orders:
+            if o["status"] != "held" or not o.get("exit_id"):
+                continue
+            data = self.api.call("GET", f"/orders/{o['exit_id']}")
+            rows = [data] if isinstance(data, dict) and "orderStatus" in data else _rows(data)
+            state = rows[0] if rows else {}
+            status = str(state.get("orderStatus", "")).upper()
+            if status in DONE_STATUSES:
+                why = state.get("omsErrorDescription") or "no reason given"
+                self.notes.append(f"{o['ticker']}: the {o['exit_reason']} sell was {status} at Dhan ({why}) and the "
+                                  "shares are still held; they get a stop again (R1)")
+                o.pop("exit_id")
+                o.pop("exit_reason")
+
     def _check_stops(self) -> None:
-        """A held position whose Forever OCO is gone at Dhan, with no sell, has no stop: place it again."""
-        held = [o for o in self.orders if o["status"] == "held" and o["forever_id"]]
+        """A held position whose Forever OCO is gone at Dhan, with no sell, has no stop: place it again.
+
+        So is one whose stop is priced for the shares before a split or bonus,
+        and one that covers fewer shares than Dhan now holds.
+        """
+        held = [o for o in self.orders if o["status"] == "held" and o["forever_id"] and not o.get("exit_id")]
         if not held:
             return
         book = _rows(self.api.call("GET", "/forever/orders"))
         for o in held:
             legs = [r for r in book if str(r.get("orderId")) == o["forever_id"]]
-            if not legs or all(r.get("orderStatus") in DONE_STATUSES for r in legs):
+            gone = not legs or all(r.get("orderStatus") in DONE_STATUSES for r in legs)
+            if gone:
                 state = legs[0].get("orderStatus") if legs else "missing"
                 self.notes.append(f"{o['ticker']}: the stop at Dhan is {state} and the shares are still held; "
                                   "placing it again (R1)")
-                o["forever_id"] = ""
+            elif o.get("replace_stop"):
+                self.notes.append(f"{o['ticker']}: the stop at Dhan is still priced for the old shares; "
+                                  "cancelling it and placing the new one (R1)")
+            elif o.get("covered", self._left(o)) < self._left(o) and self._at_dhan(o) > o["covered"]:
+                self.notes.append(f"{o['ticker']}: Dhan has credited more shares; placing the stop for all of "
+                                  "them (R1)")
+            else:
+                continue
+            if not gone:
+                try:
+                    self.api.call("DELETE", f"/forever/orders/{o['forever_id']}")
+                except DhanError as e:
+                    # Two live stops could sell the shares twice: keep the old one and try next sync.
+                    self.notes.append(f"{o['ticker']}: could not cancel the old stop ({e}); it stays, and the "
+                                      "new one goes in on the next sync")
+                    continue
+            o.pop("replace_stop", None)
+            o["forever_id"] = ""
 
     def _fills(self, o: dict, trades: list[dict], side: str) -> list[Fill]:
         out = []
@@ -563,6 +677,8 @@ class DhanBroker:
                 reason = "target"
             out.append(Fill(o["id"], at, o["ticker"], "sell", qty, price, reason, costs=costs))
             o["sold"] = o.get("sold", 0) + qty
+            if o.get("exit_id") and str(t.get("orderId")) == o["exit_id"] and o["sold"] < o["filled"]:
+                o.pop("exit_id")   # it sold what Dhan held; bonus shares credited later get a stop of their own
             if o["sold"] >= o["filled"]:
                 o.update(status="closed", closed_at=at)
                 if o.get("forever_id") and reason in ("close", "unprotected"):

@@ -5,6 +5,7 @@
     swingbot-dhan scrips --file x.csv    # or from a copy you saved
     swingbot-dhan submit ticket.json     # one PASSed ticket from `swingbot-risk ticket`
     swingbot-dhan sync                   # fills since the last sync, then the R1 stop check
+    swingbot-dhan sync --at-open         # the same, waiting for 09:16 first if run before it
     swingbot-dhan book                   # what the adapter holds
 
 Sandbox unless config/broker.toml and SWINGBOT_DHAN_LIVE=yes both say live
@@ -20,6 +21,7 @@ import json
 import sys
 import urllib.request
 from pathlib import Path
+from time import sleep
 
 from ..paper.ledger import Ledger
 from ..risk.calendar import NSECalendar
@@ -34,6 +36,7 @@ from .dhan import (
     DhanError,
     parse_scrip_master,
     save_scrips,
+    wait_for_open,
 )
 
 DEFAULT_LEDGER = Path("data/state/dhan_sandbox_ledger.jsonl")
@@ -52,7 +55,10 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--file")
     s = sub.add_parser("submit")
     s.add_argument("ticket")
-    sub.add_parser("sync")
+    sy = sub.add_parser("sync")
+    sy.add_argument("--at-open", action="store_true",
+                    help="before 09:16 on a session day, wait until then (the stops only go in while the "
+                         "market is open)")
     sub.add_parser("book")
     args = p.parse_args(argv)
 
@@ -88,7 +94,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Dhan {'LIVE (read-only)' if cfg.live else 'sandbox'} at {api.base}, client {api.client_id}")
             print(f"available balance {float(funds.get('availabelBalance', funds.get('availableBalance', 0))):,.2f}")
             return 0
-        broker = DhanBroker(api, RiskConfig.load(), NSECalendar.load())
+        calendar = NSECalendar.load()
+        broker = DhanBroker(api, RiskConfig.load(), calendar)
         if args.cmd == "submit":
             ticket = json.loads(Path(args.ticket).read_text())
             oid = broker.submit(ticket, as_of, kill_switch_latched=KillSwitch(cfg.state_dir).latched)
@@ -97,6 +104,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{oid} (Dhan {o['dhan_id']}): buy {o['qty']} {o['ticker']} limit {o['limit']:,.2f} for {o['session']}")
             return 0
         if args.cmd == "sync":
+            if args.at_open and (wait := wait_for_open(as_of, calendar)) > 0:
+                print(f"waiting {wait / 60:.0f} min for 09:16, when Dhan takes the stops")
+                sleep(wait)
+                as_of = pd.Timestamp.now(IST) if not args.as_of else as_of + pd.Timedelta(seconds=wait)
             events = broker.sync(as_of)
             record_fills(Ledger(args.ledger), events)   # the ledger first, then the book
             broker.save()
