@@ -37,7 +37,8 @@ def test_dashboard_of_a_walk_forward_run(data, tmp_path):  # noqa: F811
     run.next(lambda _: None)
     views(tmp / "wf/days/2026-11-03/views.jsonl", "e1", 0.7)
     run.next(lambda _: None)
-    d = gather(Sources.walkforward(tmp / "wf"), "2026-11-05 18:00")
+    # Entered 3 Nov on a 72h call: held to the 5 Nov close (the time exit), so look on the 4th.
+    d = gather(Sources.walkforward(tmp / "wf"), "2026-11-04 18:00")
     assert d["has_account"] and [p["ticker"] for p in d["positions"]] == ["TCS"]
     assert d["positions"][0]["stop"] and d["open_risk"] > 0
     assert len(d["curve"]) >= 2 and "bench" in d["curve"][-1]
@@ -46,11 +47,11 @@ def test_dashboard_of_a_walk_forward_run(data, tmp_path):  # noqa: F811
     assert balanced(page)
     # Read-only: the kill switch, the ledger and the book are untouched.
     before = {p: p.read_bytes() for p in (tmp / "wf").rglob("*") if p.is_file()}
-    gather(Sources.walkforward(tmp / "wf"), "2026-11-05 18:00")
+    gather(Sources.walkforward(tmp / "wf"), "2026-11-04 18:00")
     assert before == {p: p.read_bytes() for p in (tmp / "wf").rglob("*") if p.is_file()}
 
     KillSwitch(tmp / "wf/state").latch("test <b>reason</b>")
-    page = render(gather(Sources.walkforward(tmp / "wf"), "2026-11-05 18:00"))
+    page = render(gather(Sources.walkforward(tmp / "wf"), "2026-11-04 18:00"))
     assert "Kill switch LATCHED: test &lt;b&gt;reason&lt;/b&gt;" in page
 
 

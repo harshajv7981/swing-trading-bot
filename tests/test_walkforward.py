@@ -53,6 +53,11 @@ def test_walk_forward_stops_for_the_swarm_and_never_sees_later_news(data):
     fills = [r for r in Ledger(tmp / "wf/ledger.jsonl").records() if r["kind"] == "fill"]
     # Monday evening's news is bought at Tuesday's open, never before it.
     assert [(r["ticker"], r["side"], r["at"]) for r in fills][:1] == [("TCS", "buy", "2026-11-03 09:15")]
+    # A 72h call held from Tue: sold at Thu's close by the time exit, settled on Fri morning.
+    tcs = [r for r in fills if r["ticker"] == "TCS"]
+    assert [(r["side"], r["at"], r["reason"]) for r in tcs][1:] == [("sell", "2026-11-05 15:30", "time")]
+    ticket = json.loads(next((tmp / "wf/days/2026-11-03/tickets").glob("*.json")).read_text())
+    assert ticket["hold"]["exit_by"] == "2026-11-05"
     assert "walk-forward run done" in said[-1]
     assert "Sessions run: 5 of 5" in run.report()
 

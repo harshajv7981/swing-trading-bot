@@ -77,7 +77,7 @@ class Alert:
 
 SELL_TITLES = {
     "stop": "Stop hit", "stop-limit": "Stop hit", "stop-gap": "Stop gapped through",
-    "target": "Target hit", "target-gap": "Target gapped through", "close": "Closed",
+    "target": "Target hit", "target-gap": "Target gapped through", "time": "Time exit", "close": "Closed",
 }
 
 

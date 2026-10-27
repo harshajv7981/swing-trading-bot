@@ -38,7 +38,7 @@ class Fill:
     side: str            # buy or sell
     qty: int
     price: float
-    reason: str          # entry, entry-gap, target, target-gap, stop, stop-gap, stop-limit, close
+    reason: str          # entry, entry-gap, target, target-gap, stop, stop-gap, stop-limit, time, close
     stop: float | None = None     # buys: the stop the OCO was placed with
     target: float | None = None
     sector: str = ""
