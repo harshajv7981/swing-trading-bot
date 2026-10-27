@@ -130,8 +130,9 @@ result worthless, and nobody will be able to tell.
    luck" (q under 0.10, corrected for testing every row) are worth mentioning
    as an edge.
 
-6. **Report** to the user: number of events scored, hit rate and its p-value,
-   average return after costs, Brier score, for the judge and for the crowd
+6. **Report** to the user: number of events scored, hit rate and its p-value
+   (directional accuracy), the long-only trades (count, win rate, average return
+   after costs; bearish calls are not trades, the bot never shorts), Brier score, for the judge and for the crowd
    (`--crowd-only`), and how both compare with the `lexicon` baseline on the same
    events
    (`swingbot-backtest ... --engine lexicon`). If you ran the scorecard, name the
