@@ -68,7 +68,7 @@ NSE_CHUNK_DAYS = 31
 
 @dataclass(frozen=True)
 class RefreshSettings:
-    universe: Path = Path("data/universe/large_caps.csv")
+    universe: Path = Path("data/universe/nifty100.csv")
     state_file: Path = Path("data/raw/refresh_state.json")
     accept_nse_terms: bool = False
     gdelt_pause: float = 5.0  # GDELT asks for one request every 5 seconds

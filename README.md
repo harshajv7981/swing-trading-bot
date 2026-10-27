@@ -211,7 +211,14 @@ Settings live under `[refresh]` in the config; the daily loop calls
 ### Getting real news
 
 Two fetchers build `data/raw/news/events.csv` for the stocks in
-`data/universe/large_caps.csv` (edit that list freely; check symbols against NSE).
+`data/universe/nifty100.csv`, the Nifty 100 (membership as of 28 Jul 2026, from a
+broker's copy of NSE's list; check it against NSE). NSE rebalances the index in
+March and September: run `python scripts/update_universe.py` on your own
+machine afterwards to see what joined or left, and `--write` to add the
+joiners with a sector each (`data/universe/sectors.csv`, which R4 reads).
+Leavers are kept until you drop them by hand, since one may still be held.
+With 100 stocks a full news refresh takes longer: GDELT asks for one request
+every 5 seconds, so allow about 10 minutes before the daily loop's brief.
 Both merge into the file, so running them again, or daily with `--start`
 set to yesterday, only adds new items.
 
