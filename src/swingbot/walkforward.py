@@ -16,7 +16,10 @@ would live. The per-event backtest (`swingbot-backtest`) cannot show that.
 
 Nothing is fetched. Prices and news come from saved files, and every step
 already cuts its data to the run's time: bars to sessions that had closed,
-news to what was published, lessons to trades that had closed. The run keeps
+news to what was published, lessons to trades that had closed. For the
+results blackout (R9), pass `--results-dates` with each company's results
+meetings over the run (`symbol,date`, several lines per company is fine);
+without it R9 only sees the NSE notices in the events file, if any. The run keeps
 its own ledger, broker book, kill switch, memory and alerts under its folder
 (default `runs/walkforward/`), so it never touches the real paper account.
 
@@ -28,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -46,6 +50,7 @@ from .events import DEFAULT_LLM_CUTOFF
 from .paper.cli import main as paper_main
 from .paper.ledger import Ledger
 from .risk.calendar import NSECalendar
+from .risk.results import load_manual
 from .swarm.recorded import RecordedSwarm
 
 DEFAULT_DIR = Path("runs/walkforward")
@@ -96,13 +101,18 @@ class Run:
     # --- init ------------------------------------------------------------------
 
     def init(self, start: date, end: date, cash: float, prices: Path, events: Path,
-             holidays: str | None = None, risk_config: str | None = None) -> dict:
+             holidays: str | None = None, risk_config: str | None = None,
+             results_dates: Path | None = None) -> dict:
         if self.state_path.exists():
             raise ValueError(f"{self.dir} already holds a run; pick another --dir or delete it by hand")
         if not prices.is_dir():
             raise FileNotFoundError(f"no prices folder at {prices}")
         if not events.exists():
             raise FileNotFoundError(f"no events file at {events}")
+        if results_dates is not None:
+            if not results_dates.exists():
+                raise FileNotFoundError(f"no results dates file at {results_dates}")
+            load_manual(results_dates)  # a bad line fails here, not on day one of the run
         calendar = NSECalendar.load(holidays)
         missing = sorted({y for y in range(start.year, end.year + 1) if not calendar.knows(y)})
         if missing:
@@ -111,6 +121,10 @@ class Run:
         if not days:
             raise ValueError(f"no NSE sessions between {start} and {end}")
         self.dir.mkdir(parents=True, exist_ok=True)
+        if results_dates is not None:
+            # R9 reads `<state_dir>/results_dates.csv`; each date counts until it has passed.
+            (self.dir / "state").mkdir(exist_ok=True)
+            shutil.copyfile(results_dates, self.dir / "state" / "results_dates.csv")
         (self.dir / "data.toml").write_text(
             "# Written by swingbot-walkforward: saved files only, nothing fetched.\n"
             '[sources]\nprices = "csv"\nnews = "events"\nfilings = "events"\nfundamentals = "nse_results"\n'
@@ -207,6 +221,8 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--events", default="data/raw/news/events.csv")
     i.add_argument("--holidays", help="NSE holiday TOML (default config/nse_holidays.toml)")
     i.add_argument("--risk-config", help="risk TOML (default config/risk.toml)")
+    i.add_argument("--results-dates", help="symbol,date CSV of results meetings over the run, for the "
+                                           "R9 blackout (the news file's NSE notices are read as well)")
     sub.add_parser("next", help="run days until one needs the swarm")
     sub.add_parser("status")
     sub.add_parser("report")
@@ -219,7 +235,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"note: news before {DEFAULT_LLM_CUTOFF} is left out of the briefs (the model may "
                       "remember it), so those days will trade nothing")
             st = run.init(start_day, end_day, args.cash, Path(args.prices), Path(args.events),
-                          args.holidays, args.risk_config)
+                          args.holidays, args.risk_config,
+                          Path(args.results_dates) if args.results_dates else None)
             print(f"walk-forward run in {run.dir}: {len(st['days'])} sessions from {st['days'][0]} to "
                   f"{st['days'][-1]}, cash {args.cash:,.0f}. Next: `swingbot-walkforward next`.")
             return 0

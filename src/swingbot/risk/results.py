@@ -126,19 +126,35 @@ def write_csv(dates: dict[str, date], path: str | Path) -> None:
 DEFAULT_MANUAL = Path("data/state/results_dates.csv")
 
 
-def load_manual(path: str | Path | None) -> dict[str, date]:
-    """Dates typed in by hand (`symbol,date`), for companies whose notices weren't collected."""
+def load_manual(path: str | Path | None) -> dict[str, list[date]]:
+    """Dates typed in by hand (`symbol,date`), for companies whose notices weren't collected.
+
+    A symbol may have several lines (this quarter and the next, or a whole
+    season for a walk-forward), and each date counts until it has passed.
+    A typed date has no publish time, so it counts as known all along. That is
+    close to the truth: listed companies must give the exchange at least two
+    working days' notice of a results meeting (SEBI LODR rule 29), and R9 only
+    looks two sessions ahead.
+    """
     path = Path(path) if path else None
     if path is None or not path.exists():
         return {}
+    out: dict[str, list[date]] = {}
     with path.open(newline="") as fh:
-        return {r["symbol"].strip().upper(): date.fromisoformat(r["date"].strip()) for r in csv.DictReader(fh)}
+        for n, r in enumerate(csv.DictReader(fh), start=2):
+            try:
+                out.setdefault(r["symbol"].strip().upper(), []).append(date.fromisoformat(r["date"].strip()))
+            except (KeyError, AttributeError, ValueError) as e:
+                raise ValueError(f"{path}:{n}: bad line, want symbol,date as YYYY-MM-DD ({e})") from e
+    return {t: sorted(ds) for t, ds in out.items()}
 
 
 def from_router(router, as_of, manual: str | Path | None = DEFAULT_MANUAL) -> dict[str, date]:
-    """Next results dates from the events file the data router reads, with hand-typed dates on top.
+    """Next results dates from the events file the data router reads, merged with hand-typed dates.
 
-    A hand-typed date in the past is dropped, so a stale file can't hide a newer notice.
+    Each company gets the earliest date still ahead from either source, so a
+    stale typed date can't hide a newer notice, and a notice can't hide a
+    sooner typed date.
     """
     from ..data.router import DataError
 
@@ -147,6 +163,10 @@ def from_router(router, as_of, manual: str | Path | None = DEFAULT_MANUAL) -> di
     except DataError:
         events = []
     dates = next_results_dates(events, as_of)
-    today = pd.Timestamp(as_of).tz_convert(IST).date() if pd.Timestamp(as_of).tzinfo else pd.Timestamp(as_of).date()
-    dates.update({t: d for t, d in load_manual(manual).items() if d >= today})
+    ts = pd.Timestamp(as_of)
+    today = (ts.tz_convert(IST) if ts.tzinfo else ts).date()
+    for t, ds in load_manual(manual).items():
+        ahead = [d for d in ds if d >= today]
+        if ahead and (t not in dates or ahead[0] < dates[t]):
+            dates[t] = ahead[0]
     return dict(sorted(dates.items()))

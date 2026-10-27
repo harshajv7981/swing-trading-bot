@@ -100,3 +100,42 @@ def test_hand_typed_dates_fill_gaps_but_stale_ones_are_dropped(tmp_path):
     manual.write_text("symbol,date\nTCS,2026-11-09\nINFY,2026-10-01\n")
     router = Router(DataConfig(sources={"prices": "csv"}, events_file=tmp_path / "missing.csv"))
     assert from_router(router, pd.Timestamp("2026-10-27 08:00", tz=IST), manual) == {"TCS": date(2026, 11, 9)}
+
+
+def test_a_symbol_can_have_a_whole_season_of_typed_dates(tmp_path):
+    from swingbot.data import DataConfig, Router
+    from swingbot.risk.results import from_router
+
+    manual = tmp_path / "results_dates.csv"
+    manual.write_text("symbol,date\nTCS,2026-10-09\ntcs,2027-01-12\nINFY,2026-10-16\nINFY,2026-11-20\n")
+    router = Router(DataConfig(sources={"prices": "csv"}, events_file=tmp_path / "missing.csv"))
+    as_of = pd.Timestamp("2026-10-27 08:00", tz=IST)
+    assert from_router(router, as_of, manual) == {"INFY": date(2026, 11, 20), "TCS": date(2027, 1, 12)}
+    assert from_router(router, pd.Timestamp("2026-10-01 08:00", tz=IST), manual) == {
+        "INFY": date(2026, 10, 16), "TCS": date(2026, 10, 9)}
+
+
+def test_the_sooner_of_a_notice_and_a_typed_date_wins(tmp_path):
+    from swingbot.data import DataConfig, Router
+    from swingbot.risk.results import from_router
+
+    (tmp_path / "events.csv").write_text(
+        "event_id,ticker,published_at,headline,body,source\n"
+        "n1,ABC,2026-10-20 18:00+05:30,ABC Ltd: Board Meeting Intimation,"
+        "Board meeting will be held on 05-Nov-2026 to consider financial results,nse-filing\n"
+        "n2,DEF,2026-10-20 18:00+05:30,DEF Ltd: Board Meeting Intimation,"
+        "Board meeting will be held on 12-Nov-2026 to consider financial results,nse-filing\n")
+    manual = tmp_path / "results_dates.csv"
+    manual.write_text("symbol,date\nABC,2026-11-14\nDEF,2026-11-10\n")
+    router = Router(DataConfig(sources={"prices": "csv"}, events_file=tmp_path / "events.csv"))
+    dates = from_router(router, pd.Timestamp("2026-10-27 08:00", tz=IST), manual)
+    assert dates == {"ABC": date(2026, 11, 5), "DEF": date(2026, 11, 10)}
+
+
+def test_a_bad_typed_line_says_where_it_is(tmp_path):
+    from swingbot.risk.results import load_manual
+
+    manual = tmp_path / "results_dates.csv"
+    manual.write_text("symbol,date\nTCS,2026-11-09\nINFY,14-Nov-2026\n")
+    with pytest.raises(ValueError, match=r"results_dates.csv:3"):
+        load_manual(manual)

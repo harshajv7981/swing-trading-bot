@@ -372,3 +372,28 @@ def test_finish_survives_a_weekly_breach_in_the_ledger_history(repo):
     result = finish(Day("2026-11-03 08:50", config(repo), Hooks().make()))
     assert any(s["name"] == "trade verifier" for s in result["steps"])
     assert KillSwitch(repo / "state").latched
+
+
+def test_start_says_when_no_results_dates_are_known(repo):
+    open_account(repo)
+    day = Day(MORNING, config(repo), Hooks().make())
+    state = start(day)
+    step = next(s for s in state["steps"] if s["name"] == "results dates")
+    assert "none known" in step["detail"] and "blocks nothing" in step["detail"]
+    assert any("results_dates.csv" in n for n in state["notes"])
+
+
+def test_a_typed_results_date_blocks_the_entry_in_the_blackout(repo):
+    open_account(repo)
+    (repo / "state").mkdir()
+    (repo / "state" / "results_dates.csv").write_text("symbol,date\nABC,2026-11-04\n")
+    hooks = Hooks([good_order()])
+    day = Day(MORNING, config(repo), hooks.make())
+    state = start(day)
+    step = next(s for s in state["steps"] if s["name"] == "results dates")
+    assert step["detail"] == "1 company with a date ahead; in blackout today: ABC"
+    write_views(day)
+    result = finish(Day("2026-11-03 08:50", config(repo), hooks.make()))
+    assert result["tickets"] == []
+    gate = next(s for s in result["steps"] if s["name"] == "gate ABC")
+    assert gate["status"] == "blocked" and "R9 results blackout" in gate["detail"]

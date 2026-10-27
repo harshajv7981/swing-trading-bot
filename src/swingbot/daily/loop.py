@@ -1,8 +1,9 @@
 """The daily paper trading loop: one run per session day, in two halves.
 
     start   calendar and hours, data refresh, paper broker settle, the account,
-            the weekly kill switch, the market mood, then the swarm brief for
-            the news since the last session opened
+            the weekly kill switch, the market mood, the results dates (R9),
+            then the swarm brief for the news since the last session
+            opened
     (Claude Code plays the swarm on the brief and writes views.jsonl)
     finish  signals from the views, signal-to-order, the risk gate and a ticket
             for each PASS, paper broker submit, the ledger report, and the
@@ -50,6 +51,7 @@ from ..risk.calendar import NSECalendar
 from ..risk.cli import main as risk_main
 from ..risk.config import RiskConfig
 from ..risk.gate import DEFAULT_STATE_DIR, KillSwitch
+from ..risk import results
 from ..risk.portfolio import Order, Portfolio
 from ..risk.ticket import describe as describe_ticket
 from ..swarm.recorded import MissingViews, RecordedSwarm
@@ -203,6 +205,7 @@ def start(day: Day) -> dict:
     if _kill_switch(day, portfolio, steps):
         why_not.append("the weekly kill switch is latched; only Harsha can reset it, by hand")
     _mood(day, steps)
+    _results(day, steps)
 
     since, until = news_window(day.as_of, day.calendar)
     state = {"as_of": day.stamp, "phase": ph, "since": f"{since:%Y-%m-%d %H:%M}",
@@ -276,6 +279,31 @@ def _mood(day: Day, steps: list[Step]) -> None:
     day.dir.mkdir(parents=True, exist_ok=True)
     day.path("mood.json").write_text(json.dumps(mood.to_json(), indent=2) + "\n")
     steps.append(Step("market mood", OK, mood.text().splitlines()[0]))
+
+
+def _results(day: Day, steps: list[Step]) -> None:
+    """R9: say how many companies have a results date, so a blackout that checks nothing is never silent."""
+    manual = day.state_dir / "results_dates.csv"
+    try:
+        dates = results.from_router(Router(day.data), day.as_of, manual)
+    except ValueError as e:
+        steps.append(Step("results dates", FAILED, f"{e}; R9 can't see any results date until it's fixed"))
+        return
+    if not dates:
+        if day.risk.require_results_date:
+            why = "so R9 blocks every new entry (require_results_date is on)"
+        else:
+            why = "so R9 blocks nothing (require_results_date is off)"
+            day.note(f"no results dates known, {why}: type them into {manual} (symbol,date) or run "
+                     "`swingbot-refresh --accept-nse-terms` for the NSE board meeting notices")
+        steps.append(Step("results dates", OK, f"none known, {why}"))
+        return
+    today = day.as_of.date()
+    near = sorted(t for t, d in dates.items()
+                  if day.calendar.sessions_between(today, d) <= day.risk.results_blackout_sessions)
+    blackout = f"in blackout today: {', '.join(near)}" if near else "none in blackout today"
+    steps.append(Step("results dates", OK, f"{len(dates)} compan{'y' if len(dates) == 1 else 'ies'} with a "
+                                           f"date ahead; {blackout}"))
 
 
 def window_events(day: Day, state: dict) -> list:
