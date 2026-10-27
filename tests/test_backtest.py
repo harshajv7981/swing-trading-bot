@@ -3,7 +3,7 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from swingbot.backtest import entry_index, measure, run_backtest, simulate_long
+from swingbot.backtest import NotFilled, entry_index, measure, run_backtest, simulate_long
 from swingbot.risk.exits import PlanRefused
 from swingbot.metrics import summarise
 from swingbot.models import IST, NewsEvent, Sentiment, Signal
@@ -131,6 +131,25 @@ def test_simulate_long_trails_the_stop():
     assert untrailed.exit_reason == "time" and untrailed.exit_price == 99
 
 
+def test_limit_entry_fills_like_the_paper_broker():
+    # Opens under the 100 limit: bought at the open, stop and target stay where the plan put them.
+    t = simulate_long(history([(98, 101, 97.5, 100)]), 20, sessions=1, trail=False)
+    assert (t.entry, t.stop, t.target, t.exit_reason) == (98, 96, 108, "time")
+    # Gaps up, then trades under the limit later: bought at the limit.
+    t = simulate_long(history([(103, 104, 99.5, 102)]), 20, sessions=1, trail=False)
+    assert t.entry == 100
+    # Gaps up and only touches the limit: no fill, as at the broker.
+    with pytest.raises(NotFilled, match="never traded under the limit"):
+        simulate_long(history([(103, 105, 100, 104)]), 20, sessions=1, trail=False)
+
+
+def test_open_entry_plans_from_the_open():
+    t = simulate_long(history([(103, 105, 100, 104)]), 20, sessions=1, trail=False, entry="open")
+    assert (t.entry, t.stop, t.target) == (103, 99, 111)
+    with pytest.raises(ValueError):
+        simulate_long(history([(103, 105, 100, 104)]), 20, sessions=1, entry="market")
+
+
 def test_simulate_long_refuses_without_history():
     with pytest.raises(PlanRefused):
         simulate_long(history([(100, 101, 99, 100)], n=5), 5, sessions=1)
@@ -180,6 +199,18 @@ def test_run_backtest_long_only_trades_and_accuracy():
     assert s["calls_not_traded"] == {"bearish": 1, "plan refused": 1}
     assert s["exit_reasons"] == {"time": 2, "stop": 1}
     assert "bullish" in s["by_sentiment"] and "avg_trade_ret" not in s["by_sentiment"]["bullish"]
+
+
+def test_an_unfilled_limit_is_no_trade():
+    ts = "2025-12-29 08:00"
+    gap = history([(104, 106, 103, 105)] * 3)
+    res = run_backtest([ev(ts, "GAP", "a")], FixedEngine({"a": Sentiment.BULLISH}), DictPrices({"GAP": gap}))
+    row = res.iloc[0]
+    assert row["traded"] == False and row["trade_ret"] == 0.0  # noqa: E712
+    assert row["no_trade_reason"].startswith("limit not filled")
+    opened = run_backtest([ev(ts, "GAP", "a")], FixedEngine({"a": Sentiment.BULLISH}), DictPrices({"GAP": gap}),
+                          entry="open").iloc[0]
+    assert opened["traded"] == True and opened["trade_entry"] == 104  # noqa: E712
 
 
 def test_signal_horizon_and_json():

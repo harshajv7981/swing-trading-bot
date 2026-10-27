@@ -15,6 +15,7 @@ from .metrics import format_summary, summarise
 from .models import IST
 from .prices import CSVPriceSource, YFinancePriceSource
 from .risk.config import RiskConfig
+from .risk.signals import SignalRules
 from .swarm import build_engine
 
 CUTOFF_HELP = (
@@ -46,8 +47,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--horizon", default="72h", help="signal horizon, e.g. 48h or 72h")
     p.add_argument("--benchmark", help="ticker of a benchmark series, e.g. NIFTY50 (CSV) or ^NSEI (Yahoo)")
     p.add_argument("--cost-bps", type=float, default=25.0, help="round-trip cost per trade in bps")
-    p.add_argument("--stop-rule", default="atr:2", help="exit planner stop for long trades: atr:K, pct:X or low:N")
-    p.add_argument("--target-rule", default="2R", help="exit planner target for long trades, e.g. 2R")
+    p.add_argument("--stop-rule", help="exit planner stop for long trades: atr:K, pct:X or low:N "
+                                       "(default: config/signals.toml, as the bot trades)")
+    p.add_argument("--target-rule", help="exit planner target for long trades, e.g. 2R (default: config/signals.toml)")
+    p.add_argument("--entry", default="limit", choices=["limit", "open"],
+                   help="limit: the bot's DAY limit at the last close (default); open: buy at the open")
     p.add_argument("--no-trail", action="store_true", help="keep the initial stop instead of trailing it (R7)")
     p.add_argument("--out", default="runs", help="directory for results")
     p.add_argument("--cutoff", help=CUTOFF_HELP)
@@ -64,9 +68,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.engine != "recorded":
             p.error("--crowd-only only applies to --engine recorded")
         engine.crowd_only()
+    rules = SignalRules.load()
     results = run_backtest(events, engine, prices, benchmark=args.benchmark, cost_bps=args.cost_bps,
-                           stop_rule=args.stop_rule, target_rule=args.target_rule, config=RiskConfig.load(),
-                           trail=not args.no_trail)
+                           stop_rule=args.stop_rule or rules.stop_rule, target_rule=args.target_rule or rules.target_rule,
+                           config=RiskConfig.load(), trail=not args.no_trail, entry=args.entry)
     summary = summarise(results)
 
     out = Path(args.out) / f"{datetime.now():%Y%m%d-%H%M%S}-{engine.name}"

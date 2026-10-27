@@ -64,11 +64,41 @@ unless stated otherwise.
 | `max_new_orders` | 3 | **Arithmetic, not research.** The gate allows 5 positions and 5% open risk at 1% each, so 3 a day keeps 2 slots for later news. |
 | `min_order_value` | **Rs 25,000** | **Costs.** Dhan charges Rs 12.5 + GST per stock sold ([OptionX, July 2026](https://optionx.trade/brokers/dhan)). At Rs 25,000 that is 0.06%, a quarter of the statutory round trip. At Rs 10,000 it would be 0.15%. |
 
+## Entry: a limit at the close, or buy at the open?
+
+**Verdict: keep the limit.** Code review 2 worried that a DAY limit at the
+last close would only fill on the days good news was fading, and that buying
+at the open (as `swingbot-backtest` did) would be better. The base rates say
+the opposite. `scripts/research/gap_study.py` traded every stock-day both ways
+(2.5-ATR stop, 2R target, time exit, 0.25% costs) and bucketed the results by
+the next open's gap over the close, in ATRs, as a stand-in for overnight news.
+
+| Hold 3 sessions | 2010–19 open | 2010–19 limit | 2020–26 open | 2020–26 limit |
+| --- | --- | --- | --- | --- |
+| Every call | −0.033R | −0.023R (88% fill) | −0.031R | −0.025R (86% fill) |
+| Gap up over 0.25 ATR (15–18% of days) | −0.077R | −0.020R | −0.030R | −0.008R |
+| Gap 0.5–1 ATR | −0.111R | −0.021R (56% fill) | −0.009R | +0.005R (42% fill) |
+| Gap 1–1.5 ATR | −0.202R | −0.016R (41% fill) | −0.063R | −0.006R (28% fill) |
+
+The limit's R counts an unfilled order as 0R. Buying a gap-up at the open did
+worse than the limit in all 17 years at 3 sessions, and in 13 of 17 at 5
+sessions. The bigger the gap, the worse the open did: on these large caps, a
+gap tends to give some of itself back. The limit skips most big gaps, and the
+ones it does fill are no worse than other fills.
+
+**The catch:** these are all stock-days, not news days. A gap caused by real
+news may keep going (the news-drift result in Lopez-Lira & Tang 2024). So
+`swingbot-backtest` now uses the same limit as the paper broker by default,
+and `--entry open` stays available. Once the swarm has 50+ scored calls,
+compare the two on its own calls.
+
 ## What to revisit
 
 - **`min_confidence`**, once the swarm has 50+ scored calls.
 - **R8**, the 200-day SMA rule in `risk.toml`. The data says it does not help
   at this bot's holding period. Changing it is a risk-limit decision for you
   to make by hand.
+- **The entry rule**: limit against open on the swarm's own calls
+  (`swingbot-backtest --entry open`), once 50+ calls are scored.
 - **Rerun the study each year.** The RSI result already differs between the
   two periods.
