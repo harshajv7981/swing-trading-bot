@@ -621,6 +621,21 @@ book, kill switch and memory under `runs/walkforward/`, so it never touches
 the real paper account. News from before 1 July 2026 is left out, because the
 swarm's model may remember what came next.
 
+### Dashboard: `swingbot-dashboard`
+
+```
+swingbot-dashboard --open                   # runs/dashboard.html for the paper account
+swingbot-dashboard --dir runs/walkforward   # the same page for a walk-forward run
+```
+
+One self-contained HTML page (no scripts or web fonts, works offline, light
+and dark): equity against the Nifty, the week's drawdown next to the kill
+switch level, open risk, the paper gate's progress, open positions with their
+stops (a missing stop shows in red), the paper broker's live orders, closed
+trades with R, the latest daily run's steps and the recent alerts. It only
+reads files: it never latches the kill switch or writes the ledger, and
+prices come from the saved CSVs. Re-run it to refresh.
+
 ## Persona scorecard: `swingbot-scorecard`
 
 Scores each persona's final stance, the judge and the final call as separate
