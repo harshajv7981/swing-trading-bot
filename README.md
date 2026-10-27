@@ -444,6 +444,17 @@ swingbot-paper portfolio --out portfolio.json   # what swingbot-risk size/check 
   the `--as-of` day and Monday's open as the previous week's last close, since
   the ledger only has daily closes. So a 2% fall from yesterday's close pauses
   entries (R6), and a 5% fall in the week latches the kill switch (R5).
+* **Splits and bonuses**: the saved prices are adjusted, so after a 1:1 bonus
+  every older bar is halved. Each split or bonus is listed in
+  `data/state/corporate_actions.csv` (`symbol,ex_date,ratio,source,noted_at`;
+  ratio = shares after per share before, so a 1:1 bonus is 2). The replay
+  reads every older ledger line as `qty x ratio` at `price / ratio`, and the
+  paper broker moves its live orders the same way on the ex-date. Profit, loss
+  and R come out the same, and there is no fake drawdown or fake stop hit.
+  `swingbot-refresh` adds the line when Yahoo re-adjusts a stock by a
+  split-sized ratio. You can type one in by hand too. Dividends are not
+  tracked: they shift old marks by a percent or two and are not credited as
+  cash.
 
 The replay idea, start from cash, apply trades in order, mark at each close and
 flag rule breaks, comes from the challenge scoring in

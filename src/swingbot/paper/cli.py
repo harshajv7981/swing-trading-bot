@@ -32,6 +32,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .. import corporate
 from ..data.router import DataConfig, DataError, Router, parse_as_of
 from ..models import IST
 from ..risk.calendar import NSECalendar
@@ -119,7 +120,8 @@ def cmd_stop(args, ledger: Ledger, config) -> int:
 
 
 def _broker(args, config) -> PaperBroker:
-    return PaperBroker(args.book, config, NSECalendar.load(), trail=getattr(args, "trail", False))
+    return PaperBroker(args.book, config, NSECalendar.load(), trail=getattr(args, "trail", False),
+                       actions=corporate.load(args.state_dir))
 
 
 def cmd_submit(args, ledger: Ledger, config) -> int:
@@ -199,7 +201,8 @@ def cmd_close(args, ledger: Ledger, config) -> int:
 
 def _replay(args, ledger: Ledger, config):
     as_of = parse_as_of(args.as_of)
-    records = ledger.records()
+    # In today's shares and prices, to match the split-adjusted bars (swingbot.corporate).
+    records = corporate.adjust_records(ledger.records(), corporate.load(args.state_dir))
     router = Router(DataConfig.load(args.data_config))
     tickers = sorted({r["ticker"].upper() for r in records if r["kind"] != "open"})
     bars: dict[str, pd.DataFrame] = {}

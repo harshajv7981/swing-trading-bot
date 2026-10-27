@@ -35,7 +35,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from .. import alerts, regime
+from .. import alerts, corporate, regime
 from ..cli import briefs_main
 from ..data.router import DataConfig, Router
 from ..events import load_events
@@ -455,9 +455,10 @@ def _verify(day: Day, steps: list[Step]) -> None:
         steps.append(Step("trade verifier", SKIPPED, "no paper account yet"))
         return
     with redirect_stderr(io.StringIO()):
-        rp, _ = _replay(SimpleNamespace(as_of=day.stamp, data_config=day.config.data_config),
+        rp, _ = _replay(SimpleNamespace(as_of=day.stamp, data_config=day.config.data_config,
+                                        state_dir=str(day.state_dir)),
                         Ledger(day.ledger), day.risk)
-    records = Ledger(day.ledger).records()
+    records = corporate.adjust_records(Ledger(day.ledger).records(), corporate.load(day.state_dir))
     links = _links(day)
     store = MemoryStore(day.config.memory_db)
     try:

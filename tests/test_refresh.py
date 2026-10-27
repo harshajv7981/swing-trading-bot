@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from swingbot.data import DataConfig, Router, VendorUnavailable
+from swingbot import corporate
 from swingbot.data import refresh
 from swingbot.data.refresh import RefreshSettings, last_closed_session
 from swingbot.models import IST
@@ -59,6 +60,7 @@ def go(env, now, **kw):
     router, settings, *_ = env
     kw.setdefault("only", ("prices",))
     kw.setdefault("tickers", ["AAA", "BBB"])
+    kw.setdefault("actions_dir", env[3] / "state")
     return refresh.run(router, settings, now=at(now), calendar=CAL, sleep=lambda s: None, **kw)
 
 
@@ -104,6 +106,22 @@ def test_changed_adjustment_downloads_the_whole_file_again(env):
     after = saved(env, "AAA")
     first = after.index[0]
     assert after.loc[first, "close"] == pytest.approx(yahoo.series["AAA"].loc[first, "close"])  # old rows replaced too
+    # The bonus is noted for the paper account: ex-date = the first bar after the saved ones.
+    [action] = corporate.load(env[3] / "state")["AAA"]
+    assert (action.ex_date, action.ratio, action.source, action.noted_at) == \
+        (date(2026, 10, 26), 2.0, "refresh", "2026-10-27 16:00")
+    assert "2-for-1 split or bonus, ex 2026-10-26" in item.detail
+
+
+def test_a_dividend_adjustment_is_not_a_split(env):
+    go(env, "2026-10-23 16:00")
+    yahoo = env[2]
+    bars = yahoo.series["AAA"]
+    old = bars.index <= pd.Timestamp("2026-10-23")
+    yahoo.series["AAA"] = bars.assign(close=bars["close"].where(~old, bars["close"] * 0.985))
+    item = go(env, "2026-10-27 16:00", tickers=["AAA"]).items[0]
+    assert item.status == "rebuilt" and "dividend" in item.detail
+    assert corporate.load(env[3] / "state") == {}
 
 
 def test_one_failure_doesnt_stop_the_rest_and_is_retried_next_time(env):
