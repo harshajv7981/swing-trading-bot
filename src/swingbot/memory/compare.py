@@ -9,7 +9,7 @@ import pandas as pd
 
 from ..metrics import _binom_p_value, summarise
 
-KEYS = ("directional_calls", "hit_rate", "hit_rate_p_value", "avg_trade_ret", "total_trade_ret", "brier", "ic_spearman")
+KEYS = ("directional_calls", "hit_rate", "hit_rate_p_value", "trades", "avg_trade_ret", "total_trade_ret", "brier", "ic_spearman")
 
 
 def _scored(results: pd.DataFrame) -> pd.DataFrame:

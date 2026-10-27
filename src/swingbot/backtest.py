@@ -8,6 +8,17 @@ Timing rules (the part that most often makes a backtest lie):
 * The exit is the close of the Nth trading session, counting the entry session
   as session 1, where N = ceil(horizon_hours / 24). 72h -> 3 sessions.
 * The swarm only receives the NewsEvent. It never sees prices.
+
+Two separate scores come out of each event:
+
+* **Directional accuracy** (`hit`): did the move to the horizon close go the way
+  the call said? Bullish and bearish calls both count. This grades the swarm.
+* **The trade** (`trade_ret`): what the bot would actually have made. The bot
+  is long-only (CNC delivery), so a bearish call is no trade. A bullish call
+  buys at the entry open with the stop and target from the exit planner
+  (risk/exits.py), built only from bars that had closed before the entry. The
+  stop trails per rule R7 after each close. The trade ends at the stop, the
+  target or the horizon close, whichever comes first.
 """
 
 from __future__ import annotations
@@ -20,6 +31,8 @@ import pandas as pd
 
 from .models import IST, NewsEvent, Sentiment, Signal
 from .prices import PriceSource
+from .risk.config import RiskConfig
+from .risk.exits import PlanRefused, plan_exit, trail_stop
 from .swarm.base import SwarmEngine
 from .swarm.recorded import MissingViews
 
@@ -78,6 +91,65 @@ def measure(
     )
 
 
+@dataclass(frozen=True)
+class LongTrade:
+    entry_date: pd.Timestamp
+    exit_date: pd.Timestamp
+    entry: float
+    stop: float  # the initial stop from the exit planner
+    target: float
+    exit_price: float
+    exit_reason: str  # stop, gap_stop, target, gap_target or time
+    final_stop: float  # the stop after trailing, when the trade ended
+
+    @property
+    def ret(self) -> float:
+        return self.exit_price / self.entry - 1
+
+    @property
+    def r_multiple(self) -> float:
+        return (self.exit_price - self.entry) / (self.entry - self.stop)
+
+
+def simulate_long(bars: pd.DataFrame, i: int, sessions: int, ticker: str = "", stop_rule: str = "atr:2",
+                  target_rule: str = "2R", config: RiskConfig | None = None,
+                  trail: bool = True) -> LongTrade:
+    """Buy at the open of bar `i` and hold up to `sessions` sessions with a stop and target.
+
+    The plan uses only bars before `i`, as the bot would have had at the open.
+    Raises PlanRefused when the exit planner would not allow the trade.
+
+    Fills, on daily bars, from the conservative side:
+    * an open at or under the stop sells at the open (a gap through the stop);
+    * an open at or over the target sells at the open (a gap through the target);
+    * a day whose range touches both the stop and the target counts as the stop,
+      since daily bars cannot say which came first;
+    * otherwise the stop or target fills at its own price;
+    * if neither is hit, the trade sells at the last session's close.
+    """
+    config = config or RiskConfig()
+    window = bars.iloc[i : i + sessions]
+    entry_date, entry = window.index[0], float(window["open"].iloc[0])
+    plan = plan_exit(ticker, bars.iloc[:i], entry=entry, stop_rule=stop_rule, target_rule=target_rule, config=config)
+    entry, stop, target = plan.entry, plan.stop, plan.target
+
+    def done(day, price, reason):
+        return LongTrade(entry_date, day, entry, plan.stop, target, float(price), reason, stop)
+
+    for k, (day, bar) in enumerate(window.iterrows()):
+        if k > 0 and bar["open"] <= stop:
+            return done(day, bar["open"], "gap_stop")
+        if k > 0 and bar["open"] >= target:
+            return done(day, bar["open"], "gap_target")
+        if bar["low"] <= stop:
+            return done(day, stop, "stop")
+        if bar["high"] >= target:
+            return done(day, target, "target")
+        if trail:
+            stop, _ = trail_stop(bars.iloc[: i + k + 1], f"{entry_date:%Y-%m-%d}", entry, plan.stop, stop, config)
+    return done(window.index[-1], window["close"].iloc[-1], "time")
+
+
 def sessions_for(signal: Signal) -> int:
     return max(1, math.ceil(signal.horizon_hours / 24))
 
@@ -88,13 +160,20 @@ def run_backtest(
     prices: PriceSource,
     benchmark: str | None = None,
     cost_bps: float = 25.0,
+    stop_rule: str = "atr:2",
+    target_rule: str = "2R",
+    config: RiskConfig | None = None,
+    trail: bool = True,
 ) -> pd.DataFrame:
-    """One row per event: the signal, the realised move, and whether the call was right.
+    """One row per event: the signal, the realised move, whether the call was right,
+    and the long trade the bot would have taken.
 
-    `cost_bps` is the round-trip cost charged on every directional call. 25 bps
+    `cost_bps` is the round-trip cost charged on every trade taken. 25 bps
     is a rough figure for NSE delivery trades (STT, exchange fees, stamp duty,
-    GST and some slippage); tune it to your broker.
+    GST and some slippage); tune it to your broker. `stop_rule`, `target_rule`
+    and `config` go to the exit planner; see risk/exits.py.
     """
+    config = config or RiskConfig()
     bench = prices.daily(benchmark) if benchmark else None
     rows = []
     for ev in events:
@@ -123,7 +202,8 @@ def run_backtest(
             rationale=signal.rationale,
         )
 
-        out = measure(bars, ev, sessions_for(signal), bench)
+        sessions = sessions_for(signal)
+        out = measure(bars, ev, sessions, bench)
         if out is None:
             rows.append({**row, "status": "insufficient_bars"})
             continue
@@ -142,10 +222,35 @@ def run_backtest(
             max_up=out.max_up,
             max_down=out.max_down,
             hit=(None if direction == 0 else bool(direction * out.ret > 0)),
-            trade_ret=(0.0 if direction == 0 else direction * out.ret - cost_bps / 1e4),
         )
+        row.update(_trade_columns(signal, bars, entry_index(bars, ev), sessions, cost_bps,
+                                  stop_rule, target_rule, config, trail))
         rows.append(row)
     return pd.DataFrame(rows)
 
 
-__all__ = ["run_backtest", "measure", "entry_index", "Outcome", "Sentiment"]
+def _trade_columns(signal: Signal, bars: pd.DataFrame, i: int, sessions: int, cost_bps: float,
+                   stop_rule: str, target_rule: str, config: RiskConfig, trail: bool) -> dict:
+    """The trade fields of a result row. No trade means trade_ret 0.0: the money stayed in cash."""
+    if signal.sentiment is not Sentiment.BULLISH:
+        why = "bearish: long-only, no short" if signal.sentiment is Sentiment.BEARISH else "neutral"
+        return {"traded": False, "no_trade_reason": why, "trade_ret": 0.0}
+    try:
+        t = simulate_long(bars, i, sessions, signal.ticker, stop_rule, target_rule, config, trail)
+    except PlanRefused as e:
+        return {"traded": False, "no_trade_reason": f"plan refused: {e}", "trade_ret": 0.0}
+    return {
+        "traded": True,
+        "no_trade_reason": None,
+        "trade_entry": t.entry,
+        "trade_stop": t.stop,
+        "trade_target": t.target,
+        "trade_exit_date": t.exit_date.date().isoformat(),
+        "trade_exit_price": t.exit_price,
+        "exit_reason": t.exit_reason,
+        "trade_r": t.r_multiple,
+        "trade_ret": t.ret - cost_bps / 1e4,
+    }
+
+
+__all__ = ["run_backtest", "measure", "entry_index", "simulate_long", "Outcome", "LongTrade", "Sentiment"]

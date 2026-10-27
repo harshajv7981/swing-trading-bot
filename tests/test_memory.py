@@ -152,3 +152,24 @@ def test_compare_pairs_events():
     c = compare(without, with_)
     assert c["events"] == 2  # only a and b were scored by both
     assert c["calls_changed"] == 1 and c["memory_better"] == 1 and c["memory_worse"] == 0
+
+
+def test_verifier_brief_says_what_the_long_only_bot_did():
+    from swingbot.memory.verifier import review_brief
+
+    base = {"event_id": "e1", "ticker": "X", "published_at": "2026-07-01T08:00:00+05:30", "headline": "h",
+            "status": "ok", "confidence": 0.6, "score": 0.4, "rationale": "r", "entry_date": "2026-07-01",
+            "exit_date": "2026-07-03", "ret": -0.02, "bench_ret": 0.0, "max_up": 0.01, "max_down": -0.03}
+    df = pd.DataFrame([
+        {**base, "sentiment": "bearish", "hit": True, "trade_ret": 0.0, "traded": False,
+         "no_trade_reason": "bearish: long-only, no short"},
+        {**base, "event_id": "e2", "sentiment": "bullish", "hit": False, "trade_ret": -0.0425, "traded": True,
+         "trade_entry": 100.0, "trade_stop": 96.0, "trade_target": 108.0, "trade_exit_date": "2026-07-02",
+         "trade_exit_price": 96.0, "exit_reason": "stop", "trade_r": -1.0},
+    ])
+    short, long_ = from_results(df, "base")
+    assert short.extra["trade"] == {"traded": False, "no_trade_reason": "bearish: long-only, no short"}
+    rows = [{**t.__dict__, "trade_id": t.trade_id, "extra": json.dumps(t.extra)} for t in (short, long_)]
+    brief = review_brief(rows)
+    assert "Call was right. No trade (bearish: long-only, no short)." in brief
+    assert "Bot bought at 100.00, stop 96.00, target 108.00; out on 2026-07-02 at 96.00 (stop)" in brief

@@ -49,11 +49,22 @@ daily OHLC  ──> entry/exit rules ──┴──> hit / miss, return after c
    day enters at that day's open; anything later enters at the next session's
    open. The exit is the close of session N, where N = ceil(horizon / 24h), so
    72h means 3 sessions.
-4. **Scoring** (`src/swingbot/metrics.py`). Hit rate with a coin-flip p-value,
-   average return per call after a round-trip cost (default 25 bps), a
-   confidence-weighted return, Brier score for confidence calibration, rank IC
-   of crowd score against the move, an always-long baseline, and the return
-   against a benchmark when one is given.
+4. **Scoring** (`src/swingbot/metrics.py`). Two scores, kept apart:
+   * *Directional accuracy* grades the swarm: hit rate of every bullish and
+     bearish call against the move to the horizon close, with a coin-flip
+     p-value, Brier score for confidence calibration, rank IC of crowd score
+     against the move, and the move against a benchmark when one is given.
+   * *Long-only trades* are what the bot would have made. It only buys (CNC
+     delivery), so a bearish call is no trade. A bullish call buys at the entry
+     open with the stop and target from the exit planner (`--stop-rule atr:2`,
+     `--target-rule 2R`, ticks from `config/risk.toml`), planned only from bars
+     that had closed before the entry; the stop trails per R7 (`--no-trail`
+     turns that off). The trade ends at the stop, the target or the horizon
+     close. A gap through the stop or target fills at the open, and a day that
+     touches both counts as the stop. Reported: trades, win rate, average and
+     total return after a round-trip cost (default 25 bps), confidence-weighted
+     return, average R, exit reasons, calls not traded, and an always-long
+     baseline.
 
 Each run writes `runs/<timestamp>-<engine>/results.csv` (one row per event,
 including each persona's view) and `summary.json`.
