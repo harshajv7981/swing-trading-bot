@@ -281,3 +281,12 @@ def test_daily_loop_hooks(tmp_path, monkeypatch):
     assert step.status == "ok" and "buy 100 ABC @ 99.00 (entry-gap)" in step.detail
     [_, buy] = ledger.records()
     assert buy["fingerprint"] == "f" * 16 and buy["verdict"] == "PASS"
+
+
+def test_a_morning_submit_is_live_that_same_session(tmp_path):
+    # The daily loop submits before 09:15 with a PASS from the same morning.
+    b = broker(tmp_path)
+    b.submit(ticket(checked="2026-01-05 08:40"), "2026-01-05 08:45")
+    assert b.open_orders()[0]["session"] == "2026-01-05"
+    [buy] = b.sync("2026-01-05 18:00", {"ABC": ohlc(*flat(1))})
+    assert buy.at.startswith("2026-01-05")
