@@ -24,3 +24,21 @@ def refresh(day) -> Step:
         return Step("data refresh", OK, detail)
     failed = report.failed()
     return Step("data refresh", FAILED, f"{detail}; {len(failed)} item(s) failed, older data is used for them")
+
+
+def broker_settle(day) -> Step:
+    """`swingbot.broker.daily.settle` (the paper broker) when installed, else the stub."""
+    try:
+        from ..broker.daily import settle
+    except ImportError:
+        return stubs.broker_settle(day)
+    return settle(day)
+
+
+def broker_submit(day, tickets) -> Step:
+    """`swingbot.broker.daily.submit` (the paper broker) when installed, else the stub."""
+    try:
+        from ..broker.daily import submit
+    except ImportError:
+        return stubs.broker_submit(day, tickets)
+    return submit(day, tickets)
