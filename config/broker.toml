@@ -1,0 +1,12 @@
+# The Dhan adapter (swingbot-dhan; src/swingbot/broker/dhan.py).
+#
+# Credentials go in the environment, never here:
+#   SWINGBOT_DHAN_CLIENT_ID and SWINGBOT_DHAN_TOKEN  (DhanHQ DevPortal, Sandbox tab)
+#
+# R11: "live" also needs SWINGBOT_DHAN_LIVE=yes in the environment, and even
+# then this version is read-only in live mode. Leave it on sandbox.
+[dhan]
+mode = "sandbox"                          # sandbox | live
+state_dir = "data/state"                  # dhan_book.json, dhan_rate.json (R10)
+scrip_master = "data/state/dhan_scrips.csv"
+flatten_unprotected = true                # R1: sell at market when no stop is confirmed in 60 s

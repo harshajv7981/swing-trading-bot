@@ -1,5 +1,5 @@
 """Brokers behind one interface: the paper broker that fills tickets from daily bars,
-and the shape of the Dhan adapter. Nothing here places a real order."""
+and the Dhan adapter for Dhan's sandbox. Nothing here places a real-money order."""
 
 from .base import Broker, Fill, OrderRefused, StopMove, record_fills
 from .paper import PaperBroker
