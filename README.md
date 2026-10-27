@@ -5,8 +5,8 @@ simulation, strict risk guardrails and post-trade learning memory. Paper trading
 
 This repository is at **Phase 1: the headless sandbox**. It replays historical
 news for NSE stocks through a multi-agent persona swarm and checks the swarm's
-calls against what prices actually did. There is no broker code and nothing here
-can place an order.
+calls against what prices actually did. The only broker is a simulated paper
+broker, and nothing here can place a real order.
 
 ## Quick start
 
@@ -331,6 +331,47 @@ flag rule breaks, comes from the challenge scoring in
 [HKUDS/AI-Trader](https://github.com/HKUDS/AI-Trader) (its README says MIT, but
 the repository has no licence file); the code and rules are this repo's own.
 
+### The paper broker
+
+Instead of typing fills in, hand the paper broker the ticket and let it fill
+from daily bars. It writes every fill to the same ledger.
+
+```bash
+swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json
+swingbot-paper submit runs/risk/ticket.json --at "2026-11-02 18:00"   # live for the next session only
+swingbot-paper settle --as-of "2026-11-03 18:00" --trail             # after each day's prices are in
+swingbot-paper orders                                                # the book
+swingbot-paper close RELIANCE                                        # sell at the next open
+swingbot-paper cancel P00003                                         # an entry that has not filled
+```
+
+* **Entry**, a DAY limit buy: fills at the open if the stock opens at or under
+  the limit, else at the limit if the low trades *under* it (a touch is not
+  enough, there is a queue), else it lapses at the close.
+* **Exits**, one OCO, both legs MARKET as the ticket writes them. Dhan takes no
+  Forever Order on shares bought today, so the OCO is live from the next
+  session: the entry day and the night after it have no stop at the broker.
+  An open at or under the stop sells at the open (a gap: worse than 1R, but
+  taken); an open at or over the target sells at the open; else the stop sells
+  at the stop when the low reaches it, and the target at the target when the
+  high does. When one bar reaches both, the stop is assumed to have come first.
+  Every market sell gives up 5 bps of slippage.
+* **Trailing**: with `--trail`, R7 runs after each close and moves the stop for
+  the next session; `swingbot-paper stop` moves it by hand. Stops never go down.
+* **Times**: 09:15 for fills at the open, 15:30 for fills during the session,
+  whose real time a daily bar does not have.
+* **The book** (`data/state/paper_broker.json`, git-ignored) is saved only
+  after the fills are in the ledger. If a stock's prices are behind, the whole
+  book waits rather than letting an order lapse unseen. It refuses a ticket not
+  marked paper_only, one whose PASS is older than the session before the
+  entry, a second order in a stock it already holds, and any entry while the
+  kill switch is latched.
+* **Same interface as Dhan**: `swingbot.broker` defines `submit`, `cancel`,
+  `close`, `modify_stop`, `sync` and `open_orders`. `DhanBroker` is that shape
+  with each method mapped to its DhanHQ endpoint in the docstring, and every
+  method raises: it places nothing until it is built and tested in Dhan's
+  sandbox.
+
 ## Persona scorecard: `swingbot-scorecard`
 
 Scores each persona's final stance, the judge and the final call as separate
@@ -365,6 +406,6 @@ not change persona weights. The leaderboard idea is from AI-Trader.
 
 Following the blueprint: Phase 2 (the Verifier and episodic memory) is in place
 and needs a real walk-forward run to show whether it helps. The paper account
-(`swingbot-paper`) is ready to record fills. Phase 3 adds paper trading through the DhanHQ API with
+(`swingbot-paper`) and the paper broker that fills tickets are ready. Phase 3 adds paper trading through the DhanHQ API with
 bracket orders, 1 to 2 percent position sizing and a weekly kill switch.
 Live money comes only after months of paper trading.
