@@ -48,6 +48,11 @@ result worthless, and nobody will be able to tell.
 
    Read `runs/brief.md`. It holds the persona descriptions and the events.
 
+   A brief only holds events from one IST day (the earliest still to do), in
+   publication order. Judge each event only from its own block and the events
+   above it, as the brief's time rule says; a story further down hadn't broken
+   yet. Use `--limit 1` if you want every event judged on its own.
+
    If the user wants the swarm to see charts as well as news, add
    `--with-technicals <prices dir>`. Each event then carries a technical
    snapshot (trend, RSI, MACD, Bollinger, ATR, volume) built only from sessions

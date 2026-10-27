@@ -9,6 +9,7 @@ from swingbot.memory import ClosedTrade, Lesson, MemoryStore, from_results, simi
 from swingbot.memory.cli import main as memory_main
 from swingbot.memory.compare import compare
 from swingbot.models import IST, NewsEvent
+from swingbot.swarm import DEFAULT_PERSONAS
 
 
 def ts(s):
@@ -90,11 +91,17 @@ def test_briefs_with_lessons_and_audit(tmp_path, store):
                       "e3,DEMOINFRA,2026-07-20 08:00,DemoInfra highway contract\n")
     out = tmp_path / "brief.md"
     db = str(tmp_path / "m.db")
-    briefs_main(["--events", str(events), "--out", str(out), "--with-lessons", db, "--until", "2026-07-15"])
-    text = out.read_text()
-    assert "e3" not in text  # outside the window
-    e1, e2 = text.split("### e2")
+    args = ["--events", str(events), "--out", str(out), "--with-lessons", db, "--until", "2026-07-15"]
+    briefs_main(args)
+    e1 = out.read_text()
+    assert "### e1" in e1 and "e2" not in e1 and "e3" not in e1  # one day per brief
     assert "faded fast" not in e1  # lesson's trade hadn't closed on 2 July
+    views = tmp_path / "views.jsonl"
+    views.write_text("\n".join(json.dumps({"event_id": "e1", "persona": p.name, "stance": 0.1,
+                                           "conviction": 0.5}) for p in DEFAULT_PERSONAS))
+    briefs_main(args + ["--views", str(views)])
+    e2 = out.read_text()
+    assert "### e2" in e2 and "e3" not in e2  # e3 is outside the window
     assert "faded fast" in e2
     assert memory_main(["--db", db, "audit"]) == 0
 
