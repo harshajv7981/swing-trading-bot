@@ -7,7 +7,8 @@ reads, and the gate records every verdict with the order's fingerprint.
     swingbot-risk plan RELIANCE --stop atr:2 --target 2R --out runs/plan.json
     swingbot-risk odds runs/plan.json --hold 10      # the Time Machine
     swingbot-risk size runs/plan.json --portfolio portfolio.json --mood runs/mood.json --out runs/order.json
-    swingbot-risk check runs/order.json --portfolio portfolio.json --results-date 2026-11-14
+    swingbot-risk results                         # next results dates from board meeting notices (R9)
+    swingbot-risk check runs/order.json --portfolio portfolio.json   # R9 reads those dates
     swingbot-risk ticket runs/order.json --out runs/ticket.json   # paper only
     swingbot-risk orders runs/signals.jsonl --portfolio portfolio.json --mood runs/mood.json  # all of it, per call
     swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
@@ -42,6 +43,7 @@ from .ticket import describe as describe_ticket
 from .timemachine import NotEnoughHistory
 from .timemachine import run as run_timemachine
 from .. import regime
+from . import results
 
 
 def _bars(ticker: str, as_of: pd.Timestamp, data_config: str | None) -> pd.DataFrame:
@@ -125,7 +127,7 @@ def cmd_check(args, config: RiskConfig) -> int:
             print(f"note: no price history for the trend filter ({e})", file=sys.stderr)
     verdict = check_order(
         order, Portfolio.load(args.portfolio), config, bars=bars, today=as_of.date(),
-        results_date=date.fromisoformat(args.results_date) if args.results_date else None,
+        results_date=_results_date(args, order.ticker, as_of),
         calendar=NSECalendar.load(), kill_switch_latched=switch.latched, last_price=args.price,
         mood=_mood(args.mood),
     )
@@ -150,6 +152,37 @@ def cmd_ticket(args, config: RiskConfig) -> int:
     return 0
 
 
+def _results_dates(args, router: Router, as_of: pd.Timestamp) -> dict:
+    """Next results dates from the board meeting notices in the events file, plus hand-typed ones (R9)."""
+    return results.from_router(router, as_of, Path(args.state_dir) / "results_dates.csv")
+
+
+def _results_date(args, ticker: str, as_of: pd.Timestamp):
+    if args.results_date:
+        return date.fromisoformat(args.results_date)
+    return _results_dates(args, Router(DataConfig.load(args.data_config)), as_of).get(ticker.upper())
+
+
+def cmd_results(args, config: RiskConfig) -> int:
+    as_of = parse_as_of(args.as_of)
+    dates = _results_dates(args, Router(DataConfig.load(args.data_config)), as_of)
+    if args.ticker:
+        dates = {t: d for t, d in dates.items() if t in {x.upper() for x in args.ticker}}
+    if not dates:
+        print("no results dates known: collect NSE board meeting notices with "
+              "`swingbot-refresh --accept-nse-terms`, or type them into "
+              f"{Path(args.state_dir) / 'results_dates.csv'} (symbol,date)")
+        return 1
+    cal = NSECalendar.load()
+    for t, d in dates.items():
+        n = cal.sessions_between(as_of.date(), d)
+        print(f"{t:<12} {d}  {n} sessions away" + ("  (blackout: no new entry)" if n <= config.results_blackout_sessions else ""))
+    if args.out:
+        results.write_csv(dates, args.out)
+        print(f"wrote {args.out}")
+    return 0
+
+
 def cmd_orders(args, config: RiskConfig) -> int:
     as_of = parse_as_of(args.as_of)
     router = Router(DataConfig.load(args.data_config))
@@ -157,7 +190,8 @@ def cmd_orders(args, config: RiskConfig) -> int:
     decisions = decide(
         read_calls(args.signals), as_of=as_of, portfolio=Portfolio.load(args.portfolio),
         fetch_bars=lambda ticker: router.fetch("prices", ticker, as_of)[1], config=config,
-        rules=SignalRules.load(args.rules), mood=mood, results_dates=load_results_dates(args.results_dates),
+        rules=SignalRules.load(args.rules), mood=mood,
+        results_dates={**_results_dates(args, router, as_of), **load_results_dates(args.results_dates)},
         sectors=load_sectors(), calendar=NSECalendar.load(), kill_switch=KillSwitch(args.state_dir),
         verdict_log=None if args.no_write else Path(args.state_dir) / "risk_verdicts.jsonl",
     )
@@ -249,7 +283,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("check", help="PASS or BLOCK one order")
     s.add_argument("order")
     s.add_argument("--portfolio", required=True)
-    s.add_argument("--results-date", help="the company's next results date, YYYY-MM-DD")
+    s.add_argument("--results-date", help="the company's next results date, YYYY-MM-DD "
+                                          "(default: from NSE board meeting notices, see `results`)")
     s.add_argument("--price", type=float, help="a fresh price; risk is measured from the higher of it and the entry")
     s.add_argument("--as-of")
     s.add_argument("--mood", help="a swingbot-risk mood file (default: the one the order was sized under)")
@@ -271,6 +306,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--out-dir", default="runs/orders", help="writes <out-dir>/<date>/ (default runs/orders)")
     s.add_argument("--no-write", action="store_true", help="dry run: log no verdicts, latch nothing, write no files")
 
+    s = sub.add_parser("results", help="next results dates from NSE board meeting notices (R9)")
+    s.add_argument("ticker", nargs="*", help="only these symbols")
+    s.add_argument("--as-of", help="YYYY-MM-DD or 'YYYY-MM-DD HH:MM' IST; default now")
+    s.add_argument("--out", help="write a symbol,date CSV")
+
     s = sub.add_parser("trail", help="the trailing stop for an open position (R7)")
     s.add_argument("ticker")
     s.add_argument("--entry-date", required=True)
@@ -287,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = p.parse_args(argv)
     commands = {"mood": cmd_mood, "plan": cmd_plan, "odds": cmd_odds, "size": cmd_size, "check": cmd_check,
-                "ticket": cmd_ticket, "orders": cmd_orders, "trail": cmd_trail, "kill-switch": cmd_kill_switch}
+                "ticket": cmd_ticket, "orders": cmd_orders, "results": cmd_results, "trail": cmd_trail, "kill-switch": cmd_kill_switch}
     try:
         return commands[args.cmd](args, RiskConfig.load(args.config))
     except (PlanRefused, SizingRefused, TicketRefused, NotEnoughHistory, ResetRefused) as e:
