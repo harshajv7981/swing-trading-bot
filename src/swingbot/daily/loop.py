@@ -402,7 +402,8 @@ def _gate(day: Day, orders: list[Order], signals: list[dict], steps: list[Step])
 
 def _link(day: Day, order: Order, ticket: dict, signals: list[dict]) -> None:
     """Remember which news an entry came from, so the Verifier can see it when the trade closes."""
-    mine = [s for s in signals if s["ticker"] == order.ticker]
+    call = (order.plan or {}).get("call")  # signal-to-order names the event it sized, when it can
+    mine = [s for s in signals if s["event_id"] == call] or [s for s in signals if s["ticker"] == order.ticker]
     signal = max(mine, key=lambda s: s["confidence"]) if mine else None
     log = day.state_dir / ENTRIES_LOG
     log.parent.mkdir(parents=True, exist_ok=True)

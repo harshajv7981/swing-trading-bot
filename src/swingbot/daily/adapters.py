@@ -42,3 +42,12 @@ def broker_submit(day, tickets) -> Step:
     except ImportError:
         return stubs.broker_submit(day, tickets)
     return submit(day, tickets)
+
+
+def signal_to_order(day, signals, portfolio, mood) -> list:
+    """`swingbot.risk.signals.daily_hook` (signal-to-order) when installed, else the stub."""
+    try:
+        from ..risk.signals import daily_hook
+    except ImportError:
+        return stubs.signal_to_order(day, signals, portfolio, mood)
+    return daily_hook(day, signals, portfolio, mood)
