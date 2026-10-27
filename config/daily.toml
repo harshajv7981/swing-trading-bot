@@ -25,3 +25,16 @@ with_technicals = true  # a technical snapshot per stock, from closed sessions o
 with_context = true     # the week's earlier news and filings, and the latest results
 with_mood = true        # the market mood (R12)
 with_lessons = true     # past lessons from runs/memory.db, once it exists
+
+[alerts]
+# Phone alerts for fills, stops, a stop that lapsed, the kill switch latch and
+# failed steps (see src/swingbot/alerts.py). Secrets go in the environment,
+# never here:
+#   ntfy      SWINGBOT_NTFY_TOPIC = a long topic name only you know (free, no account)
+#   telegram  SWINGBOT_TELEGRAM_TOKEN and SWINGBOT_TELEGRAM_CHAT_ID (a bot from @BotFather)
+# With "none" alerts are only logged to data/state/alerts.jsonl and the summary.
+channel = "none"        # none | ntfy | telegram
+# ntfy_server = "https://ntfy.sh"
+fills = true            # every paper buy and sell
+orders = true           # each paper entry placed for the next session
+failures = true         # a loop step that failed

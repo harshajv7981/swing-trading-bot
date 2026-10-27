@@ -13,6 +13,7 @@ the loop has to stop and wait for it. Each half writes into
 `runs/daily/<date>/`, and `day.json` there carries what `start` decided to
 `finish`.
 
+Each half ends with phone alerts (`swingbot.alerts`) for what changed.
 Settling, the report and the Verifier always run. New entries only happen on
 an NSE session day, before the 15:30 close, with a paper account, and with the
 kill switch unlatched. Every order goes through `swingbot-risk check` and
@@ -34,7 +35,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from .. import regime
+from .. import alerts, regime
 from ..cli import briefs_main
 from ..data.router import DataConfig, Router
 from ..events import load_events
@@ -75,6 +76,7 @@ class DailyConfig:
     with_context: bool = True
     with_mood: bool = True
     with_lessons: bool = True
+    alerts: alerts.AlertConfig = field(default_factory=alerts.AlertConfig)
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "DailyConfig":
@@ -100,6 +102,7 @@ class DailyConfig:
             data_config=opt(paths, "data_config"),
             batch=int(brief.get("batch", 10)),
             **{k: bool(brief.get(k, True)) for k in ("with_technicals", "with_context", "with_mood", "with_lessons")},
+            alerts=alerts.AlertConfig.from_toml(raw.get("alerts", {})),
         )
 
 
@@ -118,6 +121,7 @@ class Day:
         self.hooks = {name: load_hook(spec) for name, spec in self.config.hooks.items()}
         self.hooks.update(hooks or {})
         self.notes: list[str] = []
+        self.alert_sender = None  # replaces the configured channel (tests)
 
     def note(self, msg: str) -> None:
         self.notes.append(msg)
@@ -205,11 +209,24 @@ def start(day: Day) -> dict:
         steps.append(Step("swarm brief", SKIPPED, "no new entries today, so the swarm is not needed"))
     else:
         steps.append(brief(day, state))
+    steps.append(_alerts(day, steps))
     state["steps"] = [s.to_json() for s in steps]
     state["notes"] = list(day.notes)
     day.dir.mkdir(parents=True, exist_ok=True)
     day.path("day.json").write_text(json.dumps(state, indent=2) + "\n")
     return state
+
+
+def _alerts(day: Day, steps: list[Step]) -> Step:
+    """Phone alerts for what changed since the last run. A channel that fails never stops the loop."""
+    try:
+        d = alerts.dispatch(day.ledger, day.state_dir, day.config.alerts, f"{day.as_of:%Y-%m-%d}",
+                            [s.to_json() for s in steps], send=day.alert_sender)
+    except Exception as e:  # noqa: BLE001
+        return Step("alerts", FAILED, f"{type(e).__name__}: {e}")
+    channel = day.config.alerts.channel
+    where = "logged only (channel none)" if channel == "none" else f"via {channel}"
+    return Step("alerts", FAILED if d.failed and not d.sent else OK, f"{where}: {d.detail()}")
 
 
 def _portfolio(day: Day, steps: list[Step]) -> Portfolio | None:
@@ -328,6 +345,7 @@ def finish(day: Day) -> dict:
 
     report = _report(day, steps)
     _verify(day, steps)
+    steps.append(_alerts(day, steps))
     result = {"as_of": day.stamp, "phase": ph, "entries": not why_not, "why_not": why_not,
               "signals": signals, "tickets": tickets, "steps": [s.to_json() for s in steps],
               "notes": list(day.notes)}
