@@ -15,7 +15,7 @@ def refresh(day) -> Step:
     except ImportError:
         return stubs.refresh(day)
     try:
-        report = run(Router(day.data), now=day.as_of, calendar=day.calendar)
+        report = run(Router(day.data), now=day.as_of, calendar=day.calendar, actions_dir=day.state_dir)
     except RuntimeError as e:  # another refresh holds the lock
         return Step("data refresh", FAILED, f"{e}; going on with the data already saved")
     text = report.text().strip().splitlines()

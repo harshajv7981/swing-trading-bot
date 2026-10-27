@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from . import corporate
 from .data.router import DataConfig, DataError, Router
 from .models import IST
 from .paper.cli import BENCHMARK
@@ -69,7 +70,7 @@ def gather(src: Sources, as_of=None) -> dict:
     """Everything the page shows, as plain data. Read-only."""
     as_of = pd.Timestamp(as_of, tz=IST) if as_of is not None else pd.Timestamp.now(IST)
     config = RiskConfig.load(src.risk_config)
-    records = Ledger(src.ledger).records()
+    records = corporate.adjust_records(Ledger(src.ledger).records(), corporate.load(src.state_dir))
     out: dict = {"as_of": f"{as_of:%Y-%m-%d %H:%M}", "has_account": any(r["kind"] == "open" for r in records),
                  "kill_pct": config.weekly_kill_pct, "risk_pct": config.risk_pct}
     switch = _read_json(Path(src.state_dir) / "kill_switch.json", {"latched": False})

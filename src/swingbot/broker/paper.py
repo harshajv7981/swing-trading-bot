@@ -38,6 +38,10 @@ A close sells at the next session's open and cancels the OCO. Trailing (R7,
 `trail_stop`) runs after each close when asked and moves the stop for the next
 session; stops never move down.
 
+Splits and bonuses (`swingbot.corporate`): on an ex-date, a live order placed
+before the action was noted gets its quantity multiplied and its prices divided
+by the ratio, so it keeps matching the adjusted bars it settles on.
+
 Fill times are 09:15 for the open and 15:30 for anything during the session,
 whose real time a daily bar does not have.
 """
@@ -51,6 +55,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .. import corporate
 from ..models import IST
 from ..risk.calendar import NSECalendar
 from ..risk.config import RiskConfig
@@ -78,8 +83,9 @@ class PaperBroker:
 
     def __init__(self, path: str | Path = DEFAULT_BOOK, config: RiskConfig | None = None,
                  calendar: NSECalendar | None = None, slippage_bps: float = DEFAULT_SLIPPAGE_BPS,
-                 trail: bool = False):
+                 trail: bool = False, actions: dict | None = None):
         self.path = Path(path)
+        self.actions = actions or {}   # corporate.load(state_dir): splits and bonuses
         self.config = config or RiskConfig()
         self.calendar = calendar or NSECalendar()
         self.slippage_bps = slippage_bps
@@ -220,6 +226,7 @@ class PaperBroker:
         days = sorted({d for t in live for d in bars[t].index if (start is None or d > start) and d <= cutoff})
         events: list[Fill | StopMove] = []
         for day in days:
+            self._corporate(f"{day:%Y-%m-%d}")
             for t in live:
                 if day in bars[t].index:
                     events += self._settle(t, day, bars[t])
@@ -232,6 +239,26 @@ class PaperBroker:
         if cutoff < as_of_day and live:
             self.notes.append(f"settled to {cutoff:%Y-%m-%d}; prices for a live ticker end there")
         return events
+
+    def _corporate(self, d: str) -> None:
+        """Move live orders onto the adjusted bars on a split or bonus ex-date (see the module notes)."""
+        tick = self.config.tick
+        for o in self.open_orders():
+            for a in self.actions.get(o["ticker"], []):
+                ex = a.ex_date.isoformat()
+                if ex > d or ex in o.get("actions", []) or o.get("submitted_at", "") >= a.noted:
+                    continue
+                r = a.ratio
+                o["qty"] = corporate.shares(o["qty"], r)
+                for k in ("limit", "entry_price"):
+                    if o.get(k) is not None:
+                        o[k] = round(o[k] / r, 2)
+                for k in ("stop", "initial_stop", "stop_limit", "target"):
+                    if o.get(k):
+                        o[k] = round_down(o[k] / r, tick)
+                o["actions"] = o.get("actions", []) + [ex]
+                self.notes.append(f"{o['id']} {o['ticker']}: {a.ratio:g}-for-1 split or bonus on {ex}; "
+                                  f"now {o['qty']} shares, stop {o['stop']:,.2f}")
 
     def _settle(self, ticker: str, day: pd.Timestamp, b: pd.DataFrame) -> list[Fill | StopMove]:
         row = b.loc[day]
@@ -268,7 +295,8 @@ class PaperBroker:
                        "entry_id": entry["id"], "entry_price": price, "entry_session": d,
                        "live_from": self._next_session(_ts(f"{d} {AFTER_CLOSE}")).isoformat(), "stop": entry["stop"],
                        "initial_stop": entry["stop"], "stop_limit": entry["stop_limit"], "target": entry["target"],
-                       "exit_by": entry.get("exit_by")}
+                       "exit_by": entry.get("exit_by"), "submitted_at": entry["submitted_at"],
+                       "actions": list(entry.get("actions", []))}
                 self.orders.append(oco)
 
         if oco and oco["status"] == "open" and oco.get("exit_by") and d >= oco["exit_by"]:

@@ -302,7 +302,7 @@ def test_refresh_adapter_wraps_the_refresh_report(repo, monkeypatch):
         def text(self): return "prices: 3 updated, 1 failed"
         def failed(self): return ["X"]
 
-    def fake_run(router, now=None, calendar=None):
+    def fake_run(router, now=None, calendar=None, actions_dir=None):
         seen.update(router=router, now=now)
         return Report()
 
@@ -360,3 +360,15 @@ def test_the_ticket_carries_the_time_exit_from_the_order(repo):
     write_views(Day(MORNING, config(repo), hooks.make()))
     finish(Day("2026-11-03 08:50", config(repo), hooks.make()))
     assert hooks.tickets[0]["hold"] == hold
+
+
+def test_finish_survives_a_weekly_breach_in_the_ledger_history(repo):
+    # The Verifier's replay used to look for a state_dir it was never given, and crash finish.
+    open_account(repo)
+    Ledger(repo / "ledger.jsonl").append({"kind": "fill", "at": "2026-10-05 09:15", "ticker": "ABC", "side": "buy",
+                                          "qty": 1000, "price": 400.0, "stop": 380.0, "target": 440.0,
+                                          "verdict": "PASS", "sector": "Tech"})
+    start(Day(MORNING, config(repo), Hooks().make()))
+    result = finish(Day("2026-11-03 08:50", config(repo), Hooks().make()))
+    assert any(s["name"] == "trade verifier" for s in result["steps"])
+    assert KillSwitch(repo / "state").latched

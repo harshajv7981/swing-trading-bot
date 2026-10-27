@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .. import corporate
 from ..data.router import DataError, Router
 from ..paper.ledger import Ledger
 from ..risk.gate import KillSwitch
@@ -23,7 +24,8 @@ from .paper import PaperBroker
 
 
 def _broker(day) -> PaperBroker:
-    return PaperBroker(Path(day.state_dir) / "paper_broker.json", day.risk, day.calendar, trail=True)
+    return PaperBroker(Path(day.state_dir) / "paper_broker.json", day.risk, day.calendar, trail=True,
+                       actions=corporate.load(day.state_dir))
 
 
 def settle(day):

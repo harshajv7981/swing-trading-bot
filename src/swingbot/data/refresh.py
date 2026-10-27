@@ -16,8 +16,11 @@ Everything goes where the data router reads it (config/data_sources.toml), so
   (Yahoo today) and are added to `<prices_dir>/<TICKER>.csv`. A few saved days
   are fetched again each time; if Yahoo's adjusted closes for those days have
   moved (a split, bonus or dividend since the last run), the whole file is
-  downloaded again, because adjusted and unadjusted bars can't be mixed. A bar
-  for a session that hasn't closed yet is never saved.
+  downloaded again, because adjusted and unadjusted bars can't be mixed. When
+  the old closes are a split-sized multiple of the new ones (a split or bonus,
+  not a dividend), the action goes in `data/state/corporate_actions.csv`, so
+  the paper account and broker follow it (`swingbot.corporate`). A bar for a
+  session that hasn't closed yet is never saved.
 * News: GDELT headlines since the last successful run for each stock (one day
   of overlap, since GDELT can see an article late), merged into the events file.
 * Filings: NSE announcements the same way, only with --accept-nse-terms (or
@@ -47,7 +50,7 @@ from typing import Callable
 
 import pandas as pd
 
-from .. import news
+from .. import corporate, news
 from ..models import IST
 from ..prices import CSVPriceSource
 from ..regime import SERIES as MOOD_SERIES
@@ -150,8 +153,11 @@ def _saved(prices_dir: Path, ticker: str) -> pd.DataFrame | None:
         return None
 
 
+DEFAULT_ACTIONS_DIR = Path("data/state")   # where corporate_actions.csv lives, beside the paper ledger
+
+
 def refresh_prices(router: Router, tickers: list[str], now: pd.Timestamp,
-                   calendar: NSECalendar | None = None) -> list[Item]:
+                   calendar: NSECalendar | None = None, actions_dir: Path | None = DEFAULT_ACTIONS_DIR) -> list[Item]:
     calendar = calendar or NSECalendar.load()
     prices_dir = Path(router.config.prices_dir)
     target = last_closed_session(now, calendar)
@@ -171,9 +177,9 @@ def refresh_prices(router: Router, tickers: list[str], now: pd.Timestamp,
                 vendor, full = router.download("prices", t, saved.index[0].date(), today)
                 full = bars_known_at(full, now)
                 write_bars(prices_dir / f"{t}.csv", full)
+                why = _split(t, saved, full, now, calendar, actions_dir)
                 items.append(Item("prices", t, "rebuilt",
-                                  f"{vendor} adjusted closes changed (split, bonus or dividend); "
-                                  f"downloaded {len(full)} bars again",
+                                  f"{vendor} adjusted closes changed ({why}); downloaded {len(full)} bars again",
                                   int((full.index > saved.index[-1]).sum())))
                 continue
         except DataError as e:
@@ -187,6 +193,26 @@ def refresh_prices(router: Router, tickers: list[str], now: pd.Timestamp,
         write_bars(prices_dir / f"{t}.csv", merged)
         items.append(Item("prices", t, "updated", f"{vendor} to {new.index[-1]:%Y-%m-%d}", len(new)))
     return items
+
+
+def _split(ticker: str, saved: pd.DataFrame, full: pd.DataFrame, now: pd.Timestamp,
+           calendar: NSECalendar, actions_dir: Path | None) -> str:
+    """Note a split or bonus when the old closes are a split-sized multiple of the new. Returns what it was.
+
+    Every saved bar predates the ex-date, so the ex-date is the first new bar
+    after them (or the next session, when Yahoo adjusted before that bar came).
+    """
+    both = saved.index.intersection(full.index)
+    measured = float((saved.loc[both, "close"] / full.loc[both, "close"]).median()) if len(both) else 1.0
+    ratio = corporate.split_ratio(measured)
+    if ratio is None:
+        return "a dividend, or a revision"
+    after = full.index[full.index > saved.index[-1]]
+    ex = after[0].date() if len(after) else calendar.next_session(saved.index[-1].date() + timedelta(days=1))
+    if actions_dir is None:
+        return f"a {ratio:g}-for-1 split or bonus around {ex}; not recorded"
+    corporate.add(actions_dir, corporate.Action(ticker, ex, ratio, "refresh", f"{now:%Y-%m-%d %H:%M}"))
+    return f"a {ratio:g}-for-1 split or bonus, ex {ex}, noted in {Path(actions_dir) / corporate.FILE}"
 
 
 def _readjusted(saved: pd.DataFrame, fresh: pd.DataFrame) -> bool:
@@ -326,7 +352,8 @@ def run(router: Router | None = None, settings: RefreshSettings | None = None, *
         now: pd.Timestamp | None = None, only: tuple[str, ...] = ("prices", "news", "filings"),
         tickers: list[str] | None = None, accept_nse_terms: bool | None = None,
         calendar: NSECalendar | None = None, gdelt_fetch: Callable | None = None,
-        nse_session: Callable | None = None, sleep: Callable[[float], None] = time.sleep) -> RefreshReport:
+        nse_session: Callable | None = None, sleep: Callable[[float], None] = time.sleep,
+        actions_dir: Path | None = DEFAULT_ACTIONS_DIR) -> RefreshReport:
     """The daily refresh. The daily loop calls this; `main` is the command line around it.
 
     `tickers` narrows the universe (and, for prices, drops the index series
@@ -350,7 +377,7 @@ def run(router: Router | None = None, settings: RefreshSettings | None = None, *
     report = RefreshReport(started=now.isoformat())
     with _lock(settings.state_file.with_name("refresh.lock")):
         if "prices" in only:
-            report.items += refresh_prices(router, symbols, now, calendar)
+            report.items += refresh_prices(router, symbols, now, calendar, actions_dir)
         if "news" in only:
             report.items += refresh_news(router, companies, now, settings.state_file,
                                          fetch=gdelt_fetch, pause=settings.gdelt_pause, sleep=sleep)
