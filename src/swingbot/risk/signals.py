@@ -4,8 +4,8 @@ Each call is the ReportAgent's JSON (ticker, sentiment, confidence,
 time_horizon, and optionally the time it was made). It goes through, in order:
 
 1. the call itself: bullish only (the bot is long-only CNC; a bearish call is
-   not a short), a swing horizon, fresh, and confident enough. The bar is
-   higher when the market mood is defensive.
+   not a short), a swing horizon, fresh, and confident enough (a separate,
+   higher bar can be set for a defensive market mood).
 2. one call per stock (the most confident), best calls first, at most
    `max_new_orders` tickets per run.
 3. a technical overlay from bars known at decision time: above the 200-day
@@ -31,7 +31,7 @@ import json
 import math
 import tomllib
 from dataclasses import asdict, dataclass, field, fields, replace
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -54,20 +54,21 @@ MARKET_OPEN = time(9, 15)
 
 @dataclass(frozen=True)
 class SignalRules:
+    # Defaults match config/signals.toml; docs/research/signal-thresholds.md has the evidence.
     min_confidence: float = 0.60
-    defensive_min_confidence: float = 0.75
+    defensive_min_confidence: float = 0.60
     skip_when_mood_unknown: bool = False
-    min_horizon_hours: int = 24
+    min_horizon_hours: int = 72
     max_horizon_hours: int = 480
-    max_signal_age_hours: float = 36.0
+    max_signal_age_sessions: int = 1
     require_above_sma200: bool = True
     require_above_sma50: bool = False
-    max_rsi: float = 75.0
+    max_rsi: float = 80.0
     max_extension_atr: float = 3.0
-    stop_rule: str = "atr:2"
+    stop_rule: str = "atr:2.5"
     target_rule: str = "2R"
     max_new_orders: int = 3
-    min_order_value: float = 10_000.0
+    min_order_value: float = 25_000.0
 
     def __post_init__(self) -> None:
         if not 0 <= self.min_confidence <= self.defensive_min_confidence <= 1:
@@ -75,8 +76,8 @@ class SignalRules:
                              "a defensive market can only raise the bar")
         if not 0 < self.min_horizon_hours <= self.max_horizon_hours:
             raise ValueError("need 0 < min_horizon_hours <= max_horizon_hours")
-        if self.max_new_orders < 0 or self.max_signal_age_hours <= 0 or self.min_order_value < 0:
-            raise ValueError("max_new_orders and min_order_value must be >= 0, max_signal_age_hours > 0")
+        if self.max_new_orders < 0 or self.max_signal_age_sessions < 1 or self.min_order_value < 0:
+            raise ValueError("max_new_orders and min_order_value must be >= 0, max_signal_age_sessions >= 1")
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "SignalRules":
@@ -196,7 +197,22 @@ def load_results_dates(path: str | Path | None) -> dict[str, date]:
 
 # --- the steps -----------------------------------------------------------------------
 
-def screen_call(call: Call, as_of: pd.Timestamp, rules: SignalRules, mood: dict | None) -> Decision:
+def fresh_since(as_of: pd.Timestamp, sessions: int, calendar: NSECalendar) -> pd.Timestamp:
+    """The oldest call time still traded: the open of the session `sessions` before the entry session.
+
+    With 1, a call made after 09:15 on the last session before the entry is
+    fresh; weekend and holiday news still counts for Monday.
+    """
+    day = entry_session(as_of, calendar)
+    for _ in range(sessions):
+        day -= timedelta(days=1)
+        while not calendar.is_session(day):
+            day -= timedelta(days=1)
+    return pd.Timestamp(datetime.combine(day, MARKET_OPEN), tz=IST)
+
+
+def screen_call(call: Call, as_of: pd.Timestamp, rules: SignalRules, mood: dict | None,
+                calendar: NSECalendar | None = None) -> Decision:
     """Step 1, on the call alone. Returns a decision still in progress (stage "") if it survives."""
     s = call.signal
     d = Decision(call.ref, s.ticker if s else "", s.confidence if s else None)
@@ -216,10 +232,11 @@ def screen_call(call: Call, as_of: pd.Timestamp, rules: SignalRules, mood: dict 
         return d.stop("skipped", "call", f"the call is stamped {call.made_at:%Y-%m-%d %H:%M}, after the "
                       f"decision time {as_of:%Y-%m-%d %H:%M}; that is the future")
     else:
-        age = (as_of - call.made_at).total_seconds() / 3600
-        if age > rules.max_signal_age_hours:
-            return d.stop("skipped", "call", f"the call is {age:.0f}h old (limit {rules.max_signal_age_hours:g}h); "
-                          "run the swarm again on today's news")
+        since = fresh_since(as_of, rules.max_signal_age_sessions, calendar or NSECalendar())
+        if call.made_at < since:
+            return d.stop("skipped", "call", f"the call is from {call.made_at:%Y-%m-%d %H:%M}, before "
+                          f"{since:%Y-%m-%d %H:%M} (news older than {rules.max_signal_age_sessions} session(s) "
+                          "before the entry is already in the price)")
 
     verdict = (mood or {}).get("verdict")
     bar = rules.min_confidence
@@ -307,7 +324,7 @@ def decide(calls: list[Call], *, as_of: pd.Timestamp, portfolio: Portfolio,
     done: list[Decision] = []
     live: list[tuple[Call, Decision]] = []
     for call in calls:
-        d = screen_call(call, as_of, rules, mood)
+        d = screen_call(call, as_of, rules, mood, calendar)
         if d.stage:
             done.append(d)
         else:

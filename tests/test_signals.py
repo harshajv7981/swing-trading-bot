@@ -7,7 +7,7 @@ import pytest
 from swingbot.models import IST, Sentiment, Signal
 from swingbot.risk import KillSwitch, NSECalendar, Portfolio, Position, RiskConfig, SignalRules
 from swingbot.risk.cli import main as risk_main
-from swingbot.risk.signals import Call, decide, entry_session, hold_plan, read_calls, technical_overlay
+from swingbot.risk.signals import Call, decide, entry_session, fresh_since, hold_plan, read_calls, technical_overlay
 
 from test_risk import book, trend
 
@@ -40,9 +40,9 @@ def by_ref(decisions):
     ({"sentiment": "bearish"}, "long-only"),
     ({"sentiment": "neutral"}, "no trade"),
     ({"confidence": 0.55}, "under 0.60"),
-    ({"horizon": "12h"}, "outside the swing window"),
+    ({"horizon": "48h"}, "outside the swing window"),
     ({"horizon": "30d"}, "outside the swing window"),
-    ({"made_at": AS_OF - pd.Timedelta(hours=40)}, "40h old"),
+    ({"made_at": AS_OF - pd.Timedelta(hours=40)}, "already in the price"),
     ({"made_at": AS_OF + pd.Timedelta(hours=1)}, "the future"),
 ])
 def test_calls_that_are_not_long_swing_trades_are_skipped_before_any_data(kw, words):
@@ -53,12 +53,14 @@ def test_calls_that_are_not_long_swing_trades_are_skipped_before_any_data(kw, wo
     assert fetched == []
 
 
-def test_a_defensive_market_raises_the_confidence_bar():
+def test_a_defensive_market_can_raise_the_confidence_bar():
     calls = [call("RELIANCE", confidence=0.7), call("TCS", confidence=0.8)]
-    d = by_ref(run(calls, mood={"verdict": "defensive", "as_of": "x"}))
+    strict = SignalRules(defensive_min_confidence=0.75)
+    d = by_ref(run(calls, mood={"verdict": "defensive", "as_of": "x"}, rules=strict))
     assert d["RELIANCE-0.7"].status == "skipped" and "defensive market" in d["RELIANCE-0.7"].reasons[0]
     assert d["TCS-0.8"].status == "ticket"
-    assert by_ref(run(calls, mood={"verdict": "neutral"}))["RELIANCE-0.7"].status == "ticket"
+    assert by_ref(run(calls, mood={"verdict": "neutral"}, rules=strict))["RELIANCE-0.7"].status == "ticket"
+    assert by_ref(run(calls, mood={"verdict": "defensive", "as_of": "x"}))["RELIANCE-0.7"].status == "ticket"
 
 
 def test_an_unknown_mood_is_a_note_or_a_skip_never_neutral():
@@ -132,19 +134,19 @@ def test_a_good_call_becomes_a_paper_ticket_with_a_time_exit(tmp_path):
 
 
 def test_later_calls_are_sized_against_the_cash_earlier_tickets_used():
-    # 100k equity: each ticket is capped at 15% notional, so cash shrinks with every one.
-    small = book(equity=100_000)
+    # 250k equity: each ticket is capped at 15% notional, so cash shrinks with every one.
+    small = book(equity=250_000)
     calls = [call("RELIANCE", confidence=0.9), call("TCS", confidence=0.8), call("HDFCBANK", confidence=0.7)]
     ds = run(calls, portfolio=small)
     tickets = [d for d in ds if d.status == "ticket"]
     assert len(tickets) == 3
     spent = sum(d.ticket["amount"] for d in tickets)
-    assert spent <= 100_000
+    assert spent <= 250_000
     # Cash for one ticket: the others only get the scraps, under the minimum order.
-    tight = Portfolio(100_000, 16_000, 100_000, 100_000)
+    tight = Portfolio(250_000, 40_000, 250_000, 250_000)
     d = by_ref(run(calls, portfolio=tight))
     assert d["RELIANCE-0.9"].status == "ticket"
-    assert d["TCS-0.8"].stage == "size" and "under the 10,000 minimum (decided by cash)" in d["TCS-0.8"].reasons[0]
+    assert d["TCS-0.8"].stage == "size" and "under the 25,000 minimum (decided by cash)" in d["TCS-0.8"].reasons[0]
     assert d["HDFCBANK-0.7"].stage == "size" and "minimum" in d["HDFCBANK-0.7"].reasons[0]
     assert by_ref(run(calls, portfolio=tight, rules=SignalRules(min_order_value=0)))["TCS-0.8"].status == "ticket"
 
@@ -230,9 +232,28 @@ def test_read_calls_from_jsonl_json_and_csv(tmp_path):
     assert ok.signal.horizon_hours == 120 and bad.signal is None and bad.ref == "row 3"
 
 
+@pytest.mark.parametrize("made_at, fresh", [
+    ("2026-08-28 09:20", True),    # Friday's session, entry Monday
+    ("2026-08-28 09:10", False),   # before Friday's open: Thursday's news
+])
+def test_only_news_since_the_last_session_before_the_entry_is_fresh(made_at, fresh):
+    [d] = run([call(made_at=pd.Timestamp(made_at, tz=IST))])
+    assert (d.stage != "call") == fresh, d.text()
+
+
+@pytest.mark.parametrize("as_of, sessions, since", [
+    ("2026-08-31 08:30", 1, "2026-08-28 09:15"),  # Monday before the open: since Friday's open, weekend included
+    ("2026-08-31 16:00", 1, "2026-08-31 09:15"),  # Monday evening, entry Tuesday: since Monday's open
+    ("2026-08-31 16:00", 2, "2026-08-28 09:15"),
+    ("2026-11-05 16:00", 1, "2026-11-05 09:15"),  # entry Friday 6th
+])
+def test_fresh_since(as_of, sessions, since):
+    assert fresh_since(pd.Timestamp(as_of, tz=IST), sessions, NSECalendar()) == pd.Timestamp(since, tz=IST)
+
+
 def test_rules_load_and_refuse_a_lower_bar_in_a_defensive_market(tmp_path):
     rules = SignalRules.load("config/signals.toml")
-    assert (rules.min_confidence, rules.stop_rule, rules.max_new_orders) == (0.6, "atr:2", 3)
+    assert rules == SignalRules()  # the file and the built-in defaults agree
     with pytest.raises(ValueError, match="only raise"):
         SignalRules(min_confidence=0.7, defensive_min_confidence=0.6)
     p = tmp_path / "r.toml"
