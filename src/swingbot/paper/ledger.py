@@ -17,8 +17,10 @@ rewritten, so the history can't quietly change:
 
 A fill is what actually happened (the sandbox's or broker's price), not what
 was planned. Stops are held by the broker, so the ledger does not fake a stop
-fill: when a close or low goes through a stop and no sell is recorded that
-session, the replay says so.
+fill: when a low goes through a stop and no sell is recorded that session, the
+replay says so, with the price the stop-loss market sell should have got: the
+open when the stock opened at or below the stop (a gap through it), else the
+stop.
 
 Prices come only from sessions that had closed by the as-of time. Days are
 marked at the close; a fill on a non-trading day counts on the next session.
@@ -292,10 +294,15 @@ def replay(records: list[dict], bars: dict[str, pd.DataFrame], as_of, sessions: 
                 continue
             row = b.loc[day]
             last_close[t] = float(row["close"])
-            if h.stop is not None and float(row["low"]) <= h.stop and t not in sold_today:
+            fill = stop_fill(h.stop, float(row["open"]), float(row["low"])) if h.stop is not None else None
+            if fill is not None and t not in sold_today:
+                how = (f"opened at {fill:,.2f}, below its stop {h.stop:,.2f}, so the stop-loss market sell "
+                       f"fills at about the open" if fill < h.stop else
+                       f"traded at {float(row['low']):,.2f}, through its stop {h.stop:,.2f}, so the stop "
+                       f"sells at about {fill:,.2f}")
                 rp.warnings.append(Flag(f"{day:%Y-%m-%d}", "stop", (
-                    f"{t} traded at {float(row['low']):,.2f}, through its stop {h.stop:,.2f}, and no sell is "
-                    "recorded that session. Check the broker: if the stop filled, record the sell.")))
+                    f"{t} {how}, and no sell is recorded that session. Check the broker and record the "
+                    f"sell at its real price (expect about {fill:,.2f}).")))
         curve[day] = equity_now()
 
     for r in pending:  # fills dated after the last closed session: apply, mark at cost
@@ -310,6 +317,19 @@ def replay(records: list[dict], bars: dict[str, pd.DataFrame], as_of, sessions: 
     rp.final_equity = equity_now()
     rp.closes = {t: last_close[t] for t in holdings if t in last_close}
     return rp
+
+
+def stop_fill(stop: float, open_: float, low: float) -> float | None:
+    """Where a stop-loss market sell fills on a daily bar, or None if the stop is not hit.
+
+    An open at or below the stop is a gap through it: the sell goes at the open,
+    not at the stop. Otherwise a low at or below the stop fills at the stop.
+    """
+    if open_ <= stop:
+        return open_
+    if low <= stop:
+        return stop
+    return None
 
 
 def _move_stop(rp: Replay, holdings: dict[str, Holding], r: dict, at: str) -> None:
