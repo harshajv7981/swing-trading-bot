@@ -137,6 +137,15 @@ def _num(value) -> float | None:
     return float(value)
 
 
+# The long-only trade the backtest simulated for this event (backtest._trade_columns).
+TRADE_KEYS = ("traded", "no_trade_reason", "trade_entry", "trade_stop", "trade_target",
+              "trade_exit_date", "trade_exit_price", "exit_reason", "trade_r")
+
+
+def _present(value) -> bool:
+    return not (value is None or value == "" or (isinstance(value, float) and pd.isna(value)))
+
+
 def _bool(value) -> bool | None:
     if value is None or (isinstance(value, float) and pd.isna(value)) or value == "":
         return None
@@ -176,6 +185,7 @@ def from_results(results: pd.DataFrame, run: str, mode: str = "backtest") -> lis
             max_up=_num(r.get("max_up")),
             max_down=_num(r.get("max_down")),
             hit=_bool(r.get("hit")),
+            extra={"trade": {k: r[k] for k in TRADE_KEYS if k in r and _present(r[k])}},
         ))
     return trades
 

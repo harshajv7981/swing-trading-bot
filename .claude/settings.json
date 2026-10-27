@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(swingbot-risk kill-switch --reset:*)",
+      "Bash(swingbot-risk * kill-switch --reset*)",
+      "Bash(python -m swingbot.risk.cli * --reset*)",
+      "Edit(data/state/kill_switch.json)",
+      "Write(data/state/kill_switch.json)",
+      "Edit(config/risk.toml)",
+      "Write(config/risk.toml)"
+    ]
+  }
+}
