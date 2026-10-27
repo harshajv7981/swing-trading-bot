@@ -1,5 +1,6 @@
 from datetime import date
 from html.parser import HTMLParser
+from pathlib import Path
 
 from test_walkforward import data, views  # noqa: F401  (the fixture)
 
@@ -61,3 +62,13 @@ def test_dashboard_with_no_account(tmp_path, capsys):
                  str(tmp_path / "runs"), "--out", str(out)]) == 0
     page = out.read_text()
     assert "No paper account yet" in page and balanced(page)
+
+
+def test_dashboard_of_a_walk_forward_run_uses_its_risk_limits(data):  # noqa: F811
+    tmp, prices, events, holidays = data
+    limits = tmp / "risk.toml"
+    limits.write_text(Path("config/risk.toml").read_text().replace("weekly_kill_pct = 5.0", "weekly_kill_pct = 3.0"))
+    Run(tmp / "wf").init(date(2026, 11, 2), date(2026, 11, 6), 1_000_000, prices, events, str(holidays),
+                         str(limits))
+    assert gather(Sources.walkforward(tmp / "wf"), "2026-11-02 18:00")["kill_pct"] == 3.0
+    assert gather(Sources.walkforward(tmp / "wf", "config/risk.toml"), "2026-11-02 18:00")["kill_pct"] == 5.0

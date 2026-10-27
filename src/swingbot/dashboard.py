@@ -49,8 +49,11 @@ class Sources:
     risk_config: str | None = None
 
     @classmethod
-    def walkforward(cls, folder: Path) -> Sources:
-        return cls(folder / "ledger.jsonl", folder / "state", folder / "days", str(folder / "data.toml"))
+    def walkforward(cls, folder: Path, risk_config: str | None = None) -> Sources:
+        """A walk-forward run's files, with the risk limits it was started with unless `risk_config` is given."""
+        run = _read_json(folder / "run.json", {})
+        return cls(folder / "ledger.jsonl", folder / "state", folder / "days", str(folder / "data.toml"),
+                   risk_config or run.get("risk_config"))
 
 
 def _read_json(path: Path, default):
@@ -323,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--open", action="store_true", help="open the page in the browser")
     args = p.parse_args(argv)
     if args.dir:
-        src = Sources.walkforward(Path(args.dir))
+        src = Sources.walkforward(Path(args.dir), args.config)
         title = f"Swing bot walk-forward: {Path(args.dir).name}"
     else:
         src = Sources(Path(args.ledger), Path(args.state_dir), Path(args.runs_dir), args.data_config, args.config)

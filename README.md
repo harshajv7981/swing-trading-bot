@@ -668,7 +668,9 @@ the saved files to the run's clock (bars to closed sessions, news to what was
 published, lessons to trades that had closed). The run keeps its own ledger,
 book, kill switch and memory under `runs/walkforward/`, so it never touches
 the real paper account. News from before 1 July 2026 is left out, because the
-swarm's model may remember what came next.
+swarm's model may remember what came next. If the weekly kill switch latches during
+the run, `report` and `status` name the day: every session after it trades
+nothing, as it would live.
 
 ### Dashboard: `swingbot-dashboard`
 

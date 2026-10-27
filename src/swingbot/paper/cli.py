@@ -120,7 +120,7 @@ def cmd_stop(args, ledger: Ledger, config) -> int:
 
 
 def _broker(args, config) -> PaperBroker:
-    return PaperBroker(args.book, config, NSECalendar.load(), trail=getattr(args, "trail", False),
+    return PaperBroker(args.book, config, NSECalendar.load(getattr(args, "holidays", None)), trail=getattr(args, "trail", False),
                        actions=corporate.load(args.state_dir))
 
 
@@ -295,6 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--data-config", help="data sources TOML (default config/data_sources.toml)")
     p.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR), help="swingbot-risk's verdict log and kill switch")
     p.add_argument("--book", default=str(DEFAULT_BOOK), help=f"paper broker order book (default {DEFAULT_BOOK})")
+    p.add_argument("--holidays", help="NSE holiday TOML (default config/nse_holidays.toml)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("open", help="start the account with its opening cash")

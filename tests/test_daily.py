@@ -397,3 +397,9 @@ def test_a_typed_results_date_blocks_the_entry_in_the_blackout(repo):
     assert result["tickets"] == []
     gate = next(s for s in result["steps"] if s["name"] == "gate ABC")
     assert gate["status"] == "blocked" and "R9 results blackout" in gate["detail"]
+
+
+def test_the_risk_gate_gets_the_loops_holiday_file(repo):
+    day = Day(MORNING, config(repo), Hooks().make())
+    args = day.common_args()
+    assert args[args.index("--holidays") + 1] == str(repo / "holidays.toml")
