@@ -477,7 +477,10 @@ swingbot-paper cancel P00003                                         # an entry 
 
 * **Entry**, a DAY limit buy: fills at the open if the stock opens at or under
   the limit, else at the limit if the low trades *under* it (a touch is not
-  enough, there is a queue), else it lapses at the close.
+  enough, there is a queue), else it lapses at the close. An entry placed
+  after 09:08 on its own session day (the pre-open order entry has closed) can't
+  get the open: it fills at the limit only if the day traded under it. A close
+  asked for after 09:08 sells at the next session's open.
 * **Exits**, one OCO, both legs MARKET as the ticket writes them. Dhan takes no
   Forever Order on shares bought today, so the OCO is live from the next
   session: the entry day and the night after it have no stop at the broker.
