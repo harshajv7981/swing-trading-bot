@@ -10,7 +10,7 @@ from swingbot.risk import (
     check_order, make_ticket, plan_exit, size_position, trail_stop,
 )
 from swingbot.risk.cli import main as risk_main
-from swingbot.risk.exits import ExitPlan
+from swingbot.risk.exits import ExitPlan, nse_tick
 from swingbot.risk.sizing import gap_risk_per_share
 
 from test_backtest import bars
@@ -87,6 +87,35 @@ def test_atr_stop_and_2r_target_round_down_to_the_tick():
     for price in (plan.stop, plan.target):
         assert round(price / 0.05, 6) == round(price / 0.05)
     assert plan.reward_risk == pytest.approx(2.0, abs=0.01)
+
+
+@pytest.mark.parametrize("prices, tick", [
+    ((249.99,), 0.01), ((250.0,), 0.05), ((1000.0,), 0.05), ((1000.05,), 0.10), ((5000.0,), 0.10),
+    ((7500.0,), 0.50), ((10000.0,), 0.50), ((15000.0,), 1.00), ((20000.01,), 5.00),
+    ((1010.0, 990.0), 0.10),  # a stop under the 1,000 edge keeps the entry's coarser tick
+])
+def test_nse_tick_follows_the_price_bands(prices, tick):
+    assert nse_tick(*prices) == tick
+
+
+def test_nse_tick_never_goes_below_the_configured_floor():
+    assert nse_tick(100.0, floor=0.05) == 0.05
+    assert nse_tick(3000.0, floor=0.05) == 0.10
+
+
+def test_entry_rounds_up_and_exits_round_down_on_the_banded_tick():
+    b = trend()
+    px = ["open", "high", "low", "close"]
+    b[px] = b[px] * 6000 / b["close"].iloc[-1]  # prices around 6,000, where the tick is 0.50
+    plan = plan_exit("X", b, entry=6000.2, stop_rule="atr:2", target_rule="2R")
+    assert plan.entry == 6000.5
+    for price in (plan.stop, plan.target):
+        assert round(price / 0.5, 6) == round(price / 0.5)
+
+
+def test_stop_across_a_band_edge_uses_the_entry_tick():
+    plan = plan_exit("X", trend(), entry=1010.0, stop_rule="price:990.07", target_rule="2R")
+    assert plan.stop == 990.0  # 990.05 would be off a 0.10 grid
 
 
 def test_low_stop_sits_a_tick_under_the_recent_low():

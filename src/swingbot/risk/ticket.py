@@ -30,7 +30,7 @@ from datetime import date
 from pathlib import Path
 
 from .config import RiskConfig
-from .exits import round_down
+from .exits import nse_tick, round_down
 from .portfolio import Order
 
 
@@ -69,7 +69,8 @@ def make_ticket(order: Order, verdict: dict | None, today: date, config: RiskCon
     if checked != today.isoformat():
         raise TicketRefused(f"The PASS is from {checked or 'an unknown day'}, not {today}; check the order again today.")
 
-    stop_limit = round_down(order.stop * (1 - config.gap_allowance_pct / 100), config.tick)
+    raw_limit = order.stop * (1 - config.gap_allowance_pct / 100)
+    stop_limit = round_down(raw_limit, nse_tick(order.entry, raw_limit, floor=config.tick))
     common = {"exchangeSegment": "NSE_EQ", "productType": "CNC", "tradingSymbol": order.ticker,
               "securityId": None}
     return {
