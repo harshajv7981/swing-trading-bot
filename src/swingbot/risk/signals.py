@@ -132,7 +132,7 @@ class Decision:
         if self.ticket:
             e, x, h = self.ticket["entry"], self.ticket["exits"], self.ticket["hold"]
             head += (f"  buy {e['quantity']} limit {e['price']:,.2f} = {self.ticket['amount']:,.0f}; "
-                     f"stop {x['stop']['triggerPrice']:,.2f}, target {x['target']['price']:,.2f}; "
+                     f"stop {x['stop']['triggerPrice']:,.2f}, target {x['target']['triggerPrice']:,.2f}; "
                      f"sell by the {h['exit_by']} close")
         lines = [head] + [f"  {self.stage}: {r}" for r in self.reasons] + [f"  note  {n}" for n in self.notes]
         return "\n".join(lines)
