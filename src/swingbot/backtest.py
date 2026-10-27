@@ -16,10 +16,14 @@ Two separate scores come out of each event:
   the call said? Bullish and bearish calls both count. This grades the swarm.
 * **The trade** (`trade_ret`): what the bot would actually have made. The bot
   is long-only (CNC delivery), so a bearish call is no trade. A bullish call
-  buys at the entry open with the stop and target from the exit planner
-  (risk/exits.py), built only from bars that had closed before the entry. The
-  stop trails per rule R7 after each close. The trade ends at the stop, the
-  target or the horizon close, whichever comes first.
+  places the paper broker's ticket: a DAY limit buy at the last close, with
+  the stop and target from the exit planner (risk/exits.py), built only from
+  bars that had closed before the entry. It fills at the open if the stock
+  opens at or under the limit, else at the limit if the low trades under it,
+  else there is no trade. The stop trails per rule R7 after each close. The
+  trade ends at the stop, the target or the horizon close, whichever comes
+  first. `entry="open"` buys at the open instead, for comparison; the base
+  rates in docs/research/signal-thresholds.md favour the limit.
 """
 
 from __future__ import annotations
@@ -109,10 +113,22 @@ class LongTrade:
         return (self.exit_price - self.entry) / (self.entry - self.stop)
 
 
+class NotFilled(Exception):
+    """The DAY limit entry never traded: no trade."""
+
+
+ENTRIES = ("limit", "open")
+
+
 def simulate_long(bars: pd.DataFrame, i: int, sessions: int, ticker: str = "", stop_rule: str = "atr:2",
                   target_rule: str = "2R", config: RiskConfig | None = None,
-                  trail: bool = True) -> LongTrade:
-    """Buy at the open of bar `i` and hold up to `sessions` sessions with a stop and target.
+                  trail: bool = True, entry: str = "limit") -> LongTrade:
+    """Buy on bar `i` and hold up to `sessions` sessions with a stop and target.
+
+    entry="limit" (the bot's ticket): a DAY limit at the last close. It fills
+    at the open if bar `i` opens at or under it, else at the limit if the low
+    trades *under* it (a touch is not enough), else NotFilled is raised.
+    entry="open": buys at the open, with the stop and target planned from it.
 
     The plan uses only bars before `i`, as the bot would have had at the open.
     Raises PlanRefused when the exit planner would not allow the trade.
@@ -125,11 +141,20 @@ def simulate_long(bars: pd.DataFrame, i: int, sessions: int, ticker: str = "", s
     * otherwise the stop or target fills at its own price;
     * if neither is hit, the trade sells at the last session's close.
     """
+    if entry not in ENTRIES:
+        raise ValueError(f"entry must be one of {', '.join(ENTRIES)}, not {entry!r}")
     config = config or RiskConfig()
     window = bars.iloc[i : i + sessions]
-    entry_date, entry = window.index[0], float(window["open"].iloc[0])
-    plan = plan_exit(ticker, bars.iloc[:i], entry=entry, stop_rule=stop_rule, target_rule=target_rule, config=config)
-    entry, stop, target = plan.entry, plan.stop, plan.target
+    entry_date, open_ = window.index[0], float(window["open"].iloc[0])
+    plan = plan_exit(ticker, bars.iloc[:i], entry=open_ if entry == "open" else None, stop_rule=stop_rule,
+                     target_rule=target_rule, config=config)
+    stop, target = plan.stop, plan.target
+    if entry == "open" or open_ <= plan.entry:
+        entry = open_ if entry == "limit" else plan.entry
+    elif float(window["low"].iloc[0]) < plan.entry:
+        entry = plan.entry
+    else:
+        raise NotFilled(f"opened at {open_:,.2f} and never traded under the limit {plan.entry:,.2f}")
 
     def done(day, price, reason):
         return LongTrade(entry_date, day, entry, plan.stop, target, float(price), reason, stop)
@@ -162,6 +187,7 @@ def run_backtest(
     target_rule: str = "2R",
     config: RiskConfig | None = None,
     trail: bool = True,
+    entry: str = "limit",
 ) -> pd.DataFrame:
     """One row per event: the signal, the realised move, whether the call was right,
     and the long trade the bot would have taken.
@@ -169,7 +195,8 @@ def run_backtest(
     `cost_bps` is the round-trip cost charged on every trade taken. 25 bps
     is a rough figure for NSE delivery trades (STT, exchange fees, stamp duty,
     GST and some slippage); tune it to your broker. `stop_rule`, `target_rule`
-    and `config` go to the exit planner; see risk/exits.py.
+    and `config` go to the exit planner; see risk/exits.py. `entry` is the
+    entry rule (see simulate_long): "limit", the bot's ticket, or "open".
     """
     config = config or RiskConfig()
     bench = prices.daily(benchmark) if benchmark else None
@@ -222,21 +249,24 @@ def run_backtest(
             hit=(None if direction == 0 else bool(direction * out.ret > 0)),
         )
         row.update(_trade_columns(signal, bars, entry_index(bars, ev), sessions, cost_bps,
-                                  stop_rule, target_rule, config, trail))
+                                  stop_rule, target_rule, config, trail, entry))
         rows.append(row)
     return pd.DataFrame(rows)
 
 
 def _trade_columns(signal: Signal, bars: pd.DataFrame, i: int, sessions: int, cost_bps: float,
-                   stop_rule: str, target_rule: str, config: RiskConfig, trail: bool) -> dict:
+                   stop_rule: str, target_rule: str, config: RiskConfig, trail: bool,
+                   entry: str = "limit") -> dict:
     """The trade fields of a result row. No trade means trade_ret 0.0: the money stayed in cash."""
     if signal.sentiment is not Sentiment.BULLISH:
         why = "bearish: long-only, no short" if signal.sentiment is Sentiment.BEARISH else "neutral"
         return {"traded": False, "no_trade_reason": why, "trade_ret": 0.0}
     try:
-        t = simulate_long(bars, i, sessions, signal.ticker, stop_rule, target_rule, config, trail)
+        t = simulate_long(bars, i, sessions, signal.ticker, stop_rule, target_rule, config, trail, entry)
     except PlanRefused as e:
         return {"traded": False, "no_trade_reason": f"plan refused: {e}", "trade_ret": 0.0}
+    except NotFilled as e:
+        return {"traded": False, "no_trade_reason": f"limit not filled: {e}", "trade_ret": 0.0}
     return {
         "traded": True,
         "no_trade_reason": None,
@@ -251,4 +281,5 @@ def _trade_columns(signal: Signal, bars: pd.DataFrame, i: int, sessions: int, co
     }
 
 
-__all__ = ["run_backtest", "measure", "entry_index", "simulate_long", "Outcome", "LongTrade", "Sentiment"]
+__all__ = ["run_backtest", "measure", "entry_index", "simulate_long", "NotFilled", "Outcome", "LongTrade",
+           "Sentiment"]

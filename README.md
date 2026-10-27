@@ -56,10 +56,14 @@ daily OHLC  ──> entry/exit rules ──┴──> hit / miss, return after c
      p-value, Brier score for confidence calibration, rank IC of crowd score
      against the move, and the move against a benchmark when one is given.
    * *Long-only trades* are what the bot would have made. It only buys (CNC
-     delivery), so a bearish call is no trade. A bullish call buys at the entry
-     open with the stop and target from the exit planner (`--stop-rule atr:2`,
-     `--target-rule 2R`, ticks from `config/risk.toml`), planned only from bars
-     that had closed before the entry; the stop trails per R7 (`--no-trail`
+     delivery), so a bearish call is no trade. A bullish call places the paper
+     broker's ticket: a DAY limit at the last close, filled at the open if it
+     opens at or under it, else at the limit if the low trades under it, else no
+     trade (`--entry open` buys at the open instead; the base rates favour the
+     limit, see docs/research/signal-thresholds.md). The stop and target come
+     from the exit planner, by default the rules in `config/signals.toml`
+     (`--stop-rule`, `--target-rule`; ticks from `config/risk.toml`), planned
+     only from bars that had closed before the entry; the stop trails per R7 (`--no-trail`
      turns that off). The trade ends at the stop, the target or the horizon
      close. A gap through the stop or target fills at the open, and a day that
      touches both counts as the stop. Reported: trades, win rate, average and
