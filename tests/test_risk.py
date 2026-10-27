@@ -426,3 +426,11 @@ def test_cli_ticket_follows_the_latest_verdict_for_the_order(tmp_path, capsys):
         fh.write(json.dumps(passed(o, at="2026-10-26 14:00", status="BLOCK")) + "\n")
     assert risk_main(args) == 1
     assert "not PASS" in capsys.readouterr().err
+
+
+def test_r4_open_risk_counts_the_new_order_with_its_gap_allowance():
+    # Limit 25,000 (5% of 500,000). Open risk 23,800 plus 30 x 40 = 1,200 is exactly at it
+    # without the gap; with the stop filling 0.5% under 960 the order adds 1,344, over it.
+    near = [Position(f"S{i}", 100, 1000.0, 940.5, "Banks") for i in range(4)]  # 23,800
+    v = check(entry(), book(positions=near))
+    assert "R4 open risk" in failed(v)

@@ -249,3 +249,16 @@ def test_cli_buy_without_pass_is_a_break(tmp_path):
     paper_main(base + ["fill", "buy", "ABC", "--qty", "10", "--price", "100", "--stop", "95",
                        "--at", "2026-01-05 09:20"])
     assert paper_main(base + ["report", "--as-of", "2026-01-16"]) == 1
+
+
+def test_r2_counts_the_gap_allowance_and_the_defensive_cut():
+    # 1,000,000 equity, 1% = 10,000. 1,980 shares at 100 with a 95 stop lose 9,900 at the stop,
+    # but 10,840 once the stop fills 0.5% lower: over the limit even with the 2% slack.
+    closes = {"ABC": stock([100] * 10)}
+    rp = replay(opened() + [buy(qty=1980, price=100.0, stop=95.0)], closes, AS_OF, SESSIONS)
+    assert "R2 risk per trade" in rules(rp)
+    rp = replay(opened() + [buy(qty=1500, price=100.0, stop=95.0)], closes, AS_OF, SESSIONS)
+    assert "R2 risk per trade" not in rules(rp)
+    # Sized under a defensive mood, the limit is half: 1,500 shares (8,212 with the gap) is too many.
+    rp = replay(opened() + [buy(qty=1500, price=100.0, stop=95.0, mood="defensive")], closes, AS_OF, SESSIONS)
+    assert "R2 risk per trade" in rules(rp)

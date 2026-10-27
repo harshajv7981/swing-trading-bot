@@ -2,7 +2,7 @@
 
 This is the hard boundary in the build plan: the swarm proposes, and only an
 order that passes here may go on to the (paper, later live) broker. Rules R1
-to R9 and R11 (market mood) are checked; R10 (order rate) and the 60-second stop confirmation in R1
+to R9 and R12 (market mood) are checked; R10 (order rate) and the 60-second stop confirmation in R1
 belong to the broker adapter, which does not exist yet.
 
 Getting out is never blocked: a sell that only reduces a holding passes every
@@ -235,7 +235,8 @@ def check_order(order: Order, portfolio: Portfolio, config: RiskConfig | None = 
         same = {p.ticker for p in portfolio.positions if p.sector == order.sector} | {order.ticker}
         add("R4 sector", len(same) <= config.max_per_sector,
             f"{len(same)} in {order.sector} after this (limit {config.max_per_sector})")
-    open_risk = portfolio.open_risk + order.qty * (entry - stop)
+    # This order's share is measured as R2 and sizing measure it, with the gap allowance.
+    open_risk = portfolio.open_risk + loss
     add("R4 open risk", open_risk <= eq * config.max_open_risk_pct / 100 + 1e-6,
         f"{open_risk:,.0f} = {_pct(open_risk / eq * 100)} of equity at the stops (limit {config.max_open_risk_pct}%)")
 
@@ -245,7 +246,7 @@ def check_order(order: Order, portfolio: Portfolio, config: RiskConfig | None = 
 
 
 def _market_mood(add, v: Verdict, mood: dict | None, today: date | None, config: RiskConfig) -> float:
-    """R11: the market mood. Returns R2's limit in % of equity."""
+    """R12: the market mood. Returns R2's limit in % of equity."""
     if not mood:
         v.warnings.append("market mood not checked; run `swingbot-risk mood` and pass --mood")
         return config.risk_pct
@@ -256,11 +257,11 @@ def _market_mood(add, v: Verdict, mood: dict | None, today: date | None, config:
         v.warnings.append("market mood unknown (too few series); risk per trade not cut")
     risk_pct = config.risk_pct_for(verdict)
     if verdict == "defensive" and risk_pct <= 0:
-        add("R11 market mood", False, "defensive, and defensive_risk_scale is 0: no new entries")
+        add("R12 market mood", False, "defensive, and defensive_risk_scale is 0: no new entries")
     elif verdict == "defensive":
-        add("R11 market mood", True, f"defensive: risk per trade cut to {risk_pct:g}% of equity")
+        add("R12 market mood", True, f"defensive: risk per trade cut to {risk_pct:g}% of equity")
     else:
-        add("R11 market mood", True, f"{verdict}: full risk per trade")
+        add("R12 market mood", True, f"{verdict}: full risk per trade")
     return risk_pct
 
 

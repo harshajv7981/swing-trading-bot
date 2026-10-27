@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, time
 from enum import Enum
 from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")
+
+# NSE's pre-open order entry closes at 09:08; the auction then sets the 09:15
+# open from orders placed before it. News after 09:08 can't be in an order that
+# trades at the open price, so it first trades at the next session's open.
+AUCTION_CUTOFF = time(9, 8)
 
 
 class Sentiment(str, Enum):

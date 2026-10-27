@@ -171,8 +171,10 @@ def start(day: Day) -> dict:
     today = day.as_of.date()
     ph = phase(day.as_of, day.calendar)
     if not day.calendar.knows(today.year):
-        day.note(f"no NSE holiday list for {today.year} in config/nse_holidays.toml, so every weekday counts as "
-                 "a session; add the year from NSE's holiday circular")
+        # Without the list a holiday looks like a session: entries, fills and the
+        # R9 count would all be off, so no new entries until the year is added.
+        why_not.append(f"no NSE holiday list for {today.year} in config/nse_holidays.toml; add the year "
+                       "from NSE's holiday circular before trading")
     if ph == HOLIDAY:
         why_not.append(f"{today} is not an NSE session (weekend or holiday); the next is "
                        f"{next_session(today, day.calendar)}")

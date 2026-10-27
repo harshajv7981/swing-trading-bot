@@ -2,10 +2,15 @@
 # Source: NSE's yearly holiday circular. VERIFY each year against
 # https://www.nseindia.com/resources/exchange-communication-holidays before
 # relying on it: the exchange sometimes adds or moves a holiday mid-year.
-# A year missing here makes the calendar warn and treat every weekday as a session.
+# A year missing here makes the calendar warn and treat every weekday as a session,
+# and the daily loop places no entries until the year is added.
 
 [holidays]
+# 2026 checked on 27 Oct 2026 against a broker's copy of NSE's list
+# (bajajbroking.in/nse-holidays); 15 Jan was added mid-year for the
+# Maharashtra municipal elections.
 2026 = [
+  "2026-01-15",  # Municipal Corporation Election, Maharashtra
   "2026-01-26",  # Republic Day
   "2026-03-03",  # Holi
   "2026-03-26",  # Shri Ram Navami

@@ -3,6 +3,8 @@
 Normal trading runs 09:15 to 15:30 IST on session days (weekdays minus the
 holidays in config/nse_holidays.toml). The 09:00 to 09:15 pre-open auction is
 counted as before the open: a DAY limit order placed then is in the book at 09:15.
+Its order entry closes at 09:08, so news after 09:08 belongs to the next
+session's window (`news_window`), the same cut the backtest uses.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from datetime import date, datetime, time, timedelta
 
 import pandas as pd
 
-from ..models import IST
+from ..models import AUCTION_CUTOFF, IST
 from ..risk.calendar import NSECalendar
 
 OPEN = time(9, 15)
@@ -61,11 +63,12 @@ def at(day: date, t: time) -> pd.Timestamp:
 def news_window(now, calendar: NSECalendar) -> tuple[pd.Timestamp, pd.Timestamp]:
     """The news today's run trades on: from the previous session's open up to now.
 
-    This matches the backtest's timing. News before 09:15 enters at that day's
-    open and news after it at the next session's open, so everything published
-    since the last session opened is first tradeable at today's open. Older
+    This matches the backtest's timing. News before 09:08 (when pre-open order
+    entry closes) enters at that day's open and news after it at the next
+    session's open, so everything published since 09:08 on the last session is
+    first tradeable at today's open. Older
     news had a session to be priced in and is left out, even when a day was
     skipped.
     """
     now = ist(now)
-    return at(previous_session(now.date(), calendar), OPEN), now
+    return at(previous_session(now.date(), calendar), AUCTION_CUTOFF), now

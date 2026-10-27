@@ -67,7 +67,7 @@ def cmd_mood(args, config: RiskConfig) -> int:
     mood = regime.from_router(Router(DataConfig.load(args.data_config)), parse_as_of(args.as_of))
     print(mood.text())
     if mood.verdict == "defensive":
-        print(f"R11: new entries risk {config.risk_pct_for('defensive'):g}% of equity instead of {config.risk_pct:g}%")
+        print(f"R12: new entries risk {config.risk_pct_for('defensive'):g}% of equity instead of {config.risk_pct:g}%")
     if args.out:
         _write(mood.to_json(), args.out)
     return 0
@@ -219,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR), help="kill switch and verdict log")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("mood", help="market mood: bullish, neutral or defensive (R11)")
+    s = sub.add_parser("mood", help="market mood: bullish, neutral or defensive (R12)")
     s.add_argument("--as-of", help="YYYY-MM-DD or 'YYYY-MM-DD HH:MM' IST; default now")
     s.add_argument("--out")
 
@@ -243,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("plan")
     s.add_argument("--portfolio", required=True)
     s.add_argument("--sector", help="default: data/universe/sectors.csv")
-    s.add_argument("--mood", help="a swingbot-risk mood file; defensive cuts the risk per trade (R11)")
+    s.add_argument("--mood", help="a swingbot-risk mood file; defensive cuts the risk per trade (R12)")
     s.add_argument("--out")
 
     s = sub.add_parser("check", help="PASS or BLOCK one order")

@@ -83,6 +83,8 @@ def cmd_fill(args, ledger: Ledger, config) -> int:
         if args.ticker and args.ticker.upper() != order.ticker:
             print(f"error: {args.order} is for {order.ticker}, not {args.ticker.upper()}", file=sys.stderr)
             return 2
+        if order.mood.get("verdict"):
+            rec["mood"] = order.mood["verdict"]
         rec.update(ticker=order.ticker, stop=order.stop, target=order.target, sector=order.sector,
                    fingerprint=order.fingerprint, verdict=_verdict_for(order, at[:10], args.state_dir))
     elif args.ticker:

@@ -12,6 +12,11 @@ close. A series that is missing or too short is reported as unavailable and
 left out of the count; it is never read as neutral. With fewer than
 `MIN_CHECKS` checks available, the verdict is "unknown".
 
+The dollar-rupee rate is the exception to the 15:30 cut. It trades round the
+clock, and Yahoo's daily FX bar for a date closes late that night, after Indian
+markets shut. So a USD/INR bar counts as known only from 06:00 IST the next
+day (`fx_bars_known_at`); news at 16:00 sees the day before's rate.
+
 Series, by the name of their saved CSV (and the Yahoo symbol the data router
 maps it to):
 
@@ -28,6 +33,7 @@ from dataclasses import asdict, dataclass, field
 
 import pandas as pd
 
+from .models import IST
 from .technicals import bars_known_at
 
 SERIES = {
@@ -41,6 +47,14 @@ LOOKBACK = 20      # sessions for the trend checks
 TREND_SMA = 200    # the Nifty's long trend line
 MIN_CHECKS = 3     # fewer available checks than this and the verdict is "unknown"
 VERDICTS = ("bullish", "neutral", "defensive", "unknown")
+FX_SERIES = {"usdinr"}   # bars whose close prints after the NSE close
+FX_KNOWN_AFTER = pd.Timedelta(days=1, hours=6)  # a bar dated D is known from D+1 06:00 IST
+
+
+def fx_bars_known_at(bars: pd.DataFrame, when) -> pd.DataFrame:
+    """FX bars whose close had printed by `when`: a bar dated D from D+1 06:00 IST."""
+    ts = pd.Timestamp(when).tz_convert(IST).tz_localize(None)
+    return bars[bars.index + FX_KNOWN_AFTER <= ts]
 
 
 @dataclass(frozen=True)
@@ -126,7 +140,7 @@ def assess(series: dict[str, pd.DataFrame | None], as_of) -> Mood:
         bars = series.get(key)
         if bars is None:
             continue
-        cut = bars_known_at(bars, as_of)
+        cut = fx_bars_known_at(bars, as_of) if key in FX_SERIES else bars_known_at(bars, as_of)
         if not cut.empty:
             known[key] = cut["close"]
             last[key] = f"{cut.index[-1]:%Y-%m-%d}"

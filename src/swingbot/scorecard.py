@@ -6,8 +6,10 @@ call, below it a short call, inside it no call. The judge is scored the same
 way, and "Final call" is the signal the backtest itself scored.
 
 Per row: calls, hit rate with a coin-flip p-value, a q-value that corrects the
-p-values for testing every row at once (Benjamini-Hochberg), average return per
-call after costs with a 95% bootstrap range, the Brier score of conviction, and
+p-values for testing every row at once (Benjamini-Hochberg), the average return
+of the long calls after costs with a 95% bootstrap range (the bot is long-only,
+so a short call is graded for direction but earns nothing), the Brier score of
+conviction, and
 the rank IC of stance against the move. `--by month` splits rows by the month
 each trade was entered, to show whether a persona's edge holds up over time.
 
@@ -60,14 +62,17 @@ def calls(results: pd.DataFrame, views_path: str | Path, run: str = "", cost_bps
                 direction = 1 if stance > band else -1 if stance < -band else 0
             rows.append({**base, "who": who, "stance": stance, "conviction": conviction, "direction": direction,
                          "hit": None if direction == 0 else bool(direction * ret > 0),
-                         "trade_ret": None if direction == 0 else direction * ret - cost_bps / 1e4})
+                         # Long-only: only a long call is a trade. Its return is to the horizon
+                         # close, the same move the hit is graded on.
+                         "trade_ret": ret - cost_bps / 1e4 if direction == 1 else None})
     return pd.DataFrame(rows)
 
 
 def _row(who: str, g: pd.DataFrame) -> dict:
     made = g[g["direction"] != 0]
+    longs = made[made["direction"] == 1]
     n, hits = len(made), int(made["hit"].astype(bool).sum()) if len(made) else 0
-    ci = bootstrap_ci(made["trade_ret"]) if n else None
+    ci = bootstrap_ci(longs["trade_ret"]) if len(longs) else None
     ic = None
     if len(g) >= 5 and g["stance"].nunique() > 1 and g["ret"].nunique() > 1:
         ic = float(g["stance"].rank().corr(g["ret"].rank()))
@@ -78,7 +83,8 @@ def _row(who: str, g: pd.DataFrame) -> dict:
         "no_call": int(len(g) - n),
         "hit_rate": hits / n if n else None,
         "p_value": _binom_p_value(hits, n) if n else None,
-        "avg_trade_ret": float(made["trade_ret"].mean()) if n else None,
+        "long_calls": int(len(longs)),
+        "avg_trade_ret": float(longs["trade_ret"].mean()) if len(longs) else None,
         "ret_ci_low": ci[0] if ci else None,
         "ret_ci_high": ci[1] if ci else None,
         "brier": float(((made["conviction"] - made["hit"].astype(float)) ** 2).mean()) if n else None,
@@ -127,7 +133,7 @@ def format_scorecard(card: pd.DataFrame) -> str:
             and r["q_value"] < Q_LEVEL else ""
         lines.append(
             f"{r['who']:<22} calls {r['calls']:>3} (no call {r['no_call']:>3})  hit {pct(r['hit_rate']):>4}"
-            f"  p {num(r['p_value'])}  q {num(r['q_value'])}  avg {pct(r['avg_trade_ret'], True)}{ci}"
+            f"  p {num(r['p_value'])}  q {num(r['q_value'])}  longs {r['long_calls']:>3} avg {pct(r['avg_trade_ret'], True)}{ci}"
             f"  Brier {num(r['brier'])}  IC {num(r['ic_spearman'], 2)}{flag}")
     lines.append(f"\nq is the p-value corrected for testing {len(card)} rows at once; only q < {Q_LEVEL} "
                  "is marked. Few calls prove nothing either way.")

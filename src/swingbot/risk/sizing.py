@@ -27,7 +27,7 @@ class Sizing:
     limits: dict[str, int]  # shares each limit alone would allow
     loss_at_stop: float     # qty x (entry - stop)
     loss_with_gap: float    # the same with the gap allowance, what R2 measures
-    risk_pct: float = 0.0   # R2's limit used, after any market-mood cut (R11)
+    risk_pct: float = 0.0   # R2's limit used, after any market-mood cut (R12)
 
 
 def gap_risk_per_share(entry: float, stop: float, config: RiskConfig) -> float:
@@ -37,7 +37,7 @@ def gap_risk_per_share(entry: float, stop: float, config: RiskConfig) -> float:
 
 def size_position(plan: ExitPlan, portfolio: Portfolio, config: RiskConfig | None = None,
                   sector: str = "", mood: dict | None = None) -> Sizing:
-    """`mood` is a `swingbot-risk mood` result; a defensive verdict cuts the risk per trade (R11)."""
+    """`mood` is a `swingbot-risk mood` result; a defensive verdict cuts the risk per trade (R12)."""
     config = config or RiskConfig()
     eq, entry = portfolio.equity, plan.entry
     verdict = (mood or {}).get("verdict")

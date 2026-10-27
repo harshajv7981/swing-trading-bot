@@ -40,7 +40,7 @@ swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-da
 swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # only after a PASS
 ```
 
-- **mood** (R11): bullish, neutral, defensive or unknown, from the Nifty's
+- **mood** (R12): bullish, neutral, defensive or unknown, from the Nifty's
   trend, Nifty vs FMCG, gold and USD/INR, and India VIX. When it is defensive,
   `size` and `check` cut the risk per trade to `defensive_risk_scale` of the
   usual 1% (half, by default). Give the verdict and every check line, and say

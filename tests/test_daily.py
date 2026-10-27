@@ -106,7 +106,7 @@ def test_phases_and_sessions():
 
 def test_news_window_starts_at_the_previous_open():
     since, until = news_window("2026-11-03 08:30", CAL)
-    assert f"{since:%Y-%m-%d %H:%M}" == "2026-11-02 09:15"
+    assert f"{since:%Y-%m-%d %H:%M}" == "2026-11-02 09:08"
     assert f"{until:%Y-%m-%d %H:%M}" == "2026-11-03 08:30"
 
 
@@ -175,6 +175,13 @@ def test_holiday_settles_and_reports_but_runs_no_swarm(repo):
     result = finish(Day("2026-11-10 09:00", cfg, hooks.make()))
     assert "signal_to_order" not in hooks.calls and "broker_submit" not in hooks.calls
     assert any(s["name"] == "ledger report" for s in result["steps"])
+
+
+def test_a_year_with_no_holiday_list_places_no_entries(repo):
+    open_account(repo)
+    (repo / "holidays.toml").write_text('[holidays]\n2025 = ["2025-12-25"]\n')
+    state = start(Day(MORNING, config(repo), Hooks([good_order()]).make()))
+    assert not state["entries"] and any("no NSE holiday list for 2026" in w for w in state["why_not"])
 
 
 def test_after_the_close_no_entries(repo):

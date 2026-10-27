@@ -1,6 +1,8 @@
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
+
 from swingbot.models import IST, NewsEvent, Sentiment
 from swingbot.swarm import ClaudeReasoner, LexiconReasoner, PersonaSwarm, build_engine
 from swingbot.swarm.reasoners import news_tone
@@ -50,6 +52,12 @@ class FakeClient:
         return SimpleNamespace(stop_reason="end_turn", parsed_output=view)
 
 
+needs_anthropic = pytest.mark.skipif(
+    __import__("importlib").util.find_spec("anthropic") is None,
+    reason="the optional anthropic package is not installed (pip install -e '.[llm]')")
+
+
+@needs_anthropic
 def test_claude_reasoner_with_fake_client():
     r = ClaudeReasoner(client=object())
     r.client = FakeClient(r)
@@ -60,6 +68,7 @@ def test_claude_reasoner_with_fake_client():
     assert "other participants reacted" not in r.client.prompts[0]
 
 
+@needs_anthropic
 def test_claude_reasoner_refusal_is_no_view():
     r = ClaudeReasoner(client=object())
     r.client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(
