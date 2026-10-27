@@ -111,6 +111,7 @@ def briefs_main(argv: list[str] | None = None) -> int:
                    help="add the Verifier's lessons from similar trades that closed before each story broke")
     p.add_argument("--lessons-k", type=int, default=3, help="max lessons per event")
     p.add_argument("--until", help="only events published before this date (one walk-forward window)")
+    p.add_argument("--since", help="only events published at or after this date or time (the daily loop)")
     args = p.parse_args(argv)
     memory = None
     if args.with_lessons:
@@ -137,6 +138,9 @@ def briefs_main(argv: list[str] | None = None) -> int:
     if args.until:
         until = pd.Timestamp(args.until, tz=IST)
         todo = [e for e in todo if e.published_at < until]
+    if args.since:
+        since = pd.Timestamp(args.since, tz=IST)
+        todo = [e for e in todo if e.published_at >= since]
     todo = todo[: args.limit]
 
     lines = ["# Swarm brief", "", SYSTEM_PROMPT, "", "## Personas", ""]

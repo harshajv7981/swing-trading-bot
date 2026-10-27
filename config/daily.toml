@@ -1,0 +1,27 @@
+# The daily paper trading loop (swingbot-daily). Paths are relative to the repo.
+#
+# Each hook is "module:function"; the contracts are in src/swingbot/daily/hooks.py.
+# The stubs do nothing and say so in the day's summary. Swap a line when the
+# real step lands; the loop itself does not change.
+
+[hooks]
+refresh = "swingbot.daily.adapters:refresh"          # swingbot.data.refresh when installed, else the stub
+broker_settle = "swingbot.daily.stubs:broker_settle"  # the paper broker: fills, lapses, OCO exits
+signal_to_order = "swingbot.daily.stubs:signal_to_order"
+broker_submit = "swingbot.daily.stubs:broker_submit"
+
+[paths]
+runs_dir = "runs/daily"                    # one folder per day: brief, views, orders, tickets, summary
+ledger = "data/state/paper_ledger.jsonl"   # swingbot-paper's ledger
+state_dir = "data/state"                   # kill switch, verdict log, entry links
+memory_db = "runs/memory.db"               # the Verifier's lessons
+# risk_config = "config/risk.toml"
+# data_config = "config/data_sources.toml"
+# holidays = "config/nse_holidays.toml"
+
+[brief]
+batch = 10              # news items per brief; `swingbot-daily brief` writes the next batch
+with_technicals = true  # a technical snapshot per stock, from closed sessions only
+with_context = true     # the week's earlier news and filings, and the latest results
+with_mood = true        # the market mood (R11)
+with_lessons = true     # past lessons from runs/memory.db, once it exists
