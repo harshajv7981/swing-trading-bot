@@ -10,15 +10,21 @@ limit (only a sell of more than is held, which would be a short, is blocked).
 That and the order fingerprint come from day-trader-skill's trader-risk (MIT,
 Jake Schincariol); the rules themselves are the build plan's.
 
-The weekly kill switch (R5) latches in a state file. Once set, every entry is
-blocked until Harsha resets it by hand (`swingbot-risk kill-switch --reset`).
-The bot and Claude never reset it.
+The weekly kill switch (R5) latches in a state file. It latches whenever the
+account is looked at with equity 5% under the week's open: on any order check
+(a sell too), `swingbot-risk kill-switch --portfolio`, and `swingbot-paper
+report` or `portfolio`. Once set, every entry is blocked until Harsha resets it
+by hand (`swingbot-risk kill-switch --reset`), which asks for the reset to be
+typed at a terminal and refuses to run under Claude Code. The bot and Claude
+never reset it.
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+import os
+import sys
 from datetime import date, datetime
 from pathlib import Path
 
@@ -44,7 +50,7 @@ class Verdict:
     order: Order
     checks: list[Check] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
-    trip_kill_switch: str = ""  # set when this check found the weekly breach
+    trip_kill_switch: str = ""  # set when the account is past the weekly limit (sells too)
 
     @property
     def passed(self) -> bool:
@@ -72,6 +78,29 @@ class Verdict:
         return "\n".join(lines)
 
 
+class ResetRefused(Exception):
+    """A kill switch reset that did not come from a person at a terminal."""
+
+
+def weekly_breach(portfolio: Portfolio, config: RiskConfig) -> str:
+    """Why R5 trips for this account, or "" when it does not."""
+    week = portfolio.week_open_equity
+    dd = (week - portfolio.equity) / week * 100 if week > 0 else 0.0
+    if dd < config.weekly_kill_pct:
+        return ""
+    return f"equity {portfolio.equity:,.0f} is {dd:.2f}% under the week's open {week:,.0f}"
+
+
+def week_of(day: date) -> str:
+    y, w, _ = day.isocalendar()
+    return f"{y}-W{w:02d}"
+
+
+def run_by_claude() -> bool:
+    """True inside Claude Code (its shell sets CLAUDECODE) or any agent without a terminal."""
+    return bool(os.environ.get("CLAUDECODE")) or not sys.stdin.isatty()
+
+
 class KillSwitch:
     """R5's latch, kept in `<state_dir>/kill_switch.json`."""
 
@@ -85,17 +114,36 @@ class KillSwitch:
     def latched(self) -> bool:
         return bool(self.state().get("latched"))
 
-    def latch(self, reason: str) -> None:
-        if self.latched:
-            return
+    def latch(self, reason: str, week: str = "") -> bool:
+        """Latch it; True if this call did. A breach in a week Harsha already
+        cleared, or an earlier one, does not latch it again."""
+        st = self.state()
+        if st.get("latched") or (week and week <= st.get("cleared_week", "")):
+            return False
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(
-            {"latched": True, "reason": reason, "at": datetime.now().isoformat(timespec="seconds")}, indent=2))
+            {"latched": True, "reason": reason, "week": week,
+             "at": datetime.now().isoformat(timespec="seconds")}, indent=2))
+        return True
 
-    def reset(self, by: str) -> None:
+    def update(self, portfolio: Portfolio, config: RiskConfig, today: date) -> bool:
+        """Latch it if the account is past the weekly limit; True if this call did."""
+        reason = weekly_breach(portfolio, config)
+        return bool(reason) and self.latch(reason, week_of(today))
+
+    def reset(self, by: str, today: date | None = None) -> None:
+        """For Harsha, by hand. The breach's week stays cleared, so the same
+        drawdown does not latch it again; the gate still blocks entries while
+        the week is 5% down."""
+        if run_by_claude():
+            raise ResetRefused("the kill switch is reset only by Harsha, typing it at a terminal; "
+                               "Claude and the bot never reset it")
+        st = self.state()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(
-            {"latched": False, "reset_by": by, "at": datetime.now().isoformat(timespec="seconds")}, indent=2))
+            {"latched": False, "reset_by": by, "cleared_week": st.get("week") or week_of(today or date.today()),
+             "cleared_reason": st.get("reason", ""), "at": datetime.now().isoformat(timespec="seconds")},
+            indent=2))
 
 
 def _pct(x: float) -> str:
@@ -125,6 +173,7 @@ def check_order(order: Order, portfolio: Portfolio, config: RiskConfig | None = 
     if order.product != "CNC":
         add("format", False, f"product {order.product!r}: only CNC (delivery) is allowed, no intraday or margin")
         return v
+    v.trip_kill_switch = weekly_breach(portfolio, config)
     held = portfolio.held(order.ticker)
     if order.side == "sell":
         add("long only", order.qty <= held,
@@ -137,8 +186,7 @@ def check_order(order: Order, portfolio: Portfolio, config: RiskConfig | None = 
     if kill_switch_latched:
         add("R5 weekly kill switch", False, "latched; only a manual reset by Harsha clears it")
     week_dd = (portfolio.week_open_equity - eq) / portfolio.week_open_equity * 100
-    if week_dd >= config.weekly_kill_pct:
-        v.trip_kill_switch = f"equity {eq:,.0f} is {week_dd:.2f}% under the week's open {portfolio.week_open_equity:,.0f}"
+    if v.trip_kill_switch:
         add("R5 weekly kill switch", False, v.trip_kill_switch + "; latching")
     elif not kill_switch_latched:
         add("R5 weekly kill switch", True, f"week drawdown {_pct(max(week_dd, 0))} (limit {config.weekly_kill_pct}%)")

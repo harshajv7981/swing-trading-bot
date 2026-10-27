@@ -224,7 +224,8 @@ swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --mood runs/ri
 swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-date 2026-11-14
 swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # paper only, never sent
 swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
-swingbot-risk kill-switch                       # status; --reset --by NAME is for Harsha only
+swingbot-risk kill-switch --portfolio portfolio.json   # status, latching it on a -5% week
+swingbot-risk kill-switch --reset --by Harsha   # Harsha only, typed at a terminal
 ```
 
 * **plan** sets the stop (ATR multiple, percent, price, or under a recent low)
@@ -263,6 +264,13 @@ swingbot-risk kill-switch                       # status; --reset --by NAME is f
   from `--as-of` (default today) and the kill switch is not latched. Nothing
   sends it: Dhan's security id and request fields are the adapter's job, to be
   checked in Dhan's sandbox.
+* **kill-switch** latches on the drawdown itself, not only on an entry check:
+  any `check` (a sell too), `kill-switch --portfolio`, and every
+  `swingbot-paper report` or `portfolio`, which scans each close of the paper
+  account against its week's open. A reset asks Harsha to type RESET at a
+  terminal and refuses inside Claude Code (`CLAUDECODE` set) or with no
+  terminal; it is logged with who reset it, and that week's breach does not
+  latch it again (the gate still blocks entries while the week is 5% down).
 * **trail** moves the stop to breakeven after +1R, then 2 x ATR under the
   highest close (R7). It never moves a stop down.
 * **mood** (R11, new) calls the whole market bullish, neutral or defensive
@@ -319,12 +327,14 @@ swingbot-paper portfolio --out portfolio.json   # what swingbot-risk size/check 
 * **Rule breaks** found on replay: a buy with no PASS, no stop or a stop at or
   above the fill, risk over 1% of equity or a position over 15% (with 2% slack
   for fill prices), more than 5 positions or 2 per sector, adding to a holding,
-  a buy while the account sat 5% under the week's open, cash below zero, a sale
+  a buy while the account sat 5% under the week's open or 2% under the day's, cash below zero, a sale
   of more than is held, and a stop moved down. It also notes any session that
   traded through a stop without a sell recorded, because the broker holds the
   stop and the ledger never invents its fill.
-* **The portfolio file** takes today's open as the last close and Monday's open
-  as the previous week's last close, since the ledger only has daily closes.
+* **The portfolio file** takes today's open as the close of the session before
+  the `--as-of` day and Monday's open as the previous week's last close, since
+  the ledger only has daily closes. So a 2% fall from yesterday's close pauses
+  entries (R6), and a 5% fall in the week latches the kill switch (R5).
 
 The replay idea, start from cash, apply trades in order, mark at each close and
 flag rule breaks, comes from the challenge scoring in
