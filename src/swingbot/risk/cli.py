@@ -9,6 +9,7 @@ reads, and the gate records every verdict with the order's fingerprint.
     swingbot-risk size runs/plan.json --portfolio portfolio.json --mood runs/mood.json --out runs/order.json
     swingbot-risk check runs/order.json --portfolio portfolio.json --results-date 2026-11-14
     swingbot-risk ticket runs/order.json --out runs/ticket.json   # paper only
+    swingbot-risk orders runs/signals.jsonl --portfolio portfolio.json --mood runs/mood.json  # all of it, per call
     swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
     swingbot-risk kill-switch                     # status
     swingbot-risk kill-switch --reset --by Harsha # Harsha only, by hand
@@ -33,6 +34,8 @@ from .config import RiskConfig
 from .exits import ExitPlan, PlanRefused, plan_exit, trail_stop
 from .gate import DEFAULT_STATE_DIR, KillSwitch, check_order
 from .portfolio import Order, Portfolio, load_sectors
+from .signals import SignalRules, decide, load_results_dates, read_calls
+from .signals import summary as orders_summary
 from .sizing import SizingRefused, size_position
 from .ticket import TicketRefused, latest_verdict, make_ticket
 from .ticket import describe as describe_ticket
@@ -147,6 +150,34 @@ def cmd_ticket(args, config: RiskConfig) -> int:
     return 0
 
 
+def cmd_orders(args, config: RiskConfig) -> int:
+    as_of = parse_as_of(args.as_of)
+    router = Router(DataConfig.load(args.data_config))
+    mood = _mood(args.mood)
+    decisions = decide(
+        read_calls(args.signals), as_of=as_of, portfolio=Portfolio.load(args.portfolio),
+        fetch_bars=lambda ticker: router.fetch("prices", ticker, as_of)[1], config=config,
+        rules=SignalRules.load(args.rules), mood=mood, results_dates=load_results_dates(args.results_dates),
+        sectors=load_sectors(), calendar=NSECalendar.load(), kill_switch=KillSwitch(args.state_dir),
+        verdict_log=None if args.no_write else Path(args.state_dir) / "risk_verdicts.jsonl",
+    )
+    print(orders_summary(decisions))
+    if args.no_write:
+        print("--no-write: no verdicts logged and no files written")
+        return 0
+    out = Path(args.out_dir) / f"{as_of:%Y-%m-%d}"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "decisions.json").write_text(json.dumps(
+        {"as_of": f"{as_of:%Y-%m-%d %H:%M}", "mood": mood, "decisions": [d.to_json() for d in decisions]},
+        indent=2) + "\n")
+    for d in decisions:
+        if d.ticket:
+            (out / f"{d.ticker}.order.json").write_text(json.dumps(d.order, indent=2) + "\n")
+            (out / f"{d.ticker}.ticket.json").write_text(json.dumps(d.ticket, indent=2) + "\n")
+    print(f"wrote {out}/decisions.json and an order and ticket file per ticket")
+    return 0
+
+
 def cmd_trail(args, config: RiskConfig) -> int:
     bars = _bars(args.ticker, parse_as_of(args.as_of), args.data_config)
     new, why = trail_stop(bars, args.entry_date, args.entry, args.initial_stop, args.stop, config)
@@ -217,6 +248,17 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--as-of", help="the day of the PASS; default today")
     s.add_argument("--out")
 
+    s = sub.add_parser("orders", help="swarm calls to paper tickets: filters, plan, size, gate, ticket")
+    s.add_argument("signals", help="JSONL, JSON list or CSV: ticker, sentiment, confidence, time_horizon, "
+                                   "and optionally as_of, event_id, score, rationale")
+    s.add_argument("--portfolio", required=True)
+    s.add_argument("--mood", help="a swingbot-risk mood file; defensive raises the confidence bar and cuts size")
+    s.add_argument("--results-dates", help="CSV of symbol,date: each company's next results date (R9)")
+    s.add_argument("--rules", help="signal filters TOML (default config/signals.toml)")
+    s.add_argument("--as-of", help="decision time, YYYY-MM-DD or 'YYYY-MM-DD HH:MM' IST; default now")
+    s.add_argument("--out-dir", default="runs/orders", help="writes <out-dir>/<date>/ (default runs/orders)")
+    s.add_argument("--no-write", action="store_true", help="dry run: log no verdicts, latch nothing, write no files")
+
     s = sub.add_parser("trail", help="the trailing stop for an open position (R7)")
     s.add_argument("ticker")
     s.add_argument("--entry-date", required=True)
@@ -231,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = p.parse_args(argv)
     commands = {"mood": cmd_mood, "plan": cmd_plan, "odds": cmd_odds, "size": cmd_size, "check": cmd_check,
-                "ticket": cmd_ticket, "trail": cmd_trail, "kill-switch": cmd_kill_switch}
+                "ticket": cmd_ticket, "orders": cmd_orders, "trail": cmd_trail, "kill-switch": cmd_kill_switch}
     try:
         return commands[args.cmd](args, RiskConfig.load(args.config))
     except (PlanRefused, SizingRefused, TicketRefused, NotEnoughHistory) as e:

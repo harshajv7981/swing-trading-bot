@@ -291,6 +291,44 @@ a final execution agent from The Swarm Corporation's
 plain code in place of an LLM. In Claude Code, the `risk-check`
 skill runs these steps after `market-research`.
 
+### From swarm calls to tickets: `swingbot-risk orders`
+
+The steps above, for a whole file of swarm calls at once. Each call is the
+ReportAgent's JSON (`ticker`, `sentiment`, `confidence`, `time_horizon`, and
+optionally `as_of`, `event_id`, `score`, `rationale`), as JSONL, a JSON list
+or CSV.
+
+```bash
+swingbot-risk mood --out runs/risk/mood.json
+swingbot-risk orders runs/signals.jsonl --portfolio portfolio.json --mood runs/risk/mood.json \
+    --results-dates data/results_dates.csv          # symbol,date; add --no-write for a dry run
+```
+
+1. **The call.** Bullish only: the bot is long-only CNC, so a bearish call is a
+   pass, never a short, and neutral is no trade. The horizon must be 1 to 20
+   sessions, the call at most 36 hours old, and the confidence at least 0.60
+   (0.75 when the mood is defensive; the gate halves the size as well).
+2. **The batch.** One call per stock (the most confident), best calls first,
+   at most 3 tickets per run.
+3. **Technical overlay**, from bars known at `--as-of`: close above the
+   200-day SMA, RSI14 at most 75, close at most 3 ATRs above EMA10. These skip
+   a call before it is sized, so a stretched chart never reaches the gate.
+4. **Plan, size, gate**: `atr:2` stop and `2R` target, sized and checked
+   exactly as `plan`, `size` and `check` do it. Every verdict goes in
+   `data/state/risk_verdicts.jsonl` and a weekly breach latches the kill
+   switch. An order under Rs 10,000 (the account is nearly spent) is skipped.
+5. **Ticket** for each PASS, plus a time exit from the horizon: 72h means sell
+   at the close of the third session, counting the entry day, as in the
+   backtest.
+
+Calls in one run are sized one after another against the same account, so
+each ticket's cash and open risk count against the next. Output goes to
+`runs/orders/<date>/`: `decisions.json` (every call, where it stopped and
+why) and a `TICKER.order.json` and `TICKER.ticket.json` per ticket. The order
+file is what `swingbot-paper fill buy --order` reads. The filters live in
+`config/signals.toml`; they can only skip a call and never loosen a limit in
+`config/risk.toml`. Nothing is sent anywhere.
+
 ## Paper account: `swingbot-paper`
 
 The account the paper-trading phase is judged on. Record each fill the paper
