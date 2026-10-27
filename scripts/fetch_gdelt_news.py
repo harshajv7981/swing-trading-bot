@@ -14,46 +14,11 @@ Only headlines and links are stored, never article text.
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import date, timedelta
 
+from swingbot.data.remote import GDELT_MAX, gdelt_articles as fetch
 from swingbot.news import gdelt_query, gdelt_rows, load_universe, merge_into
-
-API = "https://api.gdeltproject.org/api/v2/doc/doc"
-UA = "swingbot-research/0.1 (personal backtest)"
-
-
-def fetch(query: str, start: date, end: date, retries: int = 3) -> list[dict]:
-    params = {
-        "query": query,
-        "mode": "artlist",
-        "format": "json",
-        "maxrecords": "250",
-        "sort": "datedesc",
-        "startdatetime": f"{start:%Y%m%d}000000",
-        "enddatetime": f"{end:%Y%m%d}235959",
-    }
-    url = f"{API}?{urllib.parse.urlencode(params)}"
-    for attempt in range(retries):
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                text = resp.read().decode("utf-8", "replace").strip()
-            if not text.startswith("{"):
-                # GDELT answers bad queries and rate limits with a plain-text message
-                raise ValueError(text[:200])
-            return json.loads(text).get("articles", [])
-        except (urllib.error.URLError, ValueError, json.JSONDecodeError) as e:
-            if attempt == retries - 1:
-                raise
-            print(f"  retry after: {e}", file=sys.stderr)
-            time.sleep(10 * (attempt + 1))
-    return []
 
 
 def main() -> None:
@@ -82,7 +47,7 @@ def main() -> None:
             except Exception as e:  # keep going; report which chunks failed
                 print(f"FAIL {c.symbol} {day}..{chunk_end}: {e}")
                 articles = []
-            capped += len(articles) >= 250
+            capped += len(articles) >= GDELT_MAX
             rows += gdelt_rows(articles, c)
             day = chunk_end + timedelta(days=1)
             time.sleep(args.pause)

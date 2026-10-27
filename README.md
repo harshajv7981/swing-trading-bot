@@ -183,6 +183,30 @@ swingbot-backtest --events data/my_events.csv --prices data/raw/prices \
 
 Prices come from Yahoo Finance (`TICKER.NS`), split- and bonus-adjusted.
 
+### Daily refresh
+
+Once you have data, one command keeps it current. Run it on your own machine
+after the close (16:00 IST or later); the cloud workspace can't reach Yahoo,
+GDELT or NSE.
+
+```bash
+swingbot-refresh                      # prices for the universe, Nifty and the mood series; GDELT news
+swingbot-refresh --accept-nse-terms   # also NSE filings (see the terms note below)
+swingbot-refresh --only prices --tickers TCS INFY
+```
+
+It writes where the data router reads (`config/data_sources.toml`), so
+`swingbot-data`, the briefs and the market mood pick up the new rows at once.
+Prices are fetched only from the last saved bar on, with a week of overlap: if
+Yahoo's adjusted closes for those days have moved (a split, bonus or dividend),
+the whole file is downloaded again rather than mixing old and new adjustments.
+A session that hasn't closed is never saved. News and filings resume from the
+last successful day per stock, kept in `data/raw/refresh_state.json`. Running it
+twice does nothing new, a lock stops two runs overlapping, and one stock
+failing doesn't stop the rest (exit code 1, and the next run catches up).
+Settings live under `[refresh]` in the config; the daily loop calls
+`swingbot.data.refresh.run()`.
+
 ### Getting real news
 
 Two fetchers build `data/raw/news/events.csv` for the stocks in
