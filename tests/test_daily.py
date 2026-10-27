@@ -332,3 +332,20 @@ def test_monday_trades_friday_evening_news_with_the_real_signal_hook(repo, monke
     finish(Day("2026-11-09 08:50", cfg, hooks))
     [d] = json.loads((cfg.runs_dir / "2026-11-09" / "signal_decisions.json").read_text())["decisions"]
     assert d["status"] == "sized", d["reasons"]
+
+
+def test_alerts_go_out_once_for_a_kill_switch_latch_found_by_start(repo):
+    open_account(repo, cash=1_000_000)
+    got = []
+    first = Day(MORNING, config(repo), Hooks().make())
+    first.alert_sender = got.append
+    start(first)                                    # first run: the welcome only
+    assert [a.key for a in got] == ["hello"]
+
+    KillSwitch(repo / "state").latch("equity fell 3.2% this week")
+    later = Day("2026-11-03 08:50", config(repo), Hooks().make())
+    later.alert_sender = got.append
+    state = start(later)
+    finish(later)                                   # already sent: not again
+    assert [a.title for a in got] == ["Swing bot alerts are on", "KILL SWITCH LATCHED"]
+    assert any(s["name"] == "alerts" and "1 sent" in s["detail"] for s in state["steps"])

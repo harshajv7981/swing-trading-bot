@@ -503,6 +503,7 @@ swingbot-daily start     # calendar, data refresh, paper broker settle, account,
 swingbot-daily brief     # the next batch of today's news, until 0 are left
 swingbot-daily finish    # signals, signal-to-order, risk gate, tickets, paper broker, report, Verifier
 swingbot-daily status
+swingbot-daily alerts --test   # one test message on the [alerts] channel
 ```
 
 * **Hours.** New entries need an NSE session day (weekends and the holidays
@@ -533,6 +534,31 @@ swingbot-daily status
   so a report never looks complete when it isn't. The defaults go through
   `swingbot/daily/adapters.py` to `swingbot.data.refresh`,
   `swingbot.broker.daily` and `swingbot.risk.signals:daily_hook`.
+
+### Phone alerts
+
+Both halves end by sending what changed since the last run: each paper buy and
+sell (a stop that gapped through is marked urgent), each entry placed for the
+next session, a held position whose stop-limit lapsed and now has **no stop**,
+the kill switch latching, and any step that failed. Alerts are read from the
+ledger, the paper broker's book and `kill_switch.json`, and each one is sent
+once (`data/state/alerts_sent_<channel>.json`), so re-running a half is safe.
+The first run on a channel sends only a welcome, not the history.
+
+Pick a free channel in `[alerts]` of `config/daily.toml`; secrets live in the
+environment, never in git:
+
+* **ntfy** (no account): install the ntfy app, subscribe to a long random
+  topic name, then `export SWINGBOT_NTFY_TOPIC=that-name` and set
+  `channel = "ntfy"`. Anyone who knows the topic can read it, so treat it like
+  a password.
+* **Telegram**: make a bot with @BotFather, send it one message, then set
+  `SWINGBOT_TELEGRAM_TOKEN` and `SWINGBOT_TELEGRAM_CHAT_ID` and
+  `channel = "telegram"`.
+
+Run `swingbot-daily alerts --test` to check it arrives. With the default
+`channel = "none"`, alerts only go to `data/state/alerts.jsonl`. A message that
+fails to send is kept and tried again next run, and never stops the loop.
 
 ## Persona scorecard: `swingbot-scorecard`
 

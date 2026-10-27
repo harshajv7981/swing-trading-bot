@@ -5,6 +5,7 @@
     swingbot-daily brief     # the next batch of today's news, until it says 0
     swingbot-daily finish    # signals, orders, risk gate, tickets, paper broker, report, Verifier
     swingbot-daily status    # what today's run has done so far
+    swingbot-daily alerts --test   # send one test message on the [alerts] channel
 
 The `daily-paper-loop` skill walks Claude Code through a whole day. Paper
 only: nothing here talks to a real broker. Exit codes: 0 done, 1 a step
@@ -17,6 +18,7 @@ import argparse
 import json
 import sys
 
+from .. import alerts
 from .hooks import BLOCKED, FAILED, Step
 from .loop import DailyConfig, Day, brief, finish, load_state, start
 
@@ -36,6 +38,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("brief", help="the next batch of today's news for the swarm")
     sub.add_parser("finish", help="second half: from the swarm's views to the report")
     sub.add_parser("status", help="today's day.json and finish.json")
+    al = sub.add_parser("alerts", help="send the alerts not sent yet, or a test message")
+    al.add_argument("--test", action="store_true", help="send one test message and nothing else")
     args = p.parse_args(argv)
 
     try:
@@ -75,6 +79,22 @@ def main(argv: list[str] | None = None) -> int:
                       "then `swingbot-memory learn --lessons <file>`.")
             broke = any(s["name"] == "ledger report" and s["status"] == BLOCKED for s in result["steps"])
             return 1 if broke or any(s["status"] == FAILED for s in result["steps"]) else 0
+        if args.cmd == "alerts":
+            cfg = day.config.alerts
+            if args.test:
+                send = alerts.sender(cfg)
+                if send is None:
+                    print("error: [alerts] channel is \"none\" in the daily config; set ntfy or telegram first",
+                          file=sys.stderr)
+                    return 2
+                send(alerts.Alert("test", "Swing bot test", f"Alerts reach you via {cfg.channel}."))
+                print(f"sent a test message via {cfg.channel}")
+                return 0
+            d = alerts.dispatch(day.ledger, day.state_dir, cfg, f"{day.as_of:%Y-%m-%d}")
+            print(f"alerts via {cfg.channel}: {d.detail()}")
+            for a, why in d.failed:
+                print(f"  not sent: {a.line()} ({why})")
+            return 1 if d.failed else 0
         if args.cmd == "status":
             for name in ("day.json", "finish.json"):
                 if day.path(name).exists():
@@ -83,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print(f"{name}: not written yet")
             return 0
-    except (FileNotFoundError, ValueError, KeyError) as e:
+    except (FileNotFoundError, ValueError, KeyError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     return 2
