@@ -385,3 +385,47 @@ def test_sync_at_open_waits_for_0916_on_a_session_day():
     assert wait_for_open(pd.Timestamp("2026-01-06 08:30", tz=IST), cal) == 46 * 60
     assert wait_for_open(pd.Timestamp("2026-01-06 09:20", tz=IST), cal) == 0
     assert wait_for_open(pd.Timestamp("2026-01-10 08:30", tz=IST), cal) == 0   # a Saturday
+
+
+def day_stops(fake):
+    return [c[2] for c in fake.calls if c[:2] == ("POST", "/orders") and c[2]["orderType"] == "STOP_LOSS_MARKET"]
+
+
+def test_entry_day_stop_goes_in_once_the_buy_fills(tmp_path):
+    b, fake, _ = make(tmp_path)
+    b.submit(ticket(), "2026-01-02 18:00")
+    fake.trade("O1", "BUY", 100, 99.9, "2026-01-05 09:15:03")
+    b.sync("2026-01-05 09:20")
+    [sl] = day_stops(fake)
+    assert (sl["transactionType"], sl["productType"], sl["validity"], sl["quantity"], sl["triggerPrice"]) == \
+        ("SELL", "CNC", "DAY", 100, 95.0)
+    assert "entry-day stop 95.00 for 100 shares" in b.notes[-1]
+    b.sync("2026-01-05 10:00")
+    assert len(day_stops(fake)) == 1                   # once
+
+    fake.trade(b.orders[0]["day_stop_id"], "SELL", 100, 94.9, "2026-01-05 13:40:00")
+    [sell] = b.sync("2026-01-05 18:00")
+    assert (sell.reason, sell.price) == ("stop", 94.9) and b.orders[0]["status"] == "closed"
+    b.sync("2026-01-06 09:20")
+    assert placed(fake) == []                          # nothing left to protect
+
+
+def test_a_refused_entry_day_stop_is_reported(tmp_path):
+    b, fake, _ = make(tmp_path)
+    b.submit(ticket(), "2026-01-02 18:00")
+    fake.trade("O1", "BUY", 100, 99.9, "2026-01-05 09:15:03")
+    fake.order_status["O2"] = "REJECTED"               # the stop-loss sell is the second order
+    b.sync("2026-01-05 09:20")
+    assert "rejected the entry-day stop (lower circuit)" in b.notes[-1]
+    b.sync("2026-01-05 10:00")
+    assert len(day_stops(fake)) == 1                   # reported once, not retried
+    b.sync("2026-01-06 09:20")
+    assert b.orders[0]["forever_id"]                   # the Forever OCO still goes in the next day
+
+
+def test_entry_day_stop_can_be_turned_off(tmp_path):
+    b, fake, _ = make(tmp_path, entry_day_stop=False)
+    b.submit(ticket(), "2026-01-02 18:00")
+    fake.trade("O1", "BUY", 100, 99.9, "2026-01-05 09:15:03")
+    b.sync("2026-01-05 09:20")
+    assert day_stops(fake) == []

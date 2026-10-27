@@ -10,3 +10,4 @@ mode = "sandbox"                          # sandbox | live
 state_dir = "data/state"                  # dhan_book.json, dhan_rate.json (R10)
 scrip_master = "data/state/dhan_scrips.csv"
 flatten_unprotected = true                # R1: sell at market when no stop is confirmed in 60 s
+entry_day_stop = true                     # a DAY stop-loss market sell on the entry session (no Forever Order until tomorrow)
