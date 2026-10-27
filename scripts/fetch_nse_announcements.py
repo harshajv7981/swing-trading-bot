@@ -18,56 +18,11 @@ change without notice.
 from __future__ import annotations
 
 import argparse
-import http.cookiejar
-import json
-import sys
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import date, timedelta
 
+from swingbot.data.remote import NSESession
 from swingbot.news import load_universe, merge_into, nse_rows
-
-HOME = "https://www.nseindia.com/companies-listing/corporate-filings-announcements"
-API = "https://www.nseindia.com/api/corporate-announcements"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": HOME,
-}
-
-
-class NSESession:
-    def __init__(self) -> None:
-        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-        self.warm()
-
-    def warm(self) -> None:
-        """The API only answers with the cookies the HTML page sets."""
-        self.opener.open(urllib.request.Request(HOME, headers=HEADERS), timeout=30).read()
-
-    def announcements(self, symbol: str, start: date, end: date) -> list[dict]:
-        params = {
-            "index": "equities",
-            "symbol": symbol,
-            "from_date": f"{start:%d-%m-%Y}",
-            "to_date": f"{end:%d-%m-%Y}",
-        }
-        req = urllib.request.Request(f"{API}?{urllib.parse.urlencode(params)}", headers=HEADERS)
-        for attempt in range(2):
-            try:
-                with self.opener.open(req, timeout=30) as resp:
-                    data = json.loads(resp.read().decode("utf-8", "replace"))
-                return data if isinstance(data, list) else data.get("data", [])
-            except (urllib.error.HTTPError, json.JSONDecodeError) as e:
-                if attempt:
-                    raise
-                print(f"  {symbol}: {e}; refreshing cookies", file=sys.stderr)
-                time.sleep(10)
-                self.warm()
-        return []
 
 
 def main() -> None:

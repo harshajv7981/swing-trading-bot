@@ -223,3 +223,14 @@ def test_takes_a_real_ticket(tmp_path):
     b.submit(t, "2026-01-02 18:00")
     o = b.open_orders()[0]
     assert (o["limit"], o["stop"], o["target"], o["sector"]) == (100.0, 95.0, 110.0, "")
+
+
+def test_cli_refuses_a_ticket_while_the_kill_switch_is_latched(tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "kill_switch.json").write_text(json.dumps({"latched": True, "reason": "test"}))
+    (tmp_path / "ticket.json").write_text(json.dumps(ticket()))
+    common = ["--ledger", str(tmp_path / "l.jsonl"), "--book", str(tmp_path / "book.json"), "--state-dir", str(state)]
+    assert paper_main(common + ["open", "--cash", "1000000", "--at", "2026-01-02"]) == 0
+    assert paper_main(common + ["submit", str(tmp_path / "ticket.json"), "--at", "2026-01-02 18:00"]) == 2
+    assert not (tmp_path / "book.json").exists()
