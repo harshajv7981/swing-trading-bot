@@ -292,9 +292,10 @@ swingbot-risk kill-switch --reset --by Harsha   # Harsha only, typed at a termin
   `data/state/risk_verdicts.jsonl`.
 * **ticket** writes the broker orders a PASSed order would become, for the
   paper journal and as the shape for the Dhan adapter: a DAY limit buy (CNC),
-  then, once it fills, an OCO pair kept at the broker (target sell, and a stop
-  that triggers at the stop with its limit 0.5% lower so a small gap still
-  fills). It copies the risk engine's numbers and adds none. It refuses unless
+  then, from the next trading day, an OCO pair kept at the broker, both legs
+  market (a target sell, and a stop-loss market sell at the stop). A
+  stop-limit would miss a gap down below its limit; a stop-loss market sells
+  at about the open instead. It copies the risk engine's numbers and adds none. It refuses unless
   the latest logged verdict for the exact order (same fingerprint) is a PASS
   from `--as-of` (default today) and the kill switch is not latched. Nothing
   sends it: Dhan's security id and request fields are the adapter's job, to be
