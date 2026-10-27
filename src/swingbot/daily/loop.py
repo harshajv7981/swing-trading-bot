@@ -187,7 +187,8 @@ def start(day: Day) -> dict:
         why_not.append(f"today's session closed at 15:30; run again before 09:15 on "
                        f"{next_session(today, day.calendar)}")
     elif ph == OPEN_NOW:
-        day.note("the market is already open: today's entries go in late and may not fill at the plan's price")
+        day.note("the market is already open: today's entries miss the opening auction and fill only if the "
+                 "price trades under the limit later in the day")
     steps.append(Step("calendar", OK, f"{today:%a %d %b %Y}, {ph.replace('_', ' ')} at {day.as_of:%H:%M} IST"))
 
     steps.append(_hook(day, "refresh"))
@@ -330,7 +331,8 @@ def finish(day: Day) -> dict:
     if state["entries"] and KillSwitch(day.state_dir).latched:
         why_not.append("the weekly kill switch latched after start")
     if ph == OPEN_NOW and state["entries"] and not why_not:
-        day.note("the market is open: today's entries go in late and may not fill at the plan's price")
+        day.note("the market is open: today's entries miss the opening auction and fill only if the "
+                 "price trades under the limit later in the day")
 
     signals: list[dict] = []
     tickets: list[dict] = []

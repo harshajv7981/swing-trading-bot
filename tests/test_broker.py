@@ -327,3 +327,26 @@ def test_a_ticket_without_a_hold_has_no_time_exit(tmp_path):
 def test_refuses_a_time_exit_before_the_entry(tmp_path):
     with pytest.raises(OrderRefused, match="time exit"):
         broker(tmp_path).submit(held("2026-01-02"), "2026-01-02 18:00")
+
+
+def test_an_entry_placed_after_the_auction_cannot_take_the_open(tmp_path):
+    # Opened at 98 under the 100 limit, but the order went in at 10:30: no 98 fill.
+    b = broker(tmp_path)
+    b.submit(ticket(checked="2026-01-05 10:25"), "2026-01-05 10:30")
+    assert b.open_orders()[0]["late"]
+    [buy] = b.sync("2026-01-05 18:00", {"ABC": ohlc((98.0, 101, 97, 100))})
+    assert (buy.at, buy.price, buy.reason) == ("2026-01-05 15:30", 100.0, "entry")
+
+    b = broker(tmp_path / "2")
+    b.submit(ticket(checked="2026-01-05 09:10"), "2026-01-05 09:10")       # the auction's order entry closed at 09:08
+    assert b.sync("2026-01-05 18:00", {"ABC": ohlc((98.0, 101, 100.0, 100.5))}) == []
+    assert b.orders[0]["status"] == "expired" and "after the open" in b.notes[0]
+
+
+def test_a_close_asked_for_during_the_session_sells_at_the_next_open(tmp_path):
+    b, _ = run(tmp_path, [(100.0, 101, 99, 100)] + flat(9), as_of="2026-01-06 18:00")
+    b.close("ABC", "2026-01-07 11:00")
+    assert [o["session"] for o in b.open_orders() if o["type"] == "close"] == ["2026-01-08"]
+    b2, _ = run(tmp_path / "2", [(100.0, 101, 99, 100)] + flat(9), as_of="2026-01-06 18:00")
+    b2.close("ABC", "2026-01-07 08:30")
+    assert [o["session"] for o in b2.open_orders() if o["type"] == "close"] == ["2026-01-07"]

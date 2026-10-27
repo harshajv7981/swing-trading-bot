@@ -8,6 +8,9 @@ How a session settles, for each stock, with only its open, high, low and close:
 
 Entry (a DAY limit buy, live for one session only):
 - opens at or under the limit: filled at the open (the opening auction), 09:15.
+  Only an order in before the auction's order entry closes (09:08) gets the
+  open. One placed later that day missed it: it fills at the limit if the
+  session traded under it, else it lapses.
 - else the low trades *under* the limit: filled at the limit. Touching it is
   not enough, because there is a queue ahead of us at that price.
 - else it lapses at the close.
@@ -34,7 +37,9 @@ when neither leg has filled by then. A stock with no bar that day sells at the
 close of its next bar. This is the backtest's exit, so paper and walk-forward
 trades end where the research measured them.
 
-A close sells at the next session's open and cancels the OCO. Trailing (R7,
+A close sells at the next session's open and cancels the OCO (a close asked
+for after 09:08 on a session day goes to the following session's open, since
+that morning's open has passed). Trailing (R7,
 `trail_stop`) runs after each close when asked and moves the stop for the next
 session; stops never move down.
 
@@ -56,7 +61,7 @@ from pathlib import Path
 import pandas as pd
 
 from .. import corporate
-from ..models import IST
+from ..models import AUCTION_CUTOFF, IST
 from ..risk.calendar import NSECalendar
 from ..risk.config import RiskConfig
 from ..risk.exits import round_down, trail_stop
@@ -162,6 +167,8 @@ class PaperBroker:
             "stop_limit": stop_limit, "target": target, "fingerprint": ticket["fingerprint"],
             "checked_at": checked, "sector": ticket.get("sector") or load_sectors().get(ticker, ""),
             "exit_by": exit_by,
+            # Placed after the pre-open order entry closed: it cannot get the opening price.
+            "late": session == at.date() and at.time() >= AUCTION_CUTOFF,
         })
         return oid
 
@@ -182,9 +189,13 @@ class PaperBroker:
         if any(o["type"] == "close" for o in self._live(ticker)):
             raise OrderRefused(f"{ticker} already has a close order in.")
         at = _ts(at)
+        session = self._next_session(at)
+        if session == at.date() and at.time() >= AUCTION_CUTOFF:
+            # The opening price is gone; daily bars can't say what it fetches now, so the next open.
+            session = self._next_session(_ts(f"{session} {AFTER_CLOSE}"))
         oid = self._new_id()
         self.orders.append({"id": oid, "type": "close", "status": "open", "ticker": ticker, "qty": oco["qty"],
-                            "session": self._next_session(at).isoformat(), "submitted_at": f"{at:%Y-%m-%d %H:%M}",
+                            "session": session.isoformat(), "submitted_at": f"{at:%Y-%m-%d %H:%M}",
                             "oco": oco["id"]})
         return oid
 
@@ -279,7 +290,15 @@ class PaperBroker:
         elif not oco:
             entry = next((o for o in live if o["type"] == "entry" and o["session"] == d), None)
             if entry:
-                if o_ <= entry["limit"]:
+                if entry.get("late"):
+                    if l_ < entry["limit"]:
+                        price, at, reason = entry["limit"], f"{d} {INTRADAY}", "entry"
+                    else:
+                        entry.update(status="expired", closed_at=f"{d} {INTRADAY}")
+                        self.notes.append(f"{entry['id']} {ticker}: placed after the open and never traded "
+                                          f"under the limit {entry['limit']:,.2f}; the entry lapsed")
+                        return out
+                elif o_ <= entry["limit"]:
                     price, at, reason = o_, f"{d} {OPEN}", "entry" if o_ == entry["limit"] else "entry-gap"
                 elif l_ < entry["limit"]:
                     price, at, reason = entry["limit"], f"{d} {INTRADAY}", "entry"
