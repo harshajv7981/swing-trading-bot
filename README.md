@@ -215,8 +215,9 @@ Settings live under `[refresh]` in the config; the daily loop calls
 ### Getting real news
 
 Two fetchers build `data/raw/news/events.csv` for the stocks in
-`data/universe/nifty100.csv`, the Nifty 100 (membership as of 28 Jul 2026, from a
-broker's copy of NSE's list; check it against NSE). NSE rebalances the index in
+`data/universe/nifty100.csv`, the Nifty 100 (checked against NSE's own list on 27 Oct 2026,
+after the September rebalance: BSE, POWERINDIA, POLYCAB, VAML and IDEA joined;
+INDHOTEL, LODHA, RECLTD, SHREECEM and UNITDSPR left and are still listed). NSE rebalances the index in
 March and September: run `python scripts/update_universe.py` on your own
 machine afterwards to see what joined or left, and `--write` to add the
 joiners with a sector each (`data/universe/sectors.csv`, which R4 reads).
