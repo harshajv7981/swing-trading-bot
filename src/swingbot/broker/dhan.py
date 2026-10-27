@@ -13,6 +13,12 @@ the paper broker:
                 position held since an earlier session, the Forever OCO (POST
                 /forever/orders, both legs MARKET) and R1's check that Dhan
                 lists it, with the right stop, within 60 seconds.
+- entry day:    once the buy has filled, a DAY stop-loss market sell (CNC) at
+                the ticket's stop, because the Forever OCO can't go in until
+                tomorrow (`entry_day_stop`, on by default). Dhan treats a sell
+                of shares bought the same day as intraday; whether the sandbox
+                takes it is still to be checked there, and a refusal is
+                reported, not retried.
 - cancel:       DELETE /orders/{id}, entries only.
 - close:        DELETE /forever/orders/{id}, then a MARKET sell. A sell that
                 Dhan rejects or lets lapse (a lower circuit, say) is dropped
@@ -118,6 +124,7 @@ class DhanConfig:
     state_dir: Path = DEFAULT_STATE_DIR
     scrip_master: Path = Path("data/state/dhan_scrips.csv")
     flatten_unprotected: bool = True      # R1: sell at market when no stop can be confirmed
+    entry_day_stop: bool = True           # a DAY SL-M on the entry session, until the Forever OCO can go in
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "DhanConfig":
@@ -132,7 +139,7 @@ class DhanConfig:
             raise ValueError(f"{path}: [dhan] mode must be sandbox or live, not {mode!r}")
         return cls(mode, Path(raw.get("state_dir", DEFAULT_STATE_DIR)),
                    Path(raw.get("scrip_master", cls.scrip_master)),
-                   bool(raw.get("flatten_unprotected", True)))
+                   bool(raw.get("flatten_unprotected", True)), bool(raw.get("entry_day_stop", True)))
 
     @property
     def live(self) -> bool:
@@ -556,6 +563,8 @@ class DhanBroker:
                 else:
                     o.update(status="expired", closed_at=o["session"])
                     self.notes.append(f"{o['id']} {o['ticker']}: no fill on {o['session']}, so it lapsed")
+        if self.config.entry_day_stop:
+            self._day_stops(as_of)
         for sec, ts in sells.items():
             self.notes.append(f"a sell of {sum(int(t.get('tradedQuantity', 0)) for t in ts)} of security {sec} "
                               "at Dhan matches no position here; check it by hand")
@@ -571,6 +580,38 @@ class DhanBroker:
             elif due:
                 self.notes.append(f"{o['ticker']} has no stop at Dhan yet; sync again after 09:15 to place it")
         return events
+
+    def _day_stops(self, as_of: pd.Timestamp) -> None:
+        """Entry day: a DAY stop-loss market sell for what has filled, since no Forever Order goes in until tomorrow."""
+        today, minute = as_of.date().isoformat(), as_of.hour * 60 + as_of.minute
+        if not (self.calendar.is_session(as_of.date()) and 9 * 60 + 15 <= minute < 15 * 60 + 30):
+            return
+        for o in self.orders:
+            if o["status"] != "open" or o["session"] != today or self._left(o) <= 0:
+                continue
+            if o.get("day_stop_id"):
+                if self._left(o) > o["day_stop_qty"]:
+                    self.notes.append(f"{o['ticker']}: more of the entry filled after the day stop went in; the "
+                                      f"stop covers {o['day_stop_qty']} of {self._left(o)} until tomorrow's OCO")
+                continue
+            qty = self._left(o)
+            resp = self.api.call("POST", "/orders", {
+                "correlationId": f"{o['id']}S", "transactionType": "SELL", "exchangeSegment": "NSE_EQ",
+                "productType": "CNC", "orderType": "STOP_LOSS_MARKET", "validity": "DAY",
+                "securityId": o["security_id"], "quantity": qty, "disclosedQuantity": 0, "price": 0.0,
+                "triggerPrice": o["stop"], "afterMarketOrder": False})
+            sid = str(resp.get("orderId", ""))
+            data = self.api.call("GET", f"/orders/{sid}")
+            rows = [data] if isinstance(data, dict) and "orderStatus" in data else _rows(data)
+            status = str((rows[0] if rows else {}).get("orderStatus", "")).upper()
+            if status in DONE_STATUSES:
+                why = (rows[0] if rows else {}).get("omsErrorDescription") or "no reason given"
+                o.update(day_stop_id="refused", day_stop_qty=0)
+                self.notes.append(f"{o['ticker']}: Dhan {status.lower()} the entry-day stop ({why}); the shares "
+                                  "have no stop until tomorrow's Forever OCO (check this in the sandbox)")
+                continue
+            o.update(day_stop_id=sid, day_stop_qty=qty)
+            self.notes.append(f"{o['ticker']}: entry-day stop {o['stop']:,.2f} for {qty} shares placed at Dhan")
 
     def _time_exits(self, as_of: pd.Timestamp) -> None:
         """Sell holdings whose time exit has come: from 15:15 on the exit_by session, or any later session."""
@@ -671,6 +712,8 @@ class DhanBroker:
                 continue
             if o.get("exit_id") and str(t.get("orderId")) == o["exit_id"]:
                 reason = o["exit_reason"]
+            elif o.get("day_stop_id") and str(t.get("orderId")) == o["day_stop_id"]:
+                reason = "stop"
             elif price <= (o["stop"] + o["target"]) / 2:
                 reason = "stop-gap" if price < o["stop"] * 0.99 else "stop"
             else:

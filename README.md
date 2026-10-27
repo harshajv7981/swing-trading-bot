@@ -485,10 +485,13 @@ swingbot-paper cancel P00003                                         # an entry 
   after 09:08 on its own session day (the pre-open order entry has closed) can't
   get the open: it fills at the limit only if the day traded under it. A close
   asked for after 09:08 sells at the next session's open.
-* **Exits**, one OCO, both legs MARKET as the ticket writes them. Dhan takes no
-  Forever Order on shares bought today, so the OCO is live from the next
-  session: the entry day and the night after it have no stop at the broker.
-  An open at or under the stop sells at the open (a gap: worse than 1R, but
+* **Entry-day stop.** Dhan takes no Forever Order on shares bought today, so
+  the entry session is covered by a DAY stop-loss market sell placed once the
+  buy fills. A low at or under the stop after the fill sells at the stop (at
+  the open, if the stock was bought at an open already under it). There is no
+  target leg that day.
+* **Exits**, one OCO from the session after the entry, both legs MARKET as the
+  ticket writes them. An open at or under the stop sells at the open (a gap: worse than 1R, but
   taken); an open at or over the target sells at the open; else the stop sells
   at the stop when the low reaches it, and the target at the target when the
   high does. When one bar reaches both, the stop is assumed to have come first.
@@ -542,6 +545,12 @@ P&L.
   are still held is placed again on the next sync. A market sell Dhan rejects
   (a lower circuit) or lets lapse is dropped on the next sync, so the shares
   get a stop again instead of sitting with none.
+* **Entry day.** The Forever OCO can only go in from the next session, so once
+  the buy has filled, a sync during market hours places a DAY stop-loss market
+  sell (CNC) at the stop (`entry_day_stop` in `config/broker.toml`). Dhan
+  treats selling shares bought the same day as intraday. Whether the sandbox
+  takes it is still to be checked; a refusal is reported, and the OCO still
+  goes in the next day.
 * **Every session day after 09:15.** Dhan takes a Forever Order only while the
   market is open, and the daily loop runs before it. Schedule `swingbot-dhan
   sync --at-open` for each session morning (cron or launchd on the Mac); started

@@ -15,10 +15,14 @@ Entry (a DAY limit buy, live for one session only):
   not enough, because there is a queue ahead of us at that price.
 - else it lapses at the close.
 
-Exits (one OCO pair for the filled quantity, kept across sessions). Dhan takes
-no Forever Order on shares bought today, so the OCO is live from the session
-after the entry: the entry's own session and the night after it have no stop
-at the broker. Both legs are MARKET, as the ticket writes them:
+Entry-day stop: Dhan takes no Forever Order on shares bought today, so on the
+entry's own session the stop is a DAY stop-loss market sell placed once the buy
+fills (the Dhan adapter does the same; `entry_day_stop`). A bar whose low
+reaches the stop after the fill sells at the stop less slippage, or at the
+open less slippage if the stock opened under it. There is no target that day.
+
+Exits (one OCO pair for the filled quantity, kept across sessions), live from
+the session after the entry. Both legs are MARKET, as the ticket writes them:
 - opens at or under the stop: the stop triggers at the open and sells at the
   open less slippage. The loss is then bigger than 1R, but it is taken.
 - opens at or over the target: the target sells at the open less slippage.
@@ -88,8 +92,9 @@ class PaperBroker:
 
     def __init__(self, path: str | Path = DEFAULT_BOOK, config: RiskConfig | None = None,
                  calendar: NSECalendar | None = None, slippage_bps: float = DEFAULT_SLIPPAGE_BPS,
-                 trail: bool = False, actions: dict | None = None):
+                 trail: bool = False, actions: dict | None = None, entry_day_stop: bool = True):
         self.path = Path(path)
+        self.entry_day_stop = entry_day_stop
         self.actions = actions or {}   # corporate.load(state_dir): splits and bonuses
         self.config = config or RiskConfig()
         self.calendar = calendar or NSECalendar()
@@ -317,6 +322,10 @@ class PaperBroker:
                        "exit_by": entry.get("exit_by"), "submitted_at": entry["submitted_at"],
                        "actions": list(entry.get("actions", []))}
                 self.orders.append(oco)
+                if self.entry_day_stop and l_ <= oco["stop"]:
+                    gap = at.endswith(OPEN) and o_ <= oco["stop"]   # bought at an open already under the stop
+                    price = self._slip(o_ if gap else oco["stop"])
+                    return out + [self._exit(oco, f"{d} {INTRADAY}", price, "stop-gap" if gap else "stop")]
 
         if oco and oco["status"] == "open" and oco.get("exit_by") and d >= oco["exit_by"]:
             out.append(self._exit(oco, f"{d} {INTRADAY}", self._slip(float(row["close"])), "time"))

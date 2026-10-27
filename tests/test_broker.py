@@ -77,11 +77,24 @@ def test_a_day_order_is_live_for_one_session_only(tmp_path):
     assert ev == [] and b.orders[0]["status"] == "expired"
 
 
-def test_no_stop_on_the_entry_session(tmp_path):
-    # Dhan takes no Forever Order on shares bought today: the entry day's low under the stop sells nothing.
+def test_entry_day_stop_sells_when_the_low_reaches_it(tmp_path):
+    # No Forever Order on shares bought today, so a DAY stop-loss market covers the entry session.
     rows = [(100, 101, 90, 92), (93, 94, 92, 93)] + flat(8, 93)
     b, ev = run(tmp_path, rows)
-    assert sells(ev) == [("2026-01-06 09:15", 93.0, "stop-gap")]   # the stop goes in for Tuesday, gapped through
+    assert sells(ev) == [("2026-01-05 15:30", 95.0, "stop")]
+    assert b.open_orders() == []
+
+
+def test_entry_day_stop_after_an_open_already_under_it(tmp_path):
+    rows = [(94, 99, 93, 98)] + flat(9, 98)
+    _, ev = run(tmp_path, rows)
+    assert ev[0].price == 94 and sells(ev) == [("2026-01-05 15:30", 94.0, "stop-gap")]
+
+
+def test_entry_day_stop_can_be_turned_off(tmp_path):
+    rows = [(100, 101, 90, 92), (93, 94, 92, 93)] + flat(8, 93)
+    b, ev = run(tmp_path, rows, entry_day_stop=False)
+    assert sells(ev) == [("2026-01-06 09:15", 93.0, "stop-gap")]   # the OCO goes in for Tuesday, gapped through
     assert b.orders[1]["live_from"] == "2026-01-06"
 
 
