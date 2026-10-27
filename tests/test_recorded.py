@@ -63,11 +63,39 @@ def test_briefs_skip_done_events_and_hold_no_prices(tmp_path):
     assert "close" not in text.lower() and "price" not in text.lower()
 
 
+def test_briefs_never_mix_days_so_later_headlines_cant_leak(tmp_path):
+    events = tmp_path / "events.csv"
+    events.write_text("event_id,ticker,published_at,headline\n"
+                      "d2,UP,2026-08-04 09:30,Next day: UP shares crash after fraud probe\n"
+                      "a1,UP,2026-08-03 09:15,UP wins export order\n"
+                      "a2,DN,2026-08-03 14:00,DN cuts guidance\n"
+                      "late,UP,2026-08-03 23:30,UP late night story\n"   # 18:00 UTC, still 3 Aug in IST
+                      "d3,DN,2026-08-05 10:00,DN recovers\n")
+    out = tmp_path / "brief.md"
+    briefs_main(["--events", str(events), "--out", str(out)])
+    text = out.read_text()
+    assert "## Events (3 in this batch)" in text
+    assert text.index("### a1") < text.index("### a2") < text.index("### late")
+    for later in ("d2", "fraud probe", "d3", "recovers"):
+        assert later not in text
+    assert "broke on 2026-08-03 (IST)" in text and "listed above it" in text
+
+    views = tmp_path / "v.jsonl"
+    write(views, [{"event_id": e, "persona": p, "stance": 0.1, "conviction": 0.5}
+                  for e in ("a1", "a2", "late") for p in PERSONAS])
+    briefs_main(["--events", str(events), "--views", str(views), "--out", str(out)])
+    text = out.read_text()
+    assert "### d2" in text and "d3" not in text and "a1" not in text
+
+    briefs_main(["--events", str(events), "--views", str(views), "--out", str(out), "--limit", "1"])
+    assert "## Events (1 in this batch)" in out.read_text()
+
+
 def test_briefs_drop_news_before_training_cutoff(tmp_path):
     events = tmp_path / "events.csv"
     events.write_text("event_id,ticker,published_at,headline,source\n"
                       "old,UP,2026-03-02 08:00,Old story,gdelt:x\n"
-                      "fake,UP,2026-03-02 08:00,Made up story,synthetic\n"
+                      "fake,UP,2026-08-03 07:00,Made up story,synthetic\n"
                       "new,UP,2026-08-03 08:00,New story,gdelt:x\n")
     out = tmp_path / "brief.md"
     briefs_main(["--events", str(events), "--out", str(out)])
