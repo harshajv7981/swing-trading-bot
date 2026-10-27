@@ -190,11 +190,32 @@ class Run:
         with redirect_stdout(buf), redirect_stderr(buf):
             paper_main([*argv, "report", "--as-of", f"{last} 18:00", "--out", str(self.dir / "report")])
         lines = [f"# Walk-forward run {st['days'][0]} to {st['days'][-1]}", "",
-                 f"Sessions run: {st['index']} of {len(st['days'])}.", "", "```", buf.getvalue().strip(), "```"]
+                 f"Sessions run: {st['index']} of {len(st['days'])}."]
+        if latch := self.latched():
+            day, reason, after = latch
+            nxt = next((d for d in st["days"] if d > day), None)
+            lines += ["", (f"**The weekly kill switch latched on {day}** ({reason}). The {after} session(s) after "
+                           "it placed no entries, as they would live until Harsha resets it, so the rest of the run "
+                           "says nothing about the swarm."
+                           + (f" To measure past it, start a second run with `swingbot-walkforward --dir <new folder> "
+                              f"init --from {nxt} ...`." if nxt else ""))]
+        lines += ["", "```", buf.getvalue().strip(), "```"]
         lines += ["", *self._calls()]
         text = "\n".join(lines) + "\n"
         (self.dir / "report.md").write_text(text)
         return text
+
+    def latched(self) -> tuple[str, str, int] | None:
+        """The first day the kill switch stopped entries, its reason, and how many run sessions came after it."""
+        st = self.state()
+        for f in sorted((self.dir / "days").glob("*/day.json")):
+            step = next((x for x in json.loads(f.read_text()).get("steps", [])
+                         if x.get("name") == "kill switch" and x.get("status") == "blocked"), None)
+            if step:
+                day = f.parent.name
+                done = st["days"][:st["index"]]
+                return day, step.get("detail", "").removeprefix("LATCHED: "), sum(d > day for d in done)
+        return None
 
     def _calls(self) -> list[str]:
         """Every day's signals and what happened to the tickets, from the days' finish.json files."""
@@ -248,6 +269,8 @@ def main(argv: list[str] | None = None) -> int:
             done = st["index"]
             print(f"{done} of {len(st['days'])} sessions done"
                   + (f"; on {st['days'][done]} ({st['stage']})" if done < len(st["days"]) else ""))
+            if latch := run.latched():
+                print(f"the weekly kill switch latched on {latch[0]}: no entries since ({latch[1]})")
             return 0
         if args.cmd == "report":
             print(run.report())

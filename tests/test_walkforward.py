@@ -98,3 +98,30 @@ def test_init_refuses_a_bad_results_dates_file(data, capsys):
             "--prices", str(prices), "--events", str(events), "--holidays", str(holidays), "--results-dates", str(bad)]
     assert main(args) == 2 and "results.csv:2" in capsys.readouterr().err
     assert not (tmp / "wf").exists()
+
+
+def test_the_report_names_the_day_the_kill_switch_latched(data, capsys):
+    from datetime import date
+
+    from swingbot.risk import KillSwitch
+
+    tmp, prices, events, holidays = data
+    run = Run(tmp / "wf")
+    run.init(date(2026, 11, 2), date(2026, 11, 6), 1_000_000, prices, events, str(holidays))
+    KillSwitch(tmp / "wf/state").latch("equity 940,000 is 6.00% under the week's open")
+    assert run.next(lambda _: None) == "done"
+    report = run.report()
+    assert "kill switch latched on 2026-11-02** (equity 940,000 is 6.00% under the week's open)" in report
+    assert "The 4 session(s) after it placed no entries" in report and "init --from 2026-11-03" in report
+    assert main(["--dir", str(tmp / "wf"), "status"]) == 0
+    assert "latched on 2026-11-02" in capsys.readouterr().out
+
+
+def test_a_run_with_no_latch_says_nothing_about_it(data):
+    from datetime import date
+
+    tmp, prices, events, holidays = data
+    run = Run(tmp / "wf")
+    run.init(date(2026, 11, 2), date(2026, 11, 2), 1_000_000, prices, events, str(holidays))
+    run.next(lambda _: None)
+    assert run.latched() is None and "kill switch" not in run.report()

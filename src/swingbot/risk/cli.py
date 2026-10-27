@@ -128,7 +128,7 @@ def cmd_check(args, config: RiskConfig) -> int:
     verdict = check_order(
         order, Portfolio.load(args.portfolio), config, bars=bars, today=as_of.date(),
         results_date=_results_date(args, order.ticker, as_of),
-        calendar=NSECalendar.load(), kill_switch_latched=switch.latched, last_price=args.price,
+        calendar=NSECalendar.load(args.holidays), kill_switch_latched=switch.latched, last_price=args.price,
         mood=_mood(args.mood),
     )
     if verdict.trip_kill_switch and not args.no_write:
@@ -173,7 +173,7 @@ def cmd_results(args, config: RiskConfig) -> int:
               "`swingbot-refresh --accept-nse-terms`, or type them into "
               f"{Path(args.state_dir) / 'results_dates.csv'} (symbol,date)")
         return 1
-    cal = NSECalendar.load()
+    cal = NSECalendar.load(args.holidays)
     for t, d in dates.items():
         n = cal.sessions_between(as_of.date(), d)
         print(f"{t:<12} {d}  {n} sessions away" + ("  (blackout: no new entry)" if n <= config.results_blackout_sessions else ""))
@@ -192,7 +192,7 @@ def cmd_orders(args, config: RiskConfig) -> int:
         fetch_bars=lambda ticker: router.fetch("prices", ticker, as_of)[1], config=config,
         rules=SignalRules.load(args.rules), mood=mood,
         results_dates={**_results_dates(args, router, as_of), **load_results_dates(args.results_dates)},
-        sectors=load_sectors(), calendar=NSECalendar.load(), kill_switch=KillSwitch(args.state_dir),
+        sectors=load_sectors(), calendar=NSECalendar.load(args.holidays), kill_switch=KillSwitch(args.state_dir),
         verdict_log=None if args.no_write else Path(args.state_dir) / "risk_verdicts.jsonl",
     )
     print(orders_summary(decisions))
@@ -251,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config", help="risk limits TOML (default config/risk.toml)")
     p.add_argument("--data-config", help="data sources TOML (default config/data_sources.toml)")
     p.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR), help="kill switch and verdict log")
+    p.add_argument("--holidays", help="NSE holiday TOML (default config/nse_holidays.toml)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("mood", help="market mood: bullish, neutral or defensive (R12)")

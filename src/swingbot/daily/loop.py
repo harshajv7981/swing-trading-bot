@@ -142,6 +142,8 @@ class Day:
             args += ["--config", self.config.risk_config]
         if self.config.data_config:
             args += ["--data-config", self.config.data_config]
+        if self.config.holidays:
+            args += ["--holidays", str(self.config.holidays)]
         return args + ["--state-dir", str(self.state_dir)]
 
     def has_account(self) -> bool:
