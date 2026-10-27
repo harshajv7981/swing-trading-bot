@@ -36,7 +36,10 @@ NSE_HEADERS = {
 }
 
 
-def gdelt_articles(query: str, start: date, end: date, retries: int = 3) -> list[dict]:
+GDELT_BACKOFF = 30.0  # seconds after the first 429; doubles each retry
+
+
+def gdelt_articles(query: str, start: date, end: date, retries: int = 4) -> list[dict]:
     """GDELT DOC 2.0 `artlist` for whole days `start`..`end` (UTC), newest first."""
     params = {
         "query": query,
@@ -53,15 +56,32 @@ def gdelt_articles(query: str, start: date, end: date, retries: int = 3) -> list
             req = urllib.request.Request(url, headers={"User-Agent": GDELT_UA})
             with urllib.request.urlopen(req, timeout=60) as resp:
                 text = resp.read().decode("utf-8", "replace").strip()
-            if not text.startswith("{"):
-                # GDELT answers bad queries and rate limits with a plain-text message
-                raise ValueError(text[:200])
-            return json.loads(text).get("articles", [])
-        except (urllib.error.URLError, ValueError, json.JSONDecodeError) as e:
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or attempt == retries - 1:
+                raise
+            wait = GDELT_BACKOFF * 2 ** attempt   # rate limited: back off hard, then try again
+            print(f"  GDELT rate limit (429); waiting {wait:.0f}s", file=sys.stderr)
+            time.sleep(wait)
+            continue
+        except urllib.error.URLError as e:
             if attempt == retries - 1:
                 raise
             print(f"  retry after: {e}", file=sys.stderr)
             time.sleep(10 * (attempt + 1))
+            continue
+        if text.startswith("{"):
+            try:
+                return json.loads(text).get("articles", [])
+            except json.JSONDecodeError:
+                if attempt == retries - 1:
+                    raise
+                continue
+        # GDELT answers bad queries and rate limits with a plain-text message.
+        if "limit requests" not in text.lower() or attempt == retries - 1:
+            raise ValueError(text[:200])   # a bad query fails the same way every time: no retry
+        wait = GDELT_BACKOFF * 2 ** attempt
+        print(f"  GDELT rate limit; waiting {wait:.0f}s", file=sys.stderr)
+        time.sleep(wait)
     return []
 
 

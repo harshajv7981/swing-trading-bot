@@ -1,14 +1,26 @@
 import csv
+from datetime import date
+
+import pytest
 
 from swingbot.events import load_events
-from swingbot.news import Company, dedupe, gdelt_query, gdelt_rows, is_routine, merge_into, nse_rows
+from swingbot.news import (
+    Company,
+    dedupe,
+    gdelt_query,
+    gdelt_rows,
+    is_routine,
+    merge_into,
+    nse_rows,
+)
 
 RIL = Company("RELIANCE", "Reliance Industries", ("RIL",))
 LT = Company("LT", "Larsen & Toubro", ("L&T", "Larsen"))
 
 
 def test_gdelt_query_skips_ampersand_names():
-    assert gdelt_query(RIL) == '("Reliance Industries" OR "RIL") sourcecountry:IN sourcelang:english'
+    # "RIL" is too short for GDELT (it rejects the whole query), but still matches headlines.
+    assert gdelt_query(RIL) == '"Reliance Industries" sourcecountry:IN sourcelang:english'
     assert gdelt_query(LT) == '"Larsen" sourcecountry:IN sourcelang:english'
 
 
@@ -61,3 +73,39 @@ def test_merge_writes_a_file_the_backtest_loads(tmp_path):
         assert "url" in next(csv.reader(f))
     (ev,) = load_events(out)
     assert ev.ticker == "RELIANCE" and ev.published_at.utcoffset().total_seconds() == 19800
+
+
+def test_gdelt_retries_rate_limits_but_not_a_bad_query(monkeypatch):
+    import io
+    import urllib.error
+
+    from swingbot.data import remote
+
+    waits, calls = [], []
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def opener(answers):
+        def urlopen(req, timeout=60):
+            calls.append(req.full_url)
+            a = answers.pop(0)
+            if isinstance(a, int):
+                raise urllib.error.HTTPError(req.full_url, a, "Too Many Requests", {}, None)
+            return Resp(a.encode())
+        return urlopen
+
+    monkeypatch.setattr(remote.time, "sleep", waits.append)
+    monkeypatch.setattr(remote.urllib.request, "urlopen", opener([429, 429, '{"articles": [{"url": "u"}]}']))
+    assert remote.gdelt_articles("q", date(2026, 7, 1), date(2026, 7, 7)) == [{"url": "u"}]
+    assert waits == [30.0, 60.0]
+
+    calls.clear()
+    monkeypatch.setattr(remote.urllib.request, "urlopen", opener(["The specified phrase is too short."]))
+    with pytest.raises(ValueError, match="too short"):
+        remote.gdelt_articles("q", date(2026, 7, 1), date(2026, 7, 7))
+    assert len(calls) == 1

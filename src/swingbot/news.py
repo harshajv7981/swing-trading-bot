@@ -81,14 +81,18 @@ def _event_id(prefix: str, key: str) -> str:
 
 # --- GDELT -------------------------------------------------------------------
 
+GDELT_MIN_TERM = 4  # GDELT refuses shorter phrases
+
+
 def gdelt_query(company: Company) -> str:
     """DOC API query: any of the company's names, Indian English-language outlets.
 
     Names with `&` (L&T, M&M) are left out of the query, since GDELT drops the
-    punctuation; give a spelled-out alias for those. They still count when
-    matching headlines.
+    punctuation; give a spelled-out alias for those. So are names under 4
+    characters (RIL, TCS, SBI): GDELT rejects the whole query with "The
+    specified phrase is too short". Both still count when matching headlines.
     """
-    names = [t for t in company.terms if "&" not in t] or [company.name]
+    names = [t for t in company.terms if "&" not in t and len(t) >= GDELT_MIN_TERM] or [company.name]
     terms = " OR ".join(f'"{t}"' for t in names)
     if len(names) > 1:
         terms = f"({terms})"
