@@ -24,6 +24,7 @@ swingbot-memory = "swingbot.memory.cli:main"
 swingbot-risk = "swingbot.risk.cli:main"
 swingbot-paper = "swingbot.paper.cli:main"
 swingbot-scorecard = "swingbot.scorecard:main"
+swingbot-daily = "swingbot.daily.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -464,6 +464,50 @@ swingbot-paper cancel P00003                                         # an entry 
   `swingbot.broker.daily:submit` are the loop's `broker_settle` and
   `broker_submit` hooks (book in `<state_dir>/paper_broker.json`, R7 trailing on).
 
+## Daily paper trading loop: `swingbot-daily`
+
+One run per NSE session day, chaining every tool above. Claude Code plays the
+swarm with no API key, so the loop stops in the middle and waits for it. In
+Claude Code, ask it to "run my day" (the `daily-paper-loop` skill), ideally
+between 08:00 and 09:00 IST.
+
+```bash
+swingbot-daily start     # calendar, data refresh, paper broker settle, account, kill switch, mood, brief
+# Claude Code plays the swarm on runs/daily/<date>/brief.md, writing views.jsonl there
+swingbot-daily brief     # the next batch of today's news, until 0 are left
+swingbot-daily finish    # signals, signal-to-order, risk gate, tickets, paper broker, report, Verifier
+swingbot-daily status
+```
+
+* **Hours.** New entries need an NSE session day (weekends and the holidays
+  in `config/nse_holidays.toml` are off) and a finish before the 15:30 close.
+  Starting after 09:15 works but says the entries go in late. On other days
+  the loop still settles exits, writes the report and runs the Verifier.
+* **News window.** Everything published since the previous session's 09:15
+  open, which matches the backtest's timing: that news is first tradeable at
+  today's open. Older news had a session to be priced in.
+* **Kill switch.** `start` checks the paper account against the week's open
+  and latches the switch at a 5% loss itself, instead of waiting for an order
+  to be checked. Latched means no swarm and no orders, only exits and the
+  report. Nothing in the loop resets it.
+* **The gate.** Each order goes through `swingbot-risk check` and
+  `swingbot-risk ticket` exactly as a hand-made one would, so verdicts are
+  logged and the switch can latch the same way. Each order is checked against
+  the account plus the entries already PASSed that morning, so two orders
+  can't share the same cash or risk budget.
+* **The Verifier.** When trades have closed, `finish` adds them to
+  `runs/memory.db` as paper trades, with the news and swarm call that opened
+  them (linked through the order's fingerprint in
+  `data/state/daily_entries.jsonl`), and writes `verify.md` for the
+  `trade-verifier` skill.
+* **Hooks.** The data refresh, the paper broker (settle and submit) and the
+  signal-to-order step are named in `config/daily.toml` as `module:function`,
+  with their contracts in `src/swingbot/daily/hooks.py`. Until each one is
+  missing, a stub stands in and the day's `summary.md` marks that step `STUB`,
+  so a report never looks complete when it isn't. The defaults go through
+  `swingbot/daily/adapters.py` to `swingbot.data.refresh`,
+  `swingbot.broker.daily` and `swingbot.risk.signals:daily_hook`.
+
 ## Persona scorecard: `swingbot-scorecard`
 
 Scores each persona's final stance, the judge and the final call as separate
@@ -498,6 +542,6 @@ not change persona weights. The leaderboard idea is from AI-Trader.
 
 Following the blueprint: Phase 2 (the Verifier and episodic memory) is in place
 and needs a real walk-forward run to show whether it helps. The paper account
-(`swingbot-paper`) and the paper broker that fills tickets are ready. Phase 3 adds paper trading through the DhanHQ API with
+(`swingbot-paper`) and the paper broker that fills tickets are ready, and `swingbot-daily` runs a paper day end to end. Phase 3 adds paper trading through the DhanHQ API with
 bracket orders, 1 to 2 percent position sizing and a weekly kill switch.
 Live money comes only after months of paper trading.
