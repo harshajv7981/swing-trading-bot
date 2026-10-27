@@ -234,3 +234,50 @@ def test_cli_refuses_a_ticket_while_the_kill_switch_is_latched(tmp_path):
     assert paper_main(common + ["open", "--cash", "1000000", "--at", "2026-01-02"]) == 0
     assert paper_main(common + ["submit", str(tmp_path / "ticket.json"), "--at", "2026-01-02 18:00"]) == 2
     assert not (tmp_path / "book.json").exists()
+
+
+def test_daily_loop_hooks(tmp_path, monkeypatch):
+    """The two hooks the daily loop calls, with a stand-in for its Day and Step."""
+    import sys
+    import types
+    from dataclasses import dataclass
+
+    from swingbot.broker import daily
+    from swingbot.data.router import DataConfig
+    from swingbot.risk import NSECalendar
+
+    @dataclass
+    class Step:
+        name: str
+        status: str
+        detail: str
+
+    hooks = types.ModuleType("swingbot.daily.hooks")
+    hooks.Step, hooks.OK, hooks.FAILED, hooks.BLOCKED = Step, "ok", "failed", "blocked"
+    monkeypatch.setitem(sys.modules, "swingbot.daily", types.ModuleType("swingbot.daily"))
+    monkeypatch.setitem(sys.modules, "swingbot.daily.hooks", hooks)
+
+    prices = tmp_path / "prices"
+    prices.mkdir()
+    ohlc(*([(99.0, 101, 98, 100)] + flat(9))).rename_axis("date").to_csv(prices / "ABC.csv")
+    cfg = tmp_path / "data.toml"
+    cfg.write_text(f'[sources]\nprices = "csv"\n[paths]\nprices_dir = "{prices}"\n')
+    ledger = Ledger(tmp_path / "l.jsonl")
+    ledger.append({"kind": "open", "at": "2026-01-02 09:00", "cash": 1_000_000})
+
+    class Day:
+        def __init__(self, as_of):
+            self.as_of = pd.Timestamp(as_of, tz="Asia/Kolkata")
+            self.stamp = f"{self.as_of:%Y-%m-%d %H:%M}"
+            self.risk, self.data, self.calendar = RiskConfig(), DataConfig.load(cfg), NSECalendar()
+            self.ledger, self.state_dir, self.notes = ledger.path, tmp_path / "state", []
+
+        def note(self, msg):
+            self.notes.append(msg)
+
+    step = daily.submit(Day("2026-01-02 18:00"), [ticket(), ticket(qty=5)])
+    assert step.status == "ok" and "P00001 buy 100 ABC" in step.detail and "refused ABC" in step.detail
+    step = daily.settle(Day("2026-01-05 18:00"))
+    assert step.status == "ok" and "buy 100 ABC @ 99.00 (entry-gap)" in step.detail
+    [_, buy] = ledger.records()
+    assert buy["fingerprint"] == "f" * 16 and buy["verdict"] == "PASS"

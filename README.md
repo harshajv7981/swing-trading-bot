@@ -416,6 +416,9 @@ swingbot-paper cancel P00003                                         # an entry 
   with each method mapped to its DhanHQ endpoint in the docstring, and every
   method raises: it places nothing until it is built and tested in Dhan's
   sandbox.
+* **In the daily loop**: `swingbot.broker.daily:settle` and
+  `swingbot.broker.daily:submit` are the loop's `broker_settle` and
+  `broker_submit` hooks (book in `<state_dir>/paper_broker.json`, R7 trailing on).
 
 ## Persona scorecard: `swingbot-scorecard`
 
