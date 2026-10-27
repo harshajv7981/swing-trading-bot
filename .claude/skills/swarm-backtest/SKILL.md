@@ -48,6 +48,11 @@ result worthless, and nobody will be able to tell.
 
    Read `runs/brief.md`. It holds the persona descriptions and the events.
 
+   A brief only holds events from one IST day (the earliest still to do), in
+   publication order. Judge each event only from its own block and the events
+   above it, as the brief's time rule says; a story further down hadn't broken
+   yet. Use `--limit 1` if you want every event judged on its own.
+
    If the user wants the swarm to see charts as well as news, add
    `--with-technicals <prices dir>`. Each event then carries a technical
    snapshot (trend, RSI, MACD, Bollinger, ATR, volume) built only from sessions
@@ -130,8 +135,9 @@ result worthless, and nobody will be able to tell.
    luck" (q under 0.10, corrected for testing every row) are worth mentioning
    as an edge.
 
-6. **Report** to the user: number of events scored, hit rate and its p-value,
-   average return after costs, Brier score, for the judge and for the crowd
+6. **Report** to the user: number of events scored, hit rate and its p-value
+   (directional accuracy), the long-only trades (count, win rate, average return
+   after costs; bearish calls are not trades, the bot never shorts), Brier score, for the judge and for the crowd
    (`--crowd-only`), and how both compare with the `lexicon` baseline on the same
    events
    (`swingbot-backtest ... --engine lexicon`). If you ran the scorecard, name the

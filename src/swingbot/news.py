@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -201,8 +202,10 @@ def merge_into(path: str | Path, rows: list[dict]) -> tuple[int, int]:
     merged = dedupe(existing + rows)
     merged.sort(key=lambda r: pd.Timestamp(r["published_at"]))
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", newline="") as f:
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")  # written whole, then swapped in
+    with open(tmp, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=EVENT_COLUMNS, extrasaction="ignore")
         w.writeheader()
         w.writerows({c: r.get(c, "") for c in EVENT_COLUMNS} for r in merged)
+    os.replace(tmp, path)
     return len(merged) - len(dedupe(existing)), len(merged)
