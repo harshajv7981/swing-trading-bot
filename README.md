@@ -5,8 +5,8 @@ simulation, strict risk guardrails and post-trade learning memory. Paper trading
 
 This repository is at **Phase 1: the headless sandbox**. It replays historical
 news for NSE stocks through a multi-agent persona swarm and checks the swarm's
-calls against what prices actually did. There is no broker code and nothing here
-can place an order.
+calls against what prices actually did. The only broker is a simulated paper
+broker, and nothing here can place a real order.
 
 ## Quick start
 
@@ -292,9 +292,10 @@ swingbot-risk kill-switch --reset --by Harsha   # Harsha only, typed at a termin
   `data/state/risk_verdicts.jsonl`.
 * **ticket** writes the broker orders a PASSed order would become, for the
   paper journal and as the shape for the Dhan adapter: a DAY limit buy (CNC),
-  then, once it fills, an OCO pair kept at the broker (target sell, and a stop
-  that triggers at the stop with its limit 0.5% lower so a small gap still
-  fills). It copies the risk engine's numbers and adds none. It refuses unless
+  then, from the next trading day, an OCO pair kept at the broker, both legs
+  market (a target sell, and a stop-loss market sell at the stop). A
+  stop-limit would miss a gap down below its limit; a stop-loss market sells
+  at about the open instead. It copies the risk engine's numbers and adds none. It refuses unless
   the latest logged verdict for the exact order (same fingerprint) is a PASS
   from `--as-of` (default today) and the kill switch is not latched. Nothing
   sends it: Dhan's security id and request fields are the adapter's job, to be
@@ -333,6 +334,49 @@ a final execution agent from The Swarm Corporation's
 [AutoHedge](https://github.com/The-Swarm-Corporation/AutoHedge) (MIT), with
 plain code in place of an LLM. In Claude Code, the `risk-check`
 skill runs these steps after `market-research`.
+
+### From swarm calls to tickets: `swingbot-risk orders`
+
+The steps above, for a whole file of swarm calls at once. Each call is the
+ReportAgent's JSON (`ticker`, `sentiment`, `confidence`, `time_horizon`, and
+optionally `as_of`, `event_id`, `score`, `rationale`), as JSONL, a JSON list
+or CSV.
+
+```bash
+swingbot-risk mood --out runs/risk/mood.json
+swingbot-risk orders runs/signals.jsonl --portfolio portfolio.json --mood runs/risk/mood.json \
+    --results-dates data/results_dates.csv          # symbol,date; add --no-write for a dry run
+```
+
+1. **The call.** Bullish only: the bot is long-only CNC, so a bearish call is a
+   pass, never a short, and neutral is no trade. The horizon must be 1 to 20
+   sessions, the call at most 36 hours old, and the confidence at least 0.60
+   (0.75 when the mood is defensive; the gate halves the size as well).
+2. **The batch.** One call per stock (the most confident), best calls first,
+   at most 3 tickets per run.
+3. **Technical overlay**, from bars known at `--as-of`: close above the
+   200-day SMA, RSI14 at most 75, close at most 3 ATRs above EMA10. These skip
+   a call before it is sized, so a stretched chart never reaches the gate.
+4. **Plan, size, gate**: `atr:2` stop and `2R` target, sized and checked
+   exactly as `plan`, `size` and `check` do it. Every verdict goes in
+   `data/state/risk_verdicts.jsonl` and a weekly breach latches the kill
+   switch. An order under Rs 10,000 (the account is nearly spent) is skipped.
+5. **Ticket** for each PASS, plus a time exit from the horizon: 72h means sell
+   at the close of the third session, counting the entry day, as in the
+   backtest.
+
+Calls in one run are sized one after another against the same account, so
+each ticket's cash and open risk count against the next. Output goes to
+`runs/orders/<date>/`: `decisions.json` (every call, where it stopped and
+why) and a `TICKER.order.json` and `TICKER.ticket.json` per ticket. The order
+file is what `swingbot-paper fill buy --order` reads. The filters live in
+`config/signals.toml`; they can only skip a call and never loosen a limit in
+`config/risk.toml`. Nothing is sent anywhere.
+
+For the daily loop, `swingbot.risk.signals:daily_hook` is the
+`signal_to_order` hook: the same steps up to the size, returning orders for
+the loop to gate and ticket itself, with every call's decision in the day's
+`signal_decisions.json`.
 
 ## Paper account: `swingbot-paper`
 
@@ -376,6 +420,50 @@ flag rule breaks, comes from the challenge scoring in
 [HKUDS/AI-Trader](https://github.com/HKUDS/AI-Trader) (its README says MIT, but
 the repository has no licence file); the code and rules are this repo's own.
 
+### The paper broker
+
+Instead of typing fills in, hand the paper broker the ticket and let it fill
+from daily bars. It writes every fill to the same ledger.
+
+```bash
+swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json
+swingbot-paper submit runs/risk/ticket.json --at "2026-11-02 18:00"   # live for the next session only
+swingbot-paper settle --as-of "2026-11-03 18:00" --trail             # after each day's prices are in
+swingbot-paper orders                                                # the book
+swingbot-paper close RELIANCE                                        # sell at the next open
+swingbot-paper cancel P00003                                         # an entry that has not filled
+```
+
+* **Entry**, a DAY limit buy: fills at the open if the stock opens at or under
+  the limit, else at the limit if the low trades *under* it (a touch is not
+  enough, there is a queue), else it lapses at the close.
+* **Exits**, one OCO, both legs MARKET as the ticket writes them. Dhan takes no
+  Forever Order on shares bought today, so the OCO is live from the next
+  session: the entry day and the night after it have no stop at the broker.
+  An open at or under the stop sells at the open (a gap: worse than 1R, but
+  taken); an open at or over the target sells at the open; else the stop sells
+  at the stop when the low reaches it, and the target at the target when the
+  high does. When one bar reaches both, the stop is assumed to have come first.
+  Every market sell gives up 5 bps of slippage.
+* **Trailing**: with `--trail`, R7 runs after each close and moves the stop for
+  the next session; `swingbot-paper stop` moves it by hand. Stops never go down.
+* **Times**: 09:15 for fills at the open, 15:30 for fills during the session,
+  whose real time a daily bar does not have.
+* **The book** (`data/state/paper_broker.json`, git-ignored) is saved only
+  after the fills are in the ledger. If a stock's prices are behind, the whole
+  book waits rather than letting an order lapse unseen. It refuses a ticket not
+  marked paper_only, one whose PASS is older than the session before the
+  entry, a second order in a stock it already holds, and any entry while the
+  kill switch is latched.
+* **Same interface as Dhan**: `swingbot.broker` defines `submit`, `cancel`,
+  `close`, `modify_stop`, `sync` and `open_orders`. `DhanBroker` is that shape
+  with each method mapped to its DhanHQ endpoint in the docstring, and every
+  method raises: it places nothing until it is built and tested in Dhan's
+  sandbox.
+* **In the daily loop**: `swingbot.broker.daily:settle` and
+  `swingbot.broker.daily:submit` are the loop's `broker_settle` and
+  `broker_submit` hooks (book in `<state_dir>/paper_broker.json`, R7 trailing on).
+
 ## Daily paper trading loop: `swingbot-daily`
 
 One run per NSE session day, chaining every tool above. Claude Code plays the
@@ -415,9 +503,10 @@ swingbot-daily status
 * **Hooks.** The data refresh, the paper broker (settle and submit) and the
   signal-to-order step are named in `config/daily.toml` as `module:function`,
   with their contracts in `src/swingbot/daily/hooks.py`. Until each one is
-  built, a stub stands in and the day's `summary.md` marks that step `STUB`,
-  so a report never looks complete when it isn't. The refresh hook calls
-  `swingbot.data.refresh` as soon as it is installed.
+  missing, a stub stands in and the day's `summary.md` marks that step `STUB`,
+  so a report never looks complete when it isn't. The defaults go through
+  `swingbot/daily/adapters.py` to `swingbot.data.refresh`,
+  `swingbot.broker.daily` and `swingbot.risk.signals:daily_hook`.
 
 ## Persona scorecard: `swingbot-scorecard`
 
@@ -453,6 +542,6 @@ not change persona weights. The leaderboard idea is from AI-Trader.
 
 Following the blueprint: Phase 2 (the Verifier and episodic memory) is in place
 and needs a real walk-forward run to show whether it helps. The paper account
-(`swingbot-paper`) is ready to record fills, and `swingbot-daily` runs a paper day end to end. Phase 3 adds paper trading through the DhanHQ API with
+(`swingbot-paper`) and the paper broker that fills tickets are ready, and `swingbot-daily` runs a paper day end to end. Phase 3 adds paper trading through the DhanHQ API with
 bracket orders, 1 to 2 percent position sizing and a weekly kill switch.
 Live money comes only after months of paper trading.
