@@ -349,3 +349,14 @@ def test_alerts_go_out_once_for_a_kill_switch_latch_found_by_start(repo):
     finish(later)                                   # already sent: not again
     assert [a.title for a in got] == ["Swing bot alerts are on", "KILL SWITCH LATCHED"]
     assert any(s["name"] == "alerts" and "1 sent" in s["detail"] for s in state["steps"])
+
+
+def test_the_ticket_carries_the_time_exit_from_the_order(repo):
+    open_account(repo)
+    hold = {"max_sessions": 3, "entry_session": "2026-11-03", "exit_by": "2026-11-05"}
+    order = Order("ABC", "buy", 400, entry=203.6, stop=195.0, target=221.0, sector="Tech", plan={"hold": hold})
+    hooks = Hooks([order])
+    start(Day(MORNING, config(repo), hooks.make()))
+    write_views(Day(MORNING, config(repo), hooks.make()))
+    finish(Day("2026-11-03 08:50", config(repo), hooks.make()))
+    assert hooks.tickets[0]["hold"] == hold

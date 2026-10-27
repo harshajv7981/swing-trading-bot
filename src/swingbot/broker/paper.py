@@ -28,6 +28,12 @@ gap under its limit it waits there, fills if the high gets back to it, and
 otherwise lapses at the close, leaving the position with no stop. That is why
 the ticket moved to a stop-loss market.
 
+Time exit: a ticket with a `hold` plan (signal-to-order writes one from the
+call's horizon) is sold at the close of its `exit_by` session, less slippage,
+when neither leg has filled by then. A stock with no bar that day sells at the
+close of its next bar. This is the backtest's exit, so paper and walk-forward
+trades end where the research measured them.
+
 A close sells at the next session's open and cancels the OCO. Trailing (R7,
 `trail_stop`) runs after each close when asked and moves the stop for the next
 session; stops never move down.
@@ -134,6 +140,9 @@ class PaperBroker:
             raise OrderRefused(f"The PASS is from {checked_day}; the entry would go in on {session}. Check it again.")
 
         qty, limit = int(e["quantity"]), float(e["price"])
+        exit_by = (ticket.get("hold") or {}).get("exit_by")
+        if exit_by and exit_by < session.isoformat():
+            raise OrderRefused(f"{ticker}: the time exit {exit_by} is before the entry session {session}.")
         stop_leg, target_leg = x["stop"], x["target"]
         stop = float(stop_leg["triggerPrice"])
         stop_limit = float(stop_leg["price"]) if stop_leg["orderType"] == "STOP_LOSS" else None
@@ -146,6 +155,7 @@ class PaperBroker:
             "session": session.isoformat(), "submitted_at": f"{at:%Y-%m-%d %H:%M}", "stop": stop,
             "stop_limit": stop_limit, "target": target, "fingerprint": ticket["fingerprint"],
             "checked_at": checked, "sector": ticket.get("sector") or load_sectors().get(ticker, ""),
+            "exit_by": exit_by,
         })
         return oid
 
@@ -257,8 +267,13 @@ class PaperBroker:
                 oco = {"id": self._new_id(), "type": "oco", "status": "open", "ticker": ticker, "qty": entry["qty"],
                        "entry_id": entry["id"], "entry_price": price, "entry_session": d,
                        "live_from": self._next_session(_ts(f"{d} {AFTER_CLOSE}")).isoformat(), "stop": entry["stop"],
-                       "initial_stop": entry["stop"], "stop_limit": entry["stop_limit"], "target": entry["target"]}
+                       "initial_stop": entry["stop"], "stop_limit": entry["stop_limit"], "target": entry["target"],
+                       "exit_by": entry.get("exit_by")}
                 self.orders.append(oco)
+
+        if oco and oco["status"] == "open" and oco.get("exit_by") and d >= oco["exit_by"]:
+            out.append(self._exit(oco, f"{d} {INTRADAY}", self._slip(float(row["close"])), "time"))
+            return out
 
         if oco and oco["status"] == "open" and self.trail:
             new, why = trail_stop(b[b.index <= day], oco["entry_session"], oco["entry_price"],

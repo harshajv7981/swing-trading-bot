@@ -238,3 +238,35 @@ def test_scrip_master_keeps_nse_equities_only(tmp_path, capsys):
     cfg.write_text(f'[dhan]\nstate_dir = "{tmp_path}"\nscrip_master = "{tmp_path / "s.csv"}"\n')
     assert dhan_main(["--config", str(cfg), "scrips", "--file", str(f)]) == 2   # too few rows to be real
     assert "only 1 NSE equities" in capsys.readouterr().err
+
+
+def test_time_exit_drops_the_oco_and_sells_at_market_from_1515(tmp_path):
+    b, fake, _ = make(tmp_path)
+    t = {**ticket(), "hold": {"max_sessions": 3, "entry_session": "2026-01-05", "exit_by": "2026-01-07"}}
+    oid = b.submit(t, "2026-01-02 18:00")
+    fake.trade("O1", "BUY", 100, 100.0, "2026-01-05 09:15:03")
+    b.sync("2026-01-05 18:00")
+    b.sync("2026-01-06 09:20")                         # the Forever OCO goes in
+    fid = b.orders[0]["forever_id"]
+    b.sync("2026-01-07 11:00")                         # exit_by, but before 15:15: still held
+    assert not any(c[0] == "POST" and c[1] == "/orders" and c[2]["transactionType"] == "SELL" for c in fake.calls)
+    b.sync("2026-01-07 15:16")
+    [(_, _, sell)] = [c for c in fake.calls if c[:2] == ("POST", "/orders") and c[2]["transactionType"] == "SELL"]
+    assert (sell["orderType"], sell["quantity"]) == ("MARKET", 100)
+    assert ("DELETE", f"/forever/orders/{fid}", None) in fake.calls
+    exit_id = b.orders[0]["exit_id"]
+    fake.trade(exit_id, "SELL", 100, 103.0, "2026-01-07 15:16:30")
+    [fill] = b.sync("2026-01-07 18:00")
+    assert (fill.order_id, fill.reason, fill.price) == (oid, "time", 103.0)
+    assert b.open_orders() == []
+
+
+def test_a_missed_time_exit_waits_for_market_hours(tmp_path):
+    b, fake, _ = make(tmp_path)
+    b.submit({**ticket(), "hold": {"exit_by": "2026-01-06"}}, "2026-01-02 18:00")
+    fake.trade("O1", "BUY", 100, 100.0, "2026-01-05 09:15:03")
+    b.sync("2026-01-05 18:00")
+    b.sync("2026-01-07 08:30")                         # past exit_by, but the market is shut
+    assert any("past its time exit" in n for n in b.notes) and not b.orders[0].get("exit_id")
+    b.sync("2026-01-07 09:20")
+    assert b.orders[0]["exit_reason"] == "time"

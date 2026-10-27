@@ -387,7 +387,7 @@ swingbot-risk orders runs/signals.jsonl --portfolio portfolio.json --mood runs/r
    would be too large a share of it).
 5. **Ticket** for each PASS, plus a time exit from the horizon: 72h means sell
    at the close of the third session, counting the entry day, as in the
-   backtest.
+   backtest. The paper broker and the Dhan adapter both carry it out.
 
 Calls in one run are sized one after another against the same account, so
 each ticket's cash and open risk count against the next. Output goes to
@@ -471,6 +471,10 @@ swingbot-paper cancel P00003                                         # an entry 
   at the stop when the low reaches it, and the target at the target when the
   high does. When one bar reaches both, the stop is assumed to have come first.
   Every market sell gives up 5 bps of slippage.
+* **Time exit**: a ticket from signal-to-order carries `hold.exit_by`. If
+  neither leg has filled by that session's close, the position sells at the
+  close (less slippage), as the backtest does. The Dhan adapter does the same
+  with a market sell from 15:15 on that session.
 * **Trailing**: with `--trail`, R7 runs after each close and moves the stop for
   the next session; `swingbot-paper stop` moves it by hand. Stops never go down.
 * **Times**: 09:15 for fills at the open, 15:30 for fills during the session,

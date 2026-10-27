@@ -287,3 +287,43 @@ def test_a_morning_submit_is_live_that_same_session(tmp_path):
     assert b.open_orders()[0]["session"] == "2026-01-05"
     [buy] = b.sync("2026-01-05 18:00", {"ABC": ohlc(*flat(1))})
     assert buy.at.startswith("2026-01-05")
+
+
+def held(exit_by, **kw):
+    return {**ticket(**kw), "hold": {"max_sessions": 3, "entry_session": "2026-01-05", "exit_by": exit_by}}
+
+
+def test_time_exit_sells_at_the_exit_by_close(tmp_path):
+    rows = [(100.0, 101, 99, 100)] + [(100.0, 103, 98, 102)] + [(101.0, 104, 99, 103.5)] + flat(7)
+    b, ev = run(tmp_path, rows, t=held("2026-01-07"))
+    assert sells(ev) == [("2026-01-07 15:30", 103.5, "time")]
+    assert b.open_orders() == []
+
+
+def test_time_exit_waits_for_the_stop_or_target_first(tmp_path):
+    rows = [(100.0, 101, 99, 100), (99.0, 100, 94, 96)] + flat(8)     # stopped on day two
+    _, ev = run(tmp_path, rows, t=held("2026-01-07"))
+    assert sells(ev) == [("2026-01-06 15:30", 95.0, "stop")]
+
+
+def test_a_one_session_hold_sells_at_the_entry_close(tmp_path):
+    _, ev = run(tmp_path, [(100.0, 101, 99, 100.5)] + flat(9), t=held("2026-01-05"))
+    assert sells(ev) == [("2026-01-05 15:30", 100.5, "time")]
+
+
+def test_time_exit_on_a_missing_bar_sells_at_the_next_close(tmp_path):
+    bars = ohlc(*([(100.0, 101, 99, 100)] + flat(9)))
+    bars = bars.drop(pd.Timestamp("2026-01-07"))                       # no trade that day
+    b = broker(tmp_path)
+    b.submit(held("2026-01-07"), "2026-01-02 18:00")
+    assert sells(b.sync("2026-01-16 18:00", {"ABC": bars})) == [("2026-01-08 15:30", 100.0, "time")]
+
+
+def test_a_ticket_without_a_hold_has_no_time_exit(tmp_path):
+    b, ev = run(tmp_path, [(100.0, 101, 99, 100)] + flat(9))
+    assert sells(ev) == [] and [o["type"] for o in b.open_orders()] == ["oco"]
+
+
+def test_refuses_a_time_exit_before_the_entry(tmp_path):
+    with pytest.raises(OrderRefused, match="time exit"):
+        broker(tmp_path).submit(held("2026-01-02"), "2026-01-02 18:00")

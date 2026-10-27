@@ -14,6 +14,9 @@ A ticket is paper only. Nothing in this repo sends it anywhere. It has two parts
   plan). Both legs are MARKET: the target leg sells at market when the price
   reaches the target, and the stop leg is a stop-loss market sell that triggers
   at the stop.
+- hold (when signal-to-order planned one): the time exit. If neither leg has
+  filled by the close of `exit_by`, the position is sold there, as the backtest
+  does.
 
 Why market and not a stop-limit: a stop-limit with its limit a little under the
 trigger does not fill when the stock opens below the limit (a gap down on
@@ -87,7 +90,7 @@ def make_ticket(order: Order, verdict: dict | None, today: date, config: RiskCon
     stop_with_gap = round_down(raw_gap, nse_tick(order.entry, raw_gap, floor=config.tick))
     common = {"exchangeSegment": "NSE_EQ", "productType": "CNC", "tradingSymbol": order.ticker,
               "securityId": None}
-    return {
+    ticket = {
         "paper_only": True,
         "fingerprint": order.fingerprint,
         "checked_at": verdict["at"],
@@ -108,6 +111,10 @@ def make_ticket(order: Order, verdict: dict | None, today: date, config: RiskCon
         "loss_at_stop": round(order.qty * (order.entry - order.stop), 2),
         "loss_with_gap": round(order.qty * (order.entry - stop_with_gap), 2),
     }
+    if (order.plan or {}).get("hold"):
+        # The time exit signal-to-order planned: sell at the exit_by close if neither leg filled.
+        ticket["hold"] = order.plan["hold"]
+    return ticket
 
 
 def describe(t: dict) -> str:
@@ -117,4 +124,5 @@ def describe(t: dict) -> str:
             f"stop-loss market {x['stop']['triggerPrice']:,.2f}\n"
             f"  loss at the stop {t['loss_at_stop']:,.0f} ({t['loss_with_gap']:,.0f} with the gap allowance; "
             f"a bigger gap fills at the open)"
-            f"  [{t['fingerprint']}]")
+            f"  [{t['fingerprint']}]"
+            + (f"\n  time exit: sell at the {t['hold']['exit_by']} close if neither leg has filled" if t.get("hold") else ""))

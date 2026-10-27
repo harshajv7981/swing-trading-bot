@@ -15,6 +15,8 @@ the paper broker:
                 lists it, with the right stop, within 60 seconds.
 - cancel:       DELETE /orders/{id}, entries only.
 - close:        DELETE /forever/orders/{id}, then a MARKET sell.
+- time exit:    a holding whose ticket's `exit_by` session has reached 15:15
+                (or passed) drops its Forever OCO and sells at market.
 - modify_stop:  PUT /forever/orders/{id} on the STOP_LOSS_LEG; up only, at most
                 25 changes per order (Dhan's limit).
 - open_orders:  the adapter's own book, `<state_dir>/dhan_book.json`.
@@ -74,6 +76,7 @@ DEFAULT_STATE_DIR = Path("data/state")
 LIVE_ENV = "SWINGBOT_DHAN_LIVE"
 
 CONFIRM_SECONDS = 60          # R1
+TIME_EXIT_MINUTE = 15 * 60 + 15   # the time exit sells from 15:15 on its exit_by session
 MAX_MODIFICATIONS = 25        # Dhan's limit per order
 LIVE_STATUSES = {"PENDING", "CONFIRM"}   # accepted and waiting to trigger; TRANSIT is not yet accepted
 DONE_STATUSES = {"REJECTED", "CANCELLED", "EXPIRED"}
@@ -350,7 +353,7 @@ class DhanBroker:
             "session": session.isoformat(), "submitted_at": f"{at:%Y-%m-%d %H:%M}",
             "fingerprint": ticket["fingerprint"], "checked_at": ticket["checked_at"],
             "sector": ticket.get("sector") or load_sectors().get(ticker, ""), "filled": 0, "forever_id": "",
-            "modifications": 0,
+            "modifications": 0, "exit_by": (ticket.get("hold") or {}).get("exit_by"),
         })
         return oid
 
@@ -365,13 +368,16 @@ class DhanBroker:
 
     def close(self, ticker: str, at) -> str:
         """Drop the Forever OCO and sell the holding at market."""
+        return self._close(ticker, "close")
+
+    def _close(self, ticker: str, why: str) -> str:
         o = self._held(ticker.upper())
         if o is None:
             raise OrderRefused(f"{ticker} is not held here.")
         if o["forever_id"]:
             self.api.call("DELETE", f"/forever/orders/{o['forever_id']}")
             o["forever_id"] = ""
-        return self._sell(o, "close")
+        return self._sell(o, why)
 
     def _sell(self, o: dict, why: str) -> str:
         resp = self.api.call("POST", "/orders", {
@@ -499,6 +505,7 @@ class DhanBroker:
             self.notes.append(f"a sell of {sum(int(t.get('tradedQuantity', 0)) for t in ts)} of security {sec} "
                               "at Dhan matches no position here; check it by hand")
         self._check_stops()
+        self._time_exits(as_of)   # first, so a position due out is not given a fresh stop
         session_open = self.calendar.is_session(as_of.date()) and as_of.hour * 60 + as_of.minute >= 9 * 60 + 15
         for o in self.orders:
             due = (o["status"] == "held" and not o["forever_id"] and not o.get("exit_id")
@@ -508,6 +515,20 @@ class DhanBroker:
             elif due:
                 self.notes.append(f"{o['ticker']} has no stop at Dhan yet; sync again after 09:15 to place it")
         return events
+
+    def _time_exits(self, as_of: pd.Timestamp) -> None:
+        """Sell holdings whose time exit has come: from 15:15 on the exit_by session, or any later session."""
+        today, minute = as_of.date().isoformat(), as_of.hour * 60 + as_of.minute
+        trading = self.calendar.is_session(as_of.date()) and 9 * 60 + 15 <= minute < 15 * 60 + 30
+        for o in self.orders:
+            if o["status"] != "held" or o.get("exit_id") or not o.get("exit_by") or today < o["exit_by"]:
+                continue
+            if trading and (today > o["exit_by"] or minute >= TIME_EXIT_MINUTE):
+                self._close(o["ticker"], "time")
+                self.notes.append(f"{o['ticker']}: time exit ({o['exit_by']}), sold at market")
+            elif today > o["exit_by"] or minute >= 15 * 60 + 30:
+                self.notes.append(f"{o['ticker']} is past its time exit {o['exit_by']}; sync during market "
+                                  "hours to sell it")
 
     def _check_stops(self) -> None:
         """A held position whose Forever OCO is gone at Dhan, with no sell, has no stop: place it again."""
