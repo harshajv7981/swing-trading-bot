@@ -307,9 +307,13 @@ swingbot-risk kill-switch --reset --by Harsha   # Harsha only, typed at a termin
   once it was published, and a later notice for the same company (a moved
   date) wins. `check`, `orders` and the daily loop read them by themselves;
   `--results-date` still overrides one order. For a company whose notices
-  weren't collected, type `symbol,date` lines into `data/state/results_dates.csv`.
-  No notice means the date is unknown: R9 warns, and once filings are flowing,
-  set `require_results_date = true` in `config/risk.toml` so unknown blocks.
+  weren't collected, type `symbol,date` lines into `data/state/results_dates.csv`
+  (several lines per company is fine; each date counts until it has passed, and
+  the sooner of a typed date and a notice wins). `swingbot-daily start` says
+  each morning how many companies have a date and which are in blackout, and
+  notes it when none do. No notice means the date is unknown: R9 warns, and
+  once dates are flowing, set `require_results_date = true` in
+  `config/risk.toml` so unknown blocks.
   Delivery (CNC) only, long only. A sell that only reduces a holding is never
   blocked. Every verdict is logged with a fingerprint of the exact order in
   `data/state/risk_verdicts.jsonl`.
@@ -625,7 +629,8 @@ fails to send is kept and tried again next run, and never stops the loop.
 
 ```
 swingbot-walkforward init --from 2026-07-01 --to 2026-10-23 --cash 500000 \
-    --prices data/raw/prices --events data/raw/news/events.csv
+    --prices data/raw/prices --events data/raw/news/events.csv \
+    --results-dates results_2026.csv   # optional: symbol,date for R9 over the run
 swingbot-walkforward next     # runs days until one needs the swarm, then stops with its brief
 (play the swarm on that day's brief.md, appending to its views.jsonl)
 swingbot-walkforward next     # the next batch, or finish the day and go on

@@ -70,3 +70,31 @@ def test_init_refuses_a_second_run_and_a_year_without_holidays(data, capsys):
     assert main(args) == 2 and "already holds a run" in capsys.readouterr().err
     args[1], args[6] = str(tmp / "wf2"), "2027-01-08"
     assert main(args) == 2 and "2027" in capsys.readouterr().err
+
+
+def test_results_dates_given_to_init_black_out_the_entry(data):
+    tmp, prices, events, holidays = data
+    dates = tmp / "results.csv"
+    dates.write_text("symbol,date\nTCS,2026-08-12\nTCS,2026-11-04\n")
+    args = ["--dir", str(tmp / "wf"), "init", "--from", "2026-11-02", "--to", "2026-11-06", "--cash", "1000000",
+            "--prices", str(prices), "--events", str(events), "--holidays", str(holidays),
+            "--results-dates", str(dates)]
+    assert main(args) == 0
+    assert (tmp / "wf/state/results_dates.csv").read_text() == dates.read_text()
+    run = Run(tmp / "wf")
+    assert run.next() == "brief"
+    views(tmp / "wf/days/2026-11-03/views.jsonl", "e1", 0.7)
+    run.next()
+    tue = json.loads((tmp / "wf/days/2026-11-03/finish.json").read_text())
+    assert tue["tickets"] == []
+    assert any("R9 results blackout" in s["detail"] for s in tue["steps"] if s["name"] == "gate TCS")
+
+
+def test_init_refuses_a_bad_results_dates_file(data, capsys):
+    tmp, prices, events, holidays = data
+    bad = tmp / "results.csv"
+    bad.write_text("symbol,date\nTCS,4 Nov\n")
+    args = ["--dir", str(tmp / "wf"), "init", "--from", "2026-11-02", "--to", "2026-11-06", "--cash", "1000000",
+            "--prices", str(prices), "--events", str(events), "--holidays", str(holidays), "--results-dates", str(bad)]
+    assert main(args) == 2 and "results.csv:2" in capsys.readouterr().err
+    assert not (tmp / "wf").exists()
