@@ -372,6 +372,11 @@ file is what `swingbot-paper fill buy --order` reads. The filters live in
 `config/signals.toml`; they can only skip a call and never loosen a limit in
 `config/risk.toml`. Nothing is sent anywhere.
 
+For the daily loop, `swingbot.risk.signals:daily_hook` is the
+`signal_to_order` hook: the same steps up to the size, returning orders for
+the loop to gate and ticket itself, with every call's decision in the day's
+`signal_decisions.json`.
+
 ## Paper account: `swingbot-paper`
 
 The account the paper-trading phase is judged on. Record each fill the paper

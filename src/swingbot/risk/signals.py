@@ -37,13 +37,14 @@ from typing import Callable
 
 import pandas as pd
 
+from ..data.router import Router
 from ..models import IST, Sentiment, Signal
 from ..technicals import bars_known_at, indicators
 from .calendar import NSECalendar
 from .config import RiskConfig
 from .exits import PlanRefused, plan_exit
 from .gate import KillSwitch, check_order
-from .portfolio import Portfolio, Position
+from .portfolio import Order, Portfolio, Position, load_sectors
 from .sizing import SizingRefused, size_position
 from .ticket import TicketRefused, make_ticket
 
@@ -287,12 +288,16 @@ def decide(calls: list[Call], *, as_of: pd.Timestamp, portfolio: Portfolio,
            rules: SignalRules | None = None, mood: dict | None = None,
            results_dates: dict[str, date] | None = None, sectors: dict[str, str] | None = None,
            calendar: NSECalendar | None = None, kill_switch: KillSwitch | None = None,
-           verdict_log: Path | None = None) -> list[Decision]:
+           verdict_log: Path | None = None, gate: bool = True) -> list[Decision]:
     """Run every call through the steps. Returns one decision per call, in the order they were ranked.
 
     `fetch_bars(ticker)` returns daily bars; they are cut to `as_of` here.
     With `verdict_log` set, each verdict is appended to it and a weekly breach
     latches `kill_switch`; without it nothing is written.
+
+    With `gate=False` it stops after sizing: each surviving call ends as
+    status "sized" with its order, for a caller that runs the gate and the
+    ticket itself (the daily loop). Nothing is checked, logged or latched.
     """
     config, rules = config or RiskConfig(), rules or SignalRules()
     calendar = calendar or NSECalendar()
@@ -324,7 +329,7 @@ def decide(calls: list[Call], *, as_of: pd.Timestamp, portfolio: Portfolio,
         done.append(d)
         s = call.signal
         if tickets >= rules.max_new_orders:
-            d.stop("skipped", "batch", f"already {tickets} tickets this run (max_new_orders {rules.max_new_orders})")
+            d.stop("skipped", "batch", f"already {tickets} orders this run (max_new_orders {rules.max_new_orders})")
             continue
         try:
             bars = bars_known_at(fetch_bars(s.ticker), as_of)
@@ -353,35 +358,39 @@ def decide(calls: list[Call], *, as_of: pd.Timestamp, portfolio: Portfolio,
                    f"{rules.min_order_value:,.0f} minimum (decided by {sizing.binding}); "
                    "fixed costs would eat a trade this small")
             continue
+        order = replace(order, plan={**order.plan, "hold": hold_plan(s, as_of, calendar), "call": call.ref})
         d.order = order.to_json()
 
-        latched = kill_switch.latched if kill_switch else False
-        verdict = check_order(order, book, config, bars=bars, today=as_of.date(),
-                              results_date=results_dates.get(s.ticker), calendar=calendar,
-                              kill_switch_latched=latched, mood=mood)
-        record = {"at": f"{as_of:%Y-%m-%d %H:%M}", **verdict.to_json(), "call": call.ref}
-        d.verdict = record
-        d.notes += verdict.warnings
-        if verdict_log is not None:
-            verdict_log.parent.mkdir(parents=True, exist_ok=True)
-            with verdict_log.open("a") as fh:
-                fh.write(json.dumps(record) + "\n")
-            if verdict.trip_kill_switch and kill_switch:
-                kill_switch.latch(verdict.trip_kill_switch)
-        if not verdict.passed:
-            d.stop("blocked", "gate", *(f"{c.rule}: {c.detail}" for c in verdict.checks if not c.ok))
-            continue
+        if not gate:
+            d.status, d.stage = "sized", "size"
+        else:
+            latched = kill_switch.latched if kill_switch else False
+            verdict = check_order(order, book, config, bars=bars, today=as_of.date(),
+                                  results_date=results_dates.get(s.ticker), calendar=calendar,
+                                  kill_switch_latched=latched, mood=mood)
+            record = {"at": f"{as_of:%Y-%m-%d %H:%M}", **verdict.to_json(), "call": call.ref}
+            d.verdict = record
+            d.notes += verdict.warnings
+            if verdict_log is not None:
+                verdict_log.parent.mkdir(parents=True, exist_ok=True)
+                with verdict_log.open("a") as fh:
+                    fh.write(json.dumps(record) + "\n")
+                if verdict.trip_kill_switch and kill_switch:
+                    kill_switch.latch(verdict.trip_kill_switch)
+            if not verdict.passed:
+                d.stop("blocked", "gate", *(f"{c.rule}: {c.detail}" for c in verdict.checks if not c.ok))
+                continue
 
-        try:
-            ticket = make_ticket(order, record, as_of.date(), config,
-                                 kill_switch_latched=kill_switch.latched if kill_switch else False)
-        except TicketRefused as e:
-            d.stop("refused", "ticket", str(e))
-            continue
-        ticket["hold"] = hold_plan(s, as_of, calendar)
-        ticket["call"] = {"ref": call.ref, **s.to_json(), "rationale": s.rationale}
-        d.ticket = ticket
-        d.status, d.stage = "ticket", "ticket"
+            try:
+                ticket = make_ticket(order, record, as_of.date(), config,
+                                     kill_switch_latched=kill_switch.latched if kill_switch else False)
+            except TicketRefused as e:
+                d.stop("refused", "ticket", str(e))
+                continue
+            ticket["hold"] = hold_plan(s, as_of, calendar)
+            ticket["call"] = {"ref": call.ref, **s.to_json(), "rationale": s.rationale}
+            d.ticket = ticket
+            d.status, d.stage = "ticket", "ticket"
         tickets += 1
         # The next call is sized against the account as if this entry had filled.
         book = replace(book, cash=book.cash - order.qty * order.entry,
@@ -391,8 +400,30 @@ def decide(calls: list[Call], *, as_of: pd.Timestamp, portfolio: Portfolio,
 
 
 def summary(decisions: list[Decision]) -> str:
-    counts = {k: sum(d.status == k for d in decisions) for k in ("ticket", "blocked", "refused", "skipped")}
+    counts = {k: sum(d.status == k for d in decisions) for k in ("ticket", "sized", "blocked", "refused", "skipped")}
     head = (f"{len(decisions)} calls: {counts['ticket']} tickets, {counts['blocked']} blocked by the gate, "
             f"{counts['refused']} refused, {counts['skipped']} skipped. Paper only: nothing was sent.")
-    order = {"ticket": 0, "blocked": 1, "refused": 2, "skipped": 3}
+    if counts["sized"]:
+        head = head.replace(" tickets,", f" tickets, {counts['sized']} sized for the gate,", 1)
+    order = {"ticket": 0, "sized": 0, "blocked": 1, "refused": 2, "skipped": 3}
     return "\n".join([head] + [d.text() for d in sorted(decisions, key=lambda d: order[d.status])])
+
+
+def daily_hook(day, signals: list[dict], portfolio: Portfolio, mood: dict | None) -> list[Order]:
+    """The daily loop's `signal_to_order` hook (config/daily.toml: "swingbot.risk.signals:daily_hook").
+
+    Runs the filters, the overlay, the plan and the size, but not the gate:
+    the loop checks and tickets every order itself. Writes every call's
+    decision to `signal_decisions.json` in the day's folder.
+    """
+    router = Router(day.data)
+    calls = [_call(f"signal {i}", {**sig, "as_of": sig.get("as_of") or sig.get("published_at")})
+             for i, sig in enumerate(signals, start=1)]
+    decisions = decide(calls, as_of=day.as_of, portfolio=portfolio,
+                       fetch_bars=lambda ticker: router.fetch("prices", ticker, day.as_of)[1],
+                       config=day.risk, rules=SignalRules.load(), mood=mood, sectors=load_sectors(),
+                       calendar=day.calendar, gate=False)
+    out = day.path("signal_decisions.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"as_of": day.stamp, "decisions": [d.to_json() for d in decisions]}, indent=2) + "\n")
+    return [Order.from_json(d.order) for d in decisions if d.status == "sized"]

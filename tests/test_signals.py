@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from swingbot.models import IST, Sentiment, Signal
-from swingbot.risk import KillSwitch, NSECalendar, Portfolio, Position, SignalRules
+from swingbot.risk import KillSwitch, NSECalendar, Portfolio, Position, RiskConfig, SignalRules
 from swingbot.risk.cli import main as risk_main
 from swingbot.risk.signals import Call, decide, entry_session, hold_plan, read_calls, technical_overlay
 
@@ -280,3 +280,46 @@ def test_cli_orders_writes_decisions_orders_and_tickets(tmp_path, capsys):
 
     # The order file is the one swingbot-risk ticket and swingbot-paper fill read: its PASS is in the log.
     assert risk_main(["--state-dir", str(state), "ticket", str(day / "RELIANCE.order.json"), "--as-of", as_of]) == 0
+
+
+# --- the daily loop's hook: sized orders, no gate ------------------------------------------
+
+def test_without_the_gate_calls_stop_at_a_sized_order_and_nothing_is_logged(tmp_path):
+    switch = KillSwitch(tmp_path)
+    switch.latch("test")  # the gate would block; without it the order is still sized
+    calls = [call("RELIANCE", confidence=0.9), call("TCS", confidence=0.8), call("HDFCBANK", sentiment="bearish")]
+    d = by_ref(run(calls, gate=False, kill_switch=switch))
+    assert d["RELIANCE-0.9"].status == d["TCS-0.8"].status == "sized"
+    assert d["RELIANCE-0.9"].verdict is None and d["RELIANCE-0.9"].ticket is None
+    assert d["RELIANCE-0.9"].order["plan"]["hold"]["max_sessions"] == 3
+    assert d["HDFCBANK-0.8"].status == "skipped"
+    assert [p.name for p in tmp_path.iterdir()] == ["kill_switch.json"]
+
+
+def test_daily_hook_returns_sized_orders_and_writes_the_decisions(tmp_path):
+    from types import SimpleNamespace
+
+    from swingbot.data.router import DataConfig
+    from swingbot.risk import Order
+    from swingbot.risk.signals import daily_hook
+
+    prices = tmp_path / "prices"
+    prices.mkdir()
+    UP.to_csv(prices / "RELIANCE.csv", index_label="date")
+    cfg = tmp_path / "data.toml"
+    cfg.write_text(f'[sources]\nprices = "csv"\n[paths]\nprices_dir = "{prices}"\n')
+    day = SimpleNamespace(as_of=AS_OF, risk=RiskConfig(), data=DataConfig.load(cfg), calendar=CAL,
+                          stamp=f"{AS_OF:%Y-%m-%d %H:%M}", path=lambda name: tmp_path / "day" / name)
+    signals = [
+        {"event_id": "e1", "ticker": "RELIANCE", "published_at": f"{AS_OF - pd.Timedelta(hours=2)}",
+         "headline": "h", "sentiment": "bullish", "confidence": 0.8, "score": 0.6, "rationale": "r"},
+        {"event_id": "e2", "ticker": "TCS", "published_at": f"{AS_OF}", "headline": "h",
+         "sentiment": "bearish", "confidence": 0.9, "score": -0.6, "rationale": "r"},
+    ]
+    orders = daily_hook(day, signals, book(), None)
+    assert [type(o) for o in orders] == [Order]
+    o = orders[0]
+    assert (o.ticker, o.side, o.product, o.sector) == ("RELIANCE", "buy", "CNC", "Energy")
+    assert o.stop < o.entry < o.target and o.plan["call"] == "e1"
+    saved = json.loads((tmp_path / "day" / "signal_decisions.json").read_text())["decisions"]
+    assert {d["ref"]: d["status"] for d in saved} == {"e1": "sized", "e2": "skipped"}
