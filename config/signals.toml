@@ -2,25 +2,39 @@
 # filters in front of the risk engine: they can only skip a call, never loosen
 # a limit in config/risk.toml, which the gate still checks on every order.
 # Like risk.toml, change a value by hand in a commit of its own.
+#
+# Each value has its evidence in docs/research/signal-thresholds.md: a test on
+# 94 NSE large caps' daily bars, 2010-2019 to choose and 2020-2026 to check,
+# plus the published work named there. Values marked PROVISIONAL have no
+# evidence yet and must be set from the bot's own scored calls.
 
 [filters]
-min_confidence = 0.60             # skip calls the swarm is less sure of than this
-defensive_min_confidence = 0.75   # the bar when the market mood is defensive (R11 also halves the size)
-skip_when_mood_unknown = false    # true: no new entries while the mood is unknown or not checked
-min_horizon_hours = 24            # shorter than a session is not a swing trade
+min_confidence = 0.60             # PROVISIONAL. LLM-stated confidence is overconfident and uncalibrated
+                                  # (Xiong et al., ICLR 2024); set this from the swarm's own hit rate by
+                                  # confidence once 50+ calls are scored.
+defensive_min_confidence = 0.60   # No extra bar: longs bought with the Nifty under its 200-day average did better
+                                  # in 13 of 15 years (worse in 2020 and 2025). R11 still halves the size.
+skip_when_mood_unknown = false
+min_horizon_hours = 72            # 3 sessions. Delivery costs are ~0.22% round trip; holds of 1-2 sessions
+                                  # cannot cover them (base rate -0.19% at 3 sessions; Lopez-Lira & Tang find the
+                                  # news drift gone by 20 bps of costs).
 max_horizon_hours = 480           # 20 sessions; longer calls are skipped, not stretched
-max_signal_age_hours = 36         # a call older than this at decision time is stale
+max_signal_age_sessions = 1       # news drift lasts 1-2 trading days (Lopez-Lira & Tang 2024): only calls made
+                                  # after the open of the last session before the entry are traded
 
 [technicals]
-require_above_sma200 = true       # the long trend line (the gate's R8 checks it too)
-require_above_sma50 = false       # the medium trend line
-max_rsi = 75.0                    # RSI14 above this is chasing an overbought stock
-max_extension_atr = 3.0           # close more than this many ATRs above EMA10 is chasing
+require_above_sma200 = true       # Kept to match the gate's R8. The data does NOT show it helps 3-10 session holds;
+                                  # see the doc before relying on it.
+require_above_sma50 = false       # no consistent effect in either period
+max_rsi = 80.0                    # RSI14 over 80 lost 0.07-0.18R more than the rest in 2010-19; mixed 2020-26
+max_extension_atr = 3.0           # over 3 ATRs above EMA10 lost in 13 of 17 years; over 4 lost in both periods
 
 [exits]
-stop_rule = "atr:2"               # as in swingbot-risk plan: atr:K, pct:X or low:N
-target_rule = "2R"                # a multiple of the stop distance, or price:X
+stop_rule = "atr:2.5"             # 2.5 ATR beat 1.5 and 2 ATR in both periods at every hold; 3 ATR was about the same
+target_rule = "2R"                # 1.5R, 2R and 3R were within about 0.01R of each other up to 10 sessions
 
 [batch]
-max_new_orders = 3                # at most this many tickets per run, best calls first
-min_order_value = 10000.0         # rupees; a smaller order (cash or limits nearly used up) is skipped
+max_new_orders = 3                # arithmetic, not research: the gate allows 5 positions and 5% open risk at 1%
+                                  # each, so 3 a day keeps 2 slots for later news
+min_order_value = 25000.0         # Dhan's DP charge (Rs 12.5 + GST per stock sold) stays under 0.06% of the order,
+                                  # a quarter of the ~0.22% statutory round trip

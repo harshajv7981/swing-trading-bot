@@ -349,18 +349,21 @@ swingbot-risk orders runs/signals.jsonl --portfolio portfolio.json --mood runs/r
 ```
 
 1. **The call.** Bullish only: the bot is long-only CNC, so a bearish call is a
-   pass, never a short, and neutral is no trade. The horizon must be 1 to 20
-   sessions, the call at most 36 hours old, and the confidence at least 0.60
-   (0.75 when the mood is defensive; the gate halves the size as well).
+   pass, never a short, and neutral is no trade. The horizon must be 3 to 20
+   sessions (shorter cannot cover delivery costs), the call made after the
+   open of the last session before the entry (news drift lasts a day or two),
+   and the confidence at least 0.60 (provisional until the swarm's calls are
+   scored; a defensive mood can get its own bar, and the gate halves the size).
 2. **The batch.** One call per stock (the most confident), best calls first,
    at most 3 tickets per run.
 3. **Technical overlay**, from bars known at `--as-of`: close above the
-   200-day SMA, RSI14 at most 75, close at most 3 ATRs above EMA10. These skip
+   200-day SMA, RSI14 at most 80, close at most 3 ATRs above EMA10. These skip
    a call before it is sized, so a stretched chart never reaches the gate.
-4. **Plan, size, gate**: `atr:2` stop and `2R` target, sized and checked
+4. **Plan, size, gate**: `atr:2.5` stop and `2R` target, sized and checked
    exactly as `plan`, `size` and `check` do it. Every verdict goes in
    `data/state/risk_verdicts.jsonl` and a weekly breach latches the kill
-   switch. An order under Rs 10,000 (the account is nearly spent) is skipped.
+   switch. An order under Rs 25,000 is skipped (Dhan's per-sale DP charge
+   would be too large a share of it).
 5. **Ticket** for each PASS, plus a time exit from the horizon: 72h means sell
    at the close of the third session, counting the entry day, as in the
    backtest.
@@ -370,7 +373,9 @@ each ticket's cash and open risk count against the next. Output goes to
 `runs/orders/<date>/`: `decisions.json` (every call, where it stopped and
 why) and a `TICKER.order.json` and `TICKER.ticket.json` per ticket. The order
 file is what `swingbot-paper fill buy --order` reads. The filters live in
-`config/signals.toml`; they can only skip a call and never loosen a limit in
+`config/signals.toml`, and `docs/research/signal-thresholds.md` gives the
+evidence for each value (a test on 94 NSE large caps, 2010-2026, and the
+published work it rests on). They can only skip a call and never loosen a limit in
 `config/risk.toml`. Nothing is sent anywhere.
 
 For the daily loop, `swingbot.risk.signals:daily_hook` is the
