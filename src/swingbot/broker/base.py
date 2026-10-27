@@ -1,8 +1,8 @@
 """The broker interface, and the step that writes broker fills to the paper ledger.
 
 Two brokers sit behind it. `PaperBroker` fills tickets from daily bars and is
-what paper trading runs on. `DhanBroker` is the shape of the live adapter and
-places nothing. Whatever calls a broker (the daily loop) only uses the methods
+what paper trading runs on. `DhanBroker` (broker/dhan.py) talks to Dhan's
+sandbox, with live money off (R11). Whatever calls a broker (the daily loop) only uses the methods
 below, so swapping one for the other is a constructor change:
 
     broker.submit(ticket, at)            -> order id: a ticket from `swingbot-risk ticket`

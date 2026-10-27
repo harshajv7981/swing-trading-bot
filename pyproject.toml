@@ -25,6 +25,7 @@ swingbot-risk = "swingbot.risk.cli:main"
 swingbot-paper = "swingbot.paper.cli:main"
 swingbot-scorecard = "swingbot.scorecard:main"
 swingbot-daily = "swingbot.daily.cli:main"
+swingbot-dhan = "swingbot.broker.dhan_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

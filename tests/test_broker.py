@@ -4,7 +4,6 @@ import pandas as pd
 import pytest
 
 from swingbot.broker import OrderRefused, PaperBroker, record_fills
-from swingbot.broker.dhan import DhanBroker
 from swingbot.paper import Ledger, replay
 from swingbot.paper.cli import main as paper_main
 from swingbot.risk import RiskConfig
@@ -165,8 +164,6 @@ def test_refusals(tmp_path):
         b.modify_stop("ABC", 90.0, "2026-01-07 18:00")
     with pytest.raises(OrderRefused, match="already settled"):
         b.submit(ticket("DEF", checked="2026-01-05 18:00"), "2026-01-05 18:00")
-    with pytest.raises(NotImplementedError):
-        DhanBroker()
 
 
 def test_the_book_survives_a_restart(tmp_path):

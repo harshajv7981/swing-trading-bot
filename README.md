@@ -344,10 +344,10 @@ swingbot-risk kill-switch --reset --by Harsha   # Harsha only, typed at a termin
 
 Sectors come from `data/universe/sectors.csv`; NSE holidays from
 `config/nse_holidays.toml` (2026 only so far: add each new year from NSE's
-circular; the daily loop places no entries in a year that is missing). Not yet
-covered: R1's 60-second stop confirmation and R10 order rate limits, which
-belong to the broker adapter. The build plan's R11 is the live-mode flag (off
-by default), which arrives with the Dhan adapter; the market mood is R12. The exit-planner,
+circular; the daily loop places no entries in a year that is missing). R1's
+60-second stop confirmation, R10 order rate limits and R11, the live-mode flag
+(off by default), belong to the Dhan adapter (`swingbot-dhan`, below); the
+market mood is R12. The exit-planner,
 Time Machine, sizing and gate structure borrow ideas from Jake Schincariol's
 [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT);
 the code and the rules are this repo's own. The ticket step borrows the idea of
@@ -482,13 +482,52 @@ swingbot-paper cancel P00003                                         # an entry 
   entry, a second order in a stock it already holds, and any entry while the
   kill switch is latched.
 * **Same interface as Dhan**: `swingbot.broker` defines `submit`, `cancel`,
-  `close`, `modify_stop`, `sync` and `open_orders`. `DhanBroker` is that shape
-  with each method mapped to its DhanHQ endpoint in the docstring, and every
-  method raises: it places nothing until it is built and tested in Dhan's
-  sandbox.
+  `close`, `modify_stop`, `sync` and `open_orders`, and `DhanBroker` (next)
+  has the same methods.
 * **In the daily loop**: `swingbot.broker.daily:settle` and
   `swingbot.broker.daily:submit` are the loop's `broker_settle` and
   `broker_submit` hooks (book in `<state_dir>/paper_broker.json`, R7 trailing on).
+
+### Dhan's sandbox: `swingbot-dhan`
+
+```
+export SWINGBOT_DHAN_CLIENT_ID=...  SWINGBOT_DHAN_TOKEN=...   # DhanHQ DevPortal, Sandbox tab
+swingbot-dhan check                 # mode, URL and the sandbox account's funds
+swingbot-dhan scrips --refresh      # Dhan's scrip master -> data/state/dhan_scrips.csv
+swingbot-dhan submit ticket.json    # a PASSed ticket from swingbot-risk ticket
+swingbot-dhan sync                  # after 09:15: fills, then the stop for yesterday's buys
+swingbot-dhan book
+```
+
+The adapter sends the ticket's entry as a CNC limit buy (an after-market
+order when placed outside hours) and, from the next session, the exits as a
+Dhan Forever OCO with both legs at market. Fills come from Dhan's trade
+history with the contract note's charges as costs, into their own ledger
+(`data/state/dhan_sandbox_ledger.jsonl`), because the sandbox fills everything
+at a fixed price and resets its cash daily: it tests the plumbing, not the
+P&L.
+
+* **R1, 60 seconds.** After placing the OCO it reads Dhan's Forever book back
+  until the stop leg is accepted at the right trigger. If that has not
+  happened in 60 seconds it cancels and tries once more; if the second try
+  fails the position is sold at market (`flatten_unprotected` in
+  `config/broker.toml`). A stop that later disappears at Dhan while the shares
+  are still held is placed again on the next sync.
+* **R10, rate limits.** Every call is counted in `data/state/dhan_rate.json`
+  against Dhan's limits (10 order calls a second, 250 a minute, 1,000 an hour,
+  7,000 a day; 5 data calls a second). A busy second or minute is waited out;
+  past the hour or day limit nothing more is sent. Dhan allows 25 changes to
+  one order, so `modify_stop` stops there.
+* **R11, live mode.** Sandbox unless `config/broker.toml` says `mode = "live"`
+  and the environment has `SWINGBOT_DHAN_LIVE=yes`. Even then this version
+  only reads (funds, trades): every order call is refused until the paper
+  phase is passed. Live calls also need Dhan's static IP whitelisting and a
+  token that lasts one day.
+
+Still to check in the sandbox itself: which Forever Order fields Dhan reads
+as the stop leg (R1's read-back catches a swap and refuses it), and the trade
+history's field names. The daily loop still runs on the paper broker; the
+sandbox runs beside it by hand.
 
 ## Daily paper trading loop: `swingbot-daily`
 
