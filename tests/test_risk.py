@@ -6,7 +6,8 @@ import pandas as pd
 import pytest
 
 from swingbot.risk import (
-    KillSwitch, NSECalendar, Order, PlanRefused, Portfolio, Position, RiskConfig, SizingRefused, TicketRefused,
+    KillSwitch, NSECalendar, Order, PlanRefused, Portfolio, Position, ResetRefused, RiskConfig, SizingRefused,
+    TicketRefused,
     check_order, make_ticket, plan_exit, size_position, trail_stop,
 )
 from swingbot.risk.cli import main as risk_main
@@ -309,8 +310,58 @@ def test_cli_plan_size_check_and_kill_switch(tmp_path, capsys):
     assert KillSwitch(state).latched
     assert risk_main([*common, "kill-switch"]) == 1
     assert risk_main([*common, "kill-switch", "--reset"]) == 2  # needs --by
-    assert risk_main([*common, "kill-switch", "--reset", "--by", "Harsha"]) == 0
-    assert not KillSwitch(state).latched
+
+
+def at_a_terminal(monkeypatch, typed="RESET"):
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": typed)
+
+
+def test_kill_switch_reset_is_for_a_person_at_a_terminal(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    KillSwitch(state).latch("a -6% week", "2026-W44")
+    common = ["--state-dir", str(state), "kill-switch", "--reset", "--by", "Harsha"]
+
+    monkeypatch.setenv("CLAUDECODE", "1")                 # Claude Code's shell
+    assert risk_main(common) == 1 and KillSwitch(state).latched
+    with pytest.raises(ResetRefused):
+        KillSwitch(state).reset("Claude")
+    monkeypatch.delenv("CLAUDECODE")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)  # piped, no terminal
+    assert risk_main(common) == 1 and KillSwitch(state).latched
+
+    at_a_terminal(monkeypatch, typed="yes")
+    assert risk_main(common) == 1 and KillSwitch(state).latched
+    at_a_terminal(monkeypatch)
+    assert risk_main(common) == 0 and not KillSwitch(state).latched
+    st = KillSwitch(state).state()
+    assert (st["reset_by"], st["cleared_week"], st["cleared_reason"]) == ("Harsha", "2026-W44", "a -6% week")
+
+
+def test_kill_switch_latches_on_the_drawdown_without_an_order(tmp_path):
+    state = tmp_path / "state"
+    pf = tmp_path / "portfolio.json"
+    pf.write_text(json.dumps({"equity": 470000, "cash": 470000, "week_open_equity": 500000,
+                              "day_open_equity": 470000, "positions": []}))
+    assert risk_main(["--state-dir", str(state), "kill-switch", "--portfolio", str(pf),
+                      "--as-of", "2026-10-28"]) == 1
+    assert KillSwitch(state).state()["week"] == "2026-W44"
+
+
+def test_a_sell_check_latches_the_kill_switch_too():
+    held = [Position("RELIANCE", 30, 1000.0, 960.0, "Energy")]
+    v = check(entry(qty=30, side="sell"), book(470_000, week=500_000, positions=held))
+    assert v.passed and v.trip_kill_switch
+
+
+def test_a_cleared_week_does_not_latch_again(tmp_path, monkeypatch):
+    switch = KillSwitch(tmp_path)
+    assert switch.latch("a -6% week", "2026-W44")
+    at_a_terminal(monkeypatch)
+    switch.reset("Harsha")
+    assert not switch.latch("still down", "2026-W44") and not switch.latch("older", "2026-W43")
+    assert switch.latch("a new week's breach", "2026-W45") and switch.latched
 
 
 # --- the paper ticket ---------------------------------------------------------------
