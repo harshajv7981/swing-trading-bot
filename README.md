@@ -257,7 +257,8 @@ swingbot-risk mood --out runs/risk/mood.json         # bullish, neutral or defen
 swingbot-risk plan RELIANCE --stop atr:2 --target 2R --out runs/risk/plan.json
 swingbot-risk odds runs/risk/plan.json --hold 10     # the Time Machine
 swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --mood runs/risk/mood.json --out runs/risk/order.json
-swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-date 2026-11-14
+swingbot-risk results                                # next results dates from board meeting notices (R9)
+swingbot-risk check runs/risk/order.json --portfolio portfolio.json
 swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # paper only, never sent
 swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
 swingbot-risk kill-switch --portfolio portfolio.json   # status, latching it on a -5% week
@@ -288,6 +289,16 @@ swingbot-risk kill-switch --reset --by Harsha   # Harsha only, typed at a termin
   (R5), the daily -2% pause (R6), close above the 200-day SMA and Rs 10 crore
   average daily value (R8), no entry within 2 sessions of results (R9), and the
   market mood (R12, below).
+* **Results dates (R9)** come from the companies' own NSE "Board Meeting
+  Intimation" filings in the events file ("board meeting will be held on
+  14-Nov-2026 ... to consider the financial results"), so they arrive with
+  `swingbot-refresh --accept-nse-terms` at no extra cost. A notice counts only
+  once it was published, and a later notice for the same company (a moved
+  date) wins. `check`, `orders` and the daily loop read them by themselves;
+  `--results-date` still overrides one order. For a company whose notices
+  weren't collected, type `symbol,date` lines into `data/state/results_dates.csv`.
+  No notice means the date is unknown: R9 warns, and once filings are flowing,
+  set `require_results_date = true` in `config/risk.toml` so unknown blocks.
   Delivery (CNC) only, long only. A sell that only reduces a holding is never
   blocked. Every verdict is logged with a fingerprint of the exact order in
   `data/state/risk_verdicts.jsonl`.
@@ -348,7 +359,7 @@ or CSV.
 ```bash
 swingbot-risk mood --out runs/risk/mood.json
 swingbot-risk orders runs/signals.jsonl --portfolio portfolio.json --mood runs/risk/mood.json \
-    --results-dates data/results_dates.csv          # symbol,date; add --no-write for a dry run
+    --no-write                                     # dry run; R9 dates come from the notices (see above)
 ```
 
 1. **The call.** Bullish only: the bot is long-only CNC, so a bearish call is a

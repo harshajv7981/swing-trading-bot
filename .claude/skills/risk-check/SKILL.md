@@ -36,7 +36,8 @@ swingbot-risk mood --out runs/risk/mood.json
 swingbot-risk plan TICKER --stop atr:2 --target 2R --out runs/risk/plan.json
 swingbot-risk odds runs/risk/plan.json --hold 10
 swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --mood runs/risk/mood.json --out runs/risk/order.json
-swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-date YYYY-MM-DD
+swingbot-risk results TICKER                  # its next results date, from NSE board meeting notices
+swingbot-risk check runs/risk/order.json --portfolio portfolio.json
 swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # only after a PASS
 ```
 
@@ -62,9 +63,10 @@ swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # only a
   the user decides.
 - **size**: prints the shares, which limit decided them, and the loss at the
   stop. A refusal means even one share breaks a limit.
-- **check**: PASS or BLOCK with every rule's line. Ask the user for the next
-  results date (from the company's board meeting notice) and pass it with
-  `--results-date`; without it R9 cannot be checked and the tool says so.
+- **check**: PASS or BLOCK with every rule's line. R9 reads the next results
+  date from the board meeting notices in the events file (`swingbot-risk
+  results` shows them). If the tool says the date is unknown, ask the user for
+  it and pass `--results-date`; never guess one.
 - **ticket** (after a PASS only): the paper broker orders, a DAY limit buy
   and, once it fills, an OCO target and stop. Show the user its printed lines
   and say it is paper only and was not sent. A refusal (no PASS today, a later
@@ -74,8 +76,8 @@ swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # only a
   --entry E --initial-stop S0 --stop S`. The stop only ever moves up.
 
 **Several calls at once** (a day's swarm run): `swingbot-risk orders
-runs/signals.jsonl --portfolio portfolio.json --mood runs/risk/mood.json
---results-dates data/results_dates.csv` runs every step above for each call
+runs/signals.jsonl --portfolio portfolio.json --mood runs/risk/mood.json`
+runs every step above for each call
 and writes `runs/orders/<date>/`. Report the summary line, each ticket line,
 and every BLOCK and refusal as printed; skipped calls can be one line each.
 The same rules apply: never edit `config/signals.toml` to let a call through.
