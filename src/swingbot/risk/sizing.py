@@ -27,6 +27,7 @@ class Sizing:
     limits: dict[str, int]  # shares each limit alone would allow
     loss_at_stop: float     # qty x (entry - stop)
     loss_with_gap: float    # the same with the gap allowance, what R2 measures
+    risk_pct: float = 0.0   # R2's limit used, after any market-mood cut (R11)
 
 
 def gap_risk_per_share(entry: float, stop: float, config: RiskConfig) -> float:
@@ -35,9 +36,15 @@ def gap_risk_per_share(entry: float, stop: float, config: RiskConfig) -> float:
 
 
 def size_position(plan: ExitPlan, portfolio: Portfolio, config: RiskConfig | None = None,
-                  sector: str = "") -> Sizing:
+                  sector: str = "", mood: dict | None = None) -> Sizing:
+    """`mood` is a `swingbot-risk mood` result; a defensive verdict cuts the risk per trade (R11)."""
     config = config or RiskConfig()
     eq, entry = portfolio.equity, plan.entry
+    verdict = (mood or {}).get("verdict")
+    risk_pct = config.risk_pct_for(verdict)
+    if risk_pct <= 0:
+        raise SizingRefused(f"the market mood is defensive (as of {mood.get('as_of')}) and "
+                            "defensive_risk_scale is 0, so new entries are off")
     per_share = gap_risk_per_share(entry, plan.stop, config)
     if eq <= 0 or per_share <= 0:
         raise SizingRefused("equity and the stop distance must both be positive")
@@ -45,7 +52,7 @@ def size_position(plan: ExitPlan, portfolio: Portfolio, config: RiskConfig | Non
     room = eq * config.max_open_risk_pct / 100 - portfolio.open_risk
     spendable = portfolio.cash - eq * config.cash_buffer_pct / 100
     limits = {
-        "risk per trade": math.floor(eq * config.risk_pct / 100 / per_share),
+        "risk per trade": math.floor(eq * risk_pct / 100 / per_share),
         "position cap": math.floor(eq * config.max_position_pct / 100 / entry),
         "cash": math.floor(max(spendable, 0) / entry),
         "open risk room": math.floor(max(room, 0) / per_share),
@@ -55,7 +62,7 @@ def size_position(plan: ExitPlan, portfolio: Portfolio, config: RiskConfig | Non
     if qty < 1:
         reasons = {
             "risk per trade": f"one share would lose {per_share:,.2f} at the stop (with the gap allowance), "
-                              f"more than {config.risk_pct}% of equity ({eq * config.risk_pct / 100:,.0f}); "
+                              f"more than {risk_pct:g}% of equity ({eq * risk_pct / 100:,.0f}); "
                               "the stop is too far away for this account",
             "position cap": f"one share at {entry:,.2f} is over {config.max_position_pct}% of equity",
             "cash": f"cash after the buffer ({max(spendable, 0):,.0f}) does not cover one share at {entry:,.2f}",
@@ -64,5 +71,7 @@ def size_position(plan: ExitPlan, portfolio: Portfolio, config: RiskConfig | Non
         }
         raise SizingRefused(reasons[binding])
 
-    order = Order(plan.ticker, "buy", qty, entry, plan.stop, plan.target, sector, plan=plan.to_json())
-    return Sizing(order, binding, limits, round(qty * (entry - plan.stop), 2), round(qty * per_share, 2))
+    order = Order(plan.ticker, "buy", qty, entry, plan.stop, plan.target, sector, plan=plan.to_json(),
+                  mood=dict(mood or {}))
+    return Sizing(order, binding, limits, round(qty * (entry - plan.stop), 2), round(qty * per_share, 2),
+                  risk_pct)

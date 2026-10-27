@@ -28,12 +28,21 @@ change its limits.
 ## Steps
 
 ```bash
+swingbot-paper portfolio --out portfolio.json      # once the paper account exists
+swingbot-risk mood --out runs/risk/mood.json
 swingbot-risk plan TICKER --stop atr:2 --target 2R --out runs/risk/plan.json
 swingbot-risk odds runs/risk/plan.json --hold 10
-swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --out runs/risk/order.json
+swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --mood runs/risk/mood.json --out runs/risk/order.json
 swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-date YYYY-MM-DD
 swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # only after a PASS
 ```
+
+- **mood** (R11): bullish, neutral, defensive or unknown, from the Nifty's
+  trend, Nifty vs FMCG, gold and USD/INR, and India VIX. When it is defensive,
+  `size` and `check` cut the risk per trade to `defensive_risk_scale` of the
+  usual 1% (half, by default). Give the verdict and every check line, and say
+  which checks were unavailable. Unknown means too few series: say so, never
+  call it neutral.
 
 - **plan**: stop rules are `atr:K`, `pct:X`, `price:X`, `low:N`; targets `2R` or
   `price:X`. Leave out `--entry` to use the last close known at `--as-of`. A
@@ -60,6 +69,12 @@ swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # only a
   order or the verdict log to get a ticket.
 - **trail** (open positions): `swingbot-risk trail TICKER --entry-date D
   --entry E --initial-stop S0 --stop S`. The stop only ever moves up.
+
+After a paper fill, record it with `swingbot-paper fill buy --order
+runs/risk/order.json --qty N --price P --at "YYYY-MM-DD HH:MM"`, using what the
+paper broker actually filled. `swingbot-paper report` shows the account, the
+drawdown, the return against the Nifty, progress to the paper gate and every
+rule a trade broke.
 
 `portfolio.json` holds `equity`, `cash`, `week_open_equity` (Monday's open),
 `day_open_equity` (today's open) and `positions` (ticker, qty, entry, stop,

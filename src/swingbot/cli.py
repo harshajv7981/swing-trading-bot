@@ -97,6 +97,9 @@ def briefs_main(argv: list[str] | None = None) -> int:
     p.add_argument("--events", required=True)
     p.add_argument("--with-technicals", metavar="PRICES_DIR",
                    help="add a technical snapshot per event, built only from bars known at publication")
+    p.add_argument("--with-mood", metavar="PRICES_DIR",
+                   help="add the market mood (Nifty trend, FMCG, gold, USD/INR, India VIX) as of each story, "
+                        "from saved CSVs in this directory")
     p.add_argument("--with-context", action="store_true",
                    help="add the week's earlier news, filings and the latest results filing for each "
                         "event's stock, taken from the same events file")
@@ -120,6 +123,10 @@ def briefs_main(argv: list[str] | None = None) -> int:
         sources={"prices": "csv", "news": "events", "filings": "events", "fundamentals": "nse_results"},
         prices_dir=Path(args.with_technicals or "."), events_file=Path(args.events), cache_prices=False,
     ))
+    mood_router = None
+    if args.with_mood:
+        mood_router = Router(DataConfig(sources={"prices": "csv"}, prices_dir=Path(args.with_mood),
+                                        cache_prices=False))
     sections = (["technicals"] if args.with_technicals else []) + (
         ["news", "filings", "fundamentals"] if args.with_context else [])
 
@@ -134,6 +141,9 @@ def briefs_main(argv: list[str] | None = None) -> int:
 
     lines = ["# Swarm brief", "", SYSTEM_PROMPT, "", "## Personas", ""]
     lines += [f"- **{p.name}**: {p.description}" for p in DEFAULT_PERSONAS]
+    if mood_router:
+        from .regime import MOOD_PROMPT
+        lines += ["", "## Market mood", "", MOOD_PROMPT]
     if memory:
         lines += ["", "## Memory", "", MEMORY_PROMPT]
     lines += ["", f"## Events ({len(todo)} in this batch)", ""]
@@ -144,6 +154,9 @@ def briefs_main(argv: list[str] | None = None) -> int:
         ]
         if e.body:
             lines.append(f"Details: {e.body}")
+        if mood_router:
+            from .regime import from_router
+            lines += ["", from_router(mood_router, e.published_at).text()]
         for section in sections:
             lines += ["", router.text(section, e.ticker, e.published_at, exclude_event=e.event_id)]
         if memory:

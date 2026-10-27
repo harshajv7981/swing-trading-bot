@@ -45,6 +45,9 @@ session expect `DATA_UNAVAILABLE` for anything not already saved.
 3. **Fundamentals analyst.** Run `swingbot-data fundamentals <TICKER>`. Report
    the latest results filing, or Yahoo's present-day ratios when that is the
    only source, and say which it was.
+   Also run `swingbot-risk mood --out runs/risk/mood.json` once for the day and
+   give the market mood (bullish, neutral, defensive or unknown) in the market
+   report, with any check that was unavailable. The risk check uses the same file.
 4. **Personas.** Play the four personas from `src/swingbot/swarm/personas.py`
    for two rounds, reading only the three reports: round 1 on their own, round 2
    reacting to each other. Each gives a stance (-1 to 1) and conviction (0 to 1).

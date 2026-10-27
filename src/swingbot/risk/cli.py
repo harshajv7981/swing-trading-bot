@@ -3,9 +3,10 @@
 Nothing here talks to a broker. Each step writes a small JSON file the next one
 reads, and the gate records every verdict with the order's fingerprint.
 
+    swingbot-risk mood --out runs/mood.json          # bullish, neutral or defensive market
     swingbot-risk plan RELIANCE --stop atr:2 --target 2R --out runs/plan.json
     swingbot-risk odds runs/plan.json --hold 10      # the Time Machine
-    swingbot-risk size runs/plan.json --portfolio portfolio.json --out runs/order.json
+    swingbot-risk size runs/plan.json --portfolio portfolio.json --mood runs/mood.json --out runs/order.json
     swingbot-risk check runs/order.json --portfolio portfolio.json --results-date 2026-11-14
     swingbot-risk ticket runs/order.json --out runs/ticket.json   # paper only
     swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
@@ -37,6 +38,7 @@ from .ticket import TicketRefused, latest_verdict, make_ticket
 from .ticket import describe as describe_ticket
 from .timemachine import NotEnoughHistory
 from .timemachine import run as run_timemachine
+from .. import regime
 
 
 def _bars(ticker: str, as_of: pd.Timestamp, data_config: str | None) -> pd.DataFrame:
@@ -52,6 +54,20 @@ def _write(obj: dict, out: str | None) -> None:
         print(f"wrote {out}")
     else:
         print(text)
+
+
+def _mood(path: str | None) -> dict | None:
+    return json.loads(Path(path).read_text()) if path else None
+
+
+def cmd_mood(args, config: RiskConfig) -> int:
+    mood = regime.from_router(Router(DataConfig.load(args.data_config)), parse_as_of(args.as_of))
+    print(mood.text())
+    if mood.verdict == "defensive":
+        print(f"R11: new entries risk {config.risk_pct_for('defensive'):g}% of equity instead of {config.risk_pct:g}%")
+    if args.out:
+        _write(mood.to_json(), args.out)
+    return 0
 
 
 def cmd_plan(args, config: RiskConfig) -> int:
@@ -79,7 +95,11 @@ def cmd_odds(args, config: RiskConfig) -> int:
 def cmd_size(args, config: RiskConfig) -> int:
     plan = ExitPlan.from_json(json.loads(Path(args.plan).read_text()))
     sector = args.sector or load_sectors().get(plan.ticker, "")
-    s = size_position(plan, Portfolio.load(args.portfolio), config, sector)
+    s = size_position(plan, Portfolio.load(args.portfolio), config, sector, mood=_mood(args.mood))
+    if not args.mood:
+        print("note: market mood not checked; pass --mood runs/risk/mood.json", file=sys.stderr)
+    elif s.risk_pct < config.risk_pct:
+        print(f"market mood is defensive: risking {s.risk_pct:g}% of equity instead of {config.risk_pct:g}%")
     print(f"buy {s.order.qty} {plan.ticker} @ {plan.entry:,.2f} = {s.order.qty * plan.entry:,.0f}; "
           f"decided by: {s.binding}; loss at stop {s.loss_at_stop:,.0f} "
           f"({s.loss_with_gap:,.0f} with the gap allowance)")
@@ -104,6 +124,7 @@ def cmd_check(args, config: RiskConfig) -> int:
         order, Portfolio.load(args.portfolio), config, bars=bars, today=as_of.date(),
         results_date=date.fromisoformat(args.results_date) if args.results_date else None,
         calendar=NSECalendar.load(), kill_switch_latched=switch.latched, last_price=args.price,
+        mood=_mood(args.mood),
     )
     if verdict.trip_kill_switch and not args.no_write:
         switch.latch(verdict.trip_kill_switch)
@@ -155,6 +176,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR), help="kill switch and verdict log")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    s = sub.add_parser("mood", help="market mood: bullish, neutral or defensive (R11)")
+    s.add_argument("--as-of", help="YYYY-MM-DD or 'YYYY-MM-DD HH:MM' IST; default now")
+    s.add_argument("--out")
+
     s = sub.add_parser("plan", help="stop and target for a long entry")
     s.add_argument("ticker")
     s.add_argument("--entry", type=float, help="default: the last close known at --as-of")
@@ -175,6 +200,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("plan")
     s.add_argument("--portfolio", required=True)
     s.add_argument("--sector", help="default: data/universe/sectors.csv")
+    s.add_argument("--mood", help="a swingbot-risk mood file; defensive cuts the risk per trade (R11)")
     s.add_argument("--out")
 
     s = sub.add_parser("check", help="PASS or BLOCK one order")
@@ -183,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--results-date", help="the company's next results date, YYYY-MM-DD")
     s.add_argument("--price", type=float, help="a fresh price; risk is measured from the higher of it and the entry")
     s.add_argument("--as-of")
+    s.add_argument("--mood", help="a swingbot-risk mood file (default: the one the order was sized under)")
     s.add_argument("--no-write", action="store_true", help="do not log the verdict or latch the kill switch")
 
     s = sub.add_parser("ticket", help="the paper broker orders for a PASSed order (never sent)")
@@ -203,8 +230,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--by", help="who is resetting it")
 
     args = p.parse_args(argv)
-    commands = {"plan": cmd_plan, "odds": cmd_odds, "size": cmd_size, "check": cmd_check, "ticket": cmd_ticket,
-                "trail": cmd_trail, "kill-switch": cmd_kill_switch}
+    commands = {"mood": cmd_mood, "plan": cmd_plan, "odds": cmd_odds, "size": cmd_size, "check": cmd_check,
+                "ticket": cmd_ticket, "trail": cmd_trail, "kill-switch": cmd_kill_switch}
     try:
         return commands[args.cmd](args, RiskConfig.load(args.config))
     except (PlanRefused, SizingRefused, TicketRefused, NotEnoughHistory) as e:

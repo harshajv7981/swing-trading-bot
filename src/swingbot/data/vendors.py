@@ -18,7 +18,7 @@ import pandas as pd
 
 from ..events import load_events
 from ..models import IST, NewsEvent
-from ..prices import CSVPriceSource, _normalise
+from ..prices import YAHOO_SYMBOLS, CSVPriceSource, _normalise
 from .router import DataConfig, NoData, NotConfigured, VendorUnavailable, Withheld
 
 # A price file whose last bar is this many days before the as-of date is stale:
@@ -46,6 +46,7 @@ class VendorContext:
 
 # --- prices ------------------------------------------------------------------
 
+
 def prices_csv(ticker: str, as_of: pd.Timestamp, ctx: VendorContext) -> pd.DataFrame:
     try:
         bars = CSVPriceSource(ctx.config.prices_dir).daily(ticker)
@@ -63,7 +64,7 @@ def prices_yfinance(ticker: str, as_of: pd.Timestamp, ctx: VendorContext) -> pd.
         import yfinance as yf
     except ImportError as e:
         raise NotConfigured("yfinance is not installed; pip install -e '.[data]'") from e
-    symbol = ticker if ticker.startswith("^") else f"{ticker}.NS"
+    symbol = YAHOO_SYMBOLS.get(ticker) or (ticker if ticker.startswith("^") else f"{ticker}.NS")
     day = as_of.tz_convert(IST).tz_localize(None).normalize()
     try:
         raw = yf.Ticker(symbol).history(start=f"{day - pd.Timedelta(days=450):%Y-%m-%d}",

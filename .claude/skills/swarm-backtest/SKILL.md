@@ -62,6 +62,13 @@ result worthless, and nobody will be able to tell.
    backtest: the brief is the only data you may use, because it is the part
    that is cut to the right time.
 
+   `--with-mood <prices dir>` adds the market mood when each story broke
+   (bullish, neutral, defensive or unknown, from the Nifty, Nifty FMCG, gold,
+   USD/INR and India VIX CSVs in that directory). It is about the whole market:
+   let personas weigh it, but a call still rests on the stock's news. Unknown
+   or unavailable is missing data, never neutral. Keep with-mood runs in their
+   own views file too.
+
 1b. **Analyst reports** (only when the brief has data sections). For each event,
    follow the analyst section of the brief and append one line per report:
 
@@ -117,11 +124,18 @@ result worthless, and nobody will be able to tell.
    Then score the same file without the debate, so the judge can be compared
    with the plain persona crowd: add `--crowd-only` to the same command.
 
+   For the persona scorecard, score each persona, the judge and the final call
+   on its own: `swingbot-scorecard --run runs/<run>/results.csv runs/views.jsonl`
+   (add `--by month` once there are a few months). Only rows marked "beats
+   luck" (q under 0.10, corrected for testing every row) are worth mentioning
+   as an edge.
+
 6. **Report** to the user: number of events scored, hit rate and its p-value,
    average return after costs, Brier score, for the judge and for the crowd
    (`--crowd-only`), and how both compare with the `lexicon` baseline on the same
    events
-   (`swingbot-backtest ... --engine lexicon`). Say plainly when the sample is too
+   (`swingbot-backtest ... --engine lexicon`). If you ran the scorecard, name the
+   best and worst persona and whether any row beats luck. Say plainly when the sample is too
    small to mean anything, or when it is the synthetic sample. Mention any events
    you marked `[recalled]`.
 
