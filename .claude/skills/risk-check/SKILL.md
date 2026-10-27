@@ -73,6 +73,13 @@ swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # only a
 - **trail** (open positions): `swingbot-risk trail TICKER --entry-date D
   --entry E --initial-stop S0 --stop S`. The stop only ever moves up.
 
+**Several calls at once** (a day's swarm run): `swingbot-risk orders
+runs/signals.jsonl --portfolio portfolio.json --mood runs/risk/mood.json
+--results-dates data/results_dates.csv` runs every step above for each call
+and writes `runs/orders/<date>/`. Report the summary line, each ticket line,
+and every BLOCK and refusal as printed; skipped calls can be one line each.
+The same rules apply: never edit `config/signals.toml` to let a call through.
+
 After a paper fill, record it with `swingbot-paper fill buy --order
 runs/risk/order.json --qty N --price P --at "YYYY-MM-DD HH:MM"`, using what the
 paper broker actually filled. `swingbot-paper report` shows the account, the

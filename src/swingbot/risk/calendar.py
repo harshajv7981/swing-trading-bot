@@ -37,5 +37,19 @@ class NSECalendar:
             n += self.is_session(day)
         return n
 
+    def next_session(self, day: date) -> date:
+        """`day` itself if it is a session, else the first session after it."""
+        while not self.is_session(day):
+            day += timedelta(days=1)
+        return day
+
+    def add_sessions(self, start: date, n: int) -> date:
+        """The `n`th session after `start` (`start` itself when n is 0)."""
+        day = start
+        while n > 0:
+            day += timedelta(days=1)
+            n -= self.is_session(day)
+        return day
+
     def unknown_years(self, start: date, end: date) -> list[int]:
         return [y for y in range(start.year, end.year + 1) if not self.knows(y)]
