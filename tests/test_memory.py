@@ -9,6 +9,7 @@ from swingbot.memory import ClosedTrade, Lesson, MemoryStore, from_results, simi
 from swingbot.memory.cli import main as memory_main
 from swingbot.memory.compare import compare
 from swingbot.models import IST, NewsEvent
+from swingbot.swarm import DEFAULT_PERSONAS
 
 
 def ts(s):
@@ -90,11 +91,17 @@ def test_briefs_with_lessons_and_audit(tmp_path, store):
                       "e3,DEMOINFRA,2026-07-20 08:00,DemoInfra highway contract\n")
     out = tmp_path / "brief.md"
     db = str(tmp_path / "m.db")
-    briefs_main(["--events", str(events), "--out", str(out), "--with-lessons", db, "--until", "2026-07-15"])
-    text = out.read_text()
-    assert "e3" not in text  # outside the window
-    e1, e2 = text.split("### e2")
+    args = ["--events", str(events), "--out", str(out), "--with-lessons", db, "--until", "2026-07-15"]
+    briefs_main(args)
+    e1 = out.read_text()
+    assert "### e1" in e1 and "e2" not in e1 and "e3" not in e1  # one day per brief
     assert "faded fast" not in e1  # lesson's trade hadn't closed on 2 July
+    views = tmp_path / "views.jsonl"
+    views.write_text("\n".join(json.dumps({"event_id": "e1", "persona": p.name, "stance": 0.1,
+                                           "conviction": 0.5}) for p in DEFAULT_PERSONAS))
+    briefs_main(args + ["--views", str(views)])
+    e2 = out.read_text()
+    assert "### e2" in e2 and "e3" not in e2  # e3 is outside the window
     assert "faded fast" in e2
     assert memory_main(["--db", db, "audit"]) == 0
 
@@ -145,3 +152,24 @@ def test_compare_pairs_events():
     c = compare(without, with_)
     assert c["events"] == 2  # only a and b were scored by both
     assert c["calls_changed"] == 1 and c["memory_better"] == 1 and c["memory_worse"] == 0
+
+
+def test_verifier_brief_says_what_the_long_only_bot_did():
+    from swingbot.memory.verifier import review_brief
+
+    base = {"event_id": "e1", "ticker": "X", "published_at": "2026-07-01T08:00:00+05:30", "headline": "h",
+            "status": "ok", "confidence": 0.6, "score": 0.4, "rationale": "r", "entry_date": "2026-07-01",
+            "exit_date": "2026-07-03", "ret": -0.02, "bench_ret": 0.0, "max_up": 0.01, "max_down": -0.03}
+    df = pd.DataFrame([
+        {**base, "sentiment": "bearish", "hit": True, "trade_ret": 0.0, "traded": False,
+         "no_trade_reason": "bearish: long-only, no short"},
+        {**base, "event_id": "e2", "sentiment": "bullish", "hit": False, "trade_ret": -0.0425, "traded": True,
+         "trade_entry": 100.0, "trade_stop": 96.0, "trade_target": 108.0, "trade_exit_date": "2026-07-02",
+         "trade_exit_price": 96.0, "exit_reason": "stop", "trade_r": -1.0},
+    ])
+    short, long_ = from_results(df, "base")
+    assert short.extra["trade"] == {"traded": False, "no_trade_reason": "bearish: long-only, no short"}
+    rows = [{**t.__dict__, "trade_id": t.trade_id, "extra": json.dumps(t.extra)} for t in (short, long_)]
+    brief = review_brief(rows)
+    assert "Call was right. No trade (bearish: long-only, no short)." in brief
+    assert "Bot bought at 100.00, stop 96.00, target 108.00; out on 2026-07-02 at 96.00 (stop)" in brief

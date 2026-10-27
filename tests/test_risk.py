@@ -6,11 +6,12 @@ import pandas as pd
 import pytest
 
 from swingbot.risk import (
-    KillSwitch, NSECalendar, Order, PlanRefused, Portfolio, Position, RiskConfig, SizingRefused, TicketRefused,
+    KillSwitch, NSECalendar, Order, PlanRefused, Portfolio, Position, ResetRefused, RiskConfig, SizingRefused,
+    TicketRefused,
     check_order, make_ticket, plan_exit, size_position, trail_stop,
 )
 from swingbot.risk.cli import main as risk_main
-from swingbot.risk.exits import ExitPlan
+from swingbot.risk.exits import ExitPlan, nse_tick
 from swingbot.risk.sizing import gap_risk_per_share
 
 from test_backtest import bars
@@ -87,6 +88,35 @@ def test_atr_stop_and_2r_target_round_down_to_the_tick():
     for price in (plan.stop, plan.target):
         assert round(price / 0.05, 6) == round(price / 0.05)
     assert plan.reward_risk == pytest.approx(2.0, abs=0.01)
+
+
+@pytest.mark.parametrize("prices, tick", [
+    ((249.99,), 0.01), ((250.0,), 0.05), ((1000.0,), 0.05), ((1000.05,), 0.10), ((5000.0,), 0.10),
+    ((7500.0,), 0.50), ((10000.0,), 0.50), ((15000.0,), 1.00), ((20000.01,), 5.00),
+    ((1010.0, 990.0), 0.10),  # a stop under the 1,000 edge keeps the entry's coarser tick
+])
+def test_nse_tick_follows_the_price_bands(prices, tick):
+    assert nse_tick(*prices) == tick
+
+
+def test_nse_tick_never_goes_below_the_configured_floor():
+    assert nse_tick(100.0, floor=0.05) == 0.05
+    assert nse_tick(3000.0, floor=0.05) == 0.10
+
+
+def test_entry_rounds_up_and_exits_round_down_on_the_banded_tick():
+    b = trend()
+    px = ["open", "high", "low", "close"]
+    b[px] = b[px] * 6000 / b["close"].iloc[-1]  # prices around 6,000, where the tick is 0.50
+    plan = plan_exit("X", b, entry=6000.2, stop_rule="atr:2", target_rule="2R")
+    assert plan.entry == 6000.5
+    for price in (plan.stop, plan.target):
+        assert round(price / 0.5, 6) == round(price / 0.5)
+
+
+def test_stop_across_a_band_edge_uses_the_entry_tick():
+    plan = plan_exit("X", trend(), entry=1010.0, stop_rule="price:990.07", target_rule="2R")
+    assert plan.stop == 990.0  # 990.05 would be off a 0.10 grid
 
 
 def test_low_stop_sits_a_tick_under_the_recent_low():
@@ -280,8 +310,58 @@ def test_cli_plan_size_check_and_kill_switch(tmp_path, capsys):
     assert KillSwitch(state).latched
     assert risk_main([*common, "kill-switch"]) == 1
     assert risk_main([*common, "kill-switch", "--reset"]) == 2  # needs --by
-    assert risk_main([*common, "kill-switch", "--reset", "--by", "Harsha"]) == 0
-    assert not KillSwitch(state).latched
+
+
+def at_a_terminal(monkeypatch, typed="RESET"):
+    monkeypatch.delenv("CLAUDECODE", raising=False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": typed)
+
+
+def test_kill_switch_reset_is_for_a_person_at_a_terminal(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    KillSwitch(state).latch("a -6% week", "2026-W44")
+    common = ["--state-dir", str(state), "kill-switch", "--reset", "--by", "Harsha"]
+
+    monkeypatch.setenv("CLAUDECODE", "1")                 # Claude Code's shell
+    assert risk_main(common) == 1 and KillSwitch(state).latched
+    with pytest.raises(ResetRefused):
+        KillSwitch(state).reset("Claude")
+    monkeypatch.delenv("CLAUDECODE")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)  # piped, no terminal
+    assert risk_main(common) == 1 and KillSwitch(state).latched
+
+    at_a_terminal(monkeypatch, typed="yes")
+    assert risk_main(common) == 1 and KillSwitch(state).latched
+    at_a_terminal(monkeypatch)
+    assert risk_main(common) == 0 and not KillSwitch(state).latched
+    st = KillSwitch(state).state()
+    assert (st["reset_by"], st["cleared_week"], st["cleared_reason"]) == ("Harsha", "2026-W44", "a -6% week")
+
+
+def test_kill_switch_latches_on_the_drawdown_without_an_order(tmp_path):
+    state = tmp_path / "state"
+    pf = tmp_path / "portfolio.json"
+    pf.write_text(json.dumps({"equity": 470000, "cash": 470000, "week_open_equity": 500000,
+                              "day_open_equity": 470000, "positions": []}))
+    assert risk_main(["--state-dir", str(state), "kill-switch", "--portfolio", str(pf),
+                      "--as-of", "2026-10-28"]) == 1
+    assert KillSwitch(state).state()["week"] == "2026-W44"
+
+
+def test_a_sell_check_latches_the_kill_switch_too():
+    held = [Position("RELIANCE", 30, 1000.0, 960.0, "Energy")]
+    v = check(entry(qty=30, side="sell"), book(470_000, week=500_000, positions=held))
+    assert v.passed and v.trip_kill_switch
+
+
+def test_a_cleared_week_does_not_latch_again(tmp_path, monkeypatch):
+    switch = KillSwitch(tmp_path)
+    assert switch.latch("a -6% week", "2026-W44")
+    at_a_terminal(monkeypatch)
+    switch.reset("Harsha")
+    assert not switch.latch("still down", "2026-W44") and not switch.latch("older", "2026-W43")
+    assert switch.latch("a new week's breach", "2026-W45") and switch.latched
 
 
 # --- the paper ticket ---------------------------------------------------------------
@@ -290,7 +370,7 @@ def passed(order, at="2026-10-26 10:15", status="PASS"):
     return {"at": at, "status": status, "fingerprint": order.fingerprint}
 
 
-def test_ticket_copies_the_passed_order_and_puts_the_stop_limit_a_gap_below():
+def test_ticket_copies_the_passed_order_and_uses_a_stop_loss_market_exit():
     o = entry(qty=30, price=1000.0, stop=960.0, target=1080.0)
     t = make_ticket(o, passed(o), date(2026, 10, 26), CFG)
     assert t["paper_only"] and t["fingerprint"] == o.fingerprint
@@ -298,9 +378,12 @@ def test_ticket_copies_the_passed_order_and_puts_the_stop_limit_a_gap_below():
                           "securityId": None, "transactionType": "BUY", "orderType": "LIMIT",
                           "validity": "DAY", "quantity": 30, "price": 1000.0}
     x = t["exits"]
-    assert x["orderFlag"] == "OCO" and x["target"]["price"] == 1080.0 and x["target"]["quantity"] == 30
-    assert x["stop"]["triggerPrice"] == 960.0 and x["stop"]["price"] == 955.2  # 960 less 0.5%, on the tick
-    assert t["loss_at_stop"] == 1200.0 and t["loss_at_stop_limit"] == 1344.0
+    assert x["orderFlag"] == "OCO" and x["orderType"] == "MARKET"
+    assert x["target"]["triggerPrice"] == 1080.0 and x["target"]["quantity"] == 30
+    # A stop-loss market: no limit price, so a gap down below the stop still sells (at the open).
+    assert x["stop"]["orderType"] == "STOP_LOSS_MARKET" and x["stop"]["triggerPrice"] == 960.0
+    assert "price" not in x["stop"]
+    assert t["loss_at_stop"] == 1200.0 and t["loss_with_gap"] == 1344.0  # 960 less 0.5% = 955.20
 
 
 @pytest.mark.parametrize("verdict, today, latched, words", [

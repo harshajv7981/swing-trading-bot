@@ -60,32 +60,46 @@ def prices_csv(ticker: str, as_of: pd.Timestamp, ctx: VendorContext) -> pd.DataF
 
 
 def prices_yfinance(ticker: str, as_of: pd.Timestamp, ctx: VendorContext) -> pd.DataFrame:
-    try:
-        import yfinance as yf
-    except ImportError as e:
-        raise NotConfigured("yfinance is not installed; pip install -e '.[data]'") from e
-    symbol = YAHOO_SYMBOLS.get(ticker) or (ticker if ticker.startswith("^") else f"{ticker}.NS")
     day = as_of.tz_convert(IST).tz_localize(None).normalize()
-    try:
-        raw = yf.Ticker(symbol).history(start=f"{day - pd.Timedelta(days=450):%Y-%m-%d}",
-                                        end=f"{day + pd.Timedelta(days=1):%Y-%m-%d}",
-                                        interval="1d", auto_adjust=True)
-    except Exception as e:  # network, rate limit, Yahoo format change
-        raise VendorUnavailable(f"Yahoo request failed: {e}") from e
-    if raw is None or raw.empty:
-        raise NoData(f"Yahoo has no bars for {symbol}")
-    bars = _normalise(raw)
+    bars = download_yfinance(ticker, (day - pd.Timedelta(days=450)).date(), day.date())
     if ctx.config.cache_prices:
         _merge_into_csv(Path(ctx.config.prices_dir) / f"{ticker}.csv", bars)
     return bars
 
 
+def yahoo_symbol(ticker: str) -> str:
+    return YAHOO_SYMBOLS.get(ticker) or (ticker if ticker.startswith("^") else f"{ticker}.NS")
+
+
+def download_yfinance(ticker: str, start, end) -> pd.DataFrame:
+    """Adjusted daily bars from Yahoo for the days `start`..`end`, both included."""
+    try:
+        import yfinance as yf
+    except ImportError as e:
+        raise NotConfigured("yfinance is not installed; pip install -e '.[data]'") from e
+    symbol = yahoo_symbol(ticker)
+    try:
+        raw = yf.Ticker(symbol).history(start=f"{pd.Timestamp(start):%Y-%m-%d}",
+                                        end=f"{pd.Timestamp(end) + pd.Timedelta(days=1):%Y-%m-%d}",
+                                        interval="1d", auto_adjust=True)
+    except Exception as e:  # network, rate limit, Yahoo format change
+        raise VendorUnavailable(f"Yahoo request failed: {e}") from e
+    if raw is None or raw.empty:
+        raise NoData(f"Yahoo has no bars for {symbol} from {start} to {end}")
+    return _normalise(raw)
+
+
 def _merge_into_csv(path: Path, bars: pd.DataFrame) -> None:
     """Add downloaded bars to the saved file (new rows win), written whole via a temp file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         old = CSVPriceSource(path.parent).daily(path.stem)
         bars = pd.concat([old[~old.index.isin(bars.index)], bars]).sort_index()
+    write_bars(path, bars)
+
+
+def write_bars(path: Path, bars: pd.DataFrame) -> None:
+    """Replace the saved file in one step, so a reader never sees half a file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     bars.to_csv(tmp, index_label="date")
     os.replace(tmp, path)
@@ -151,4 +165,11 @@ REGISTRY = {
     "news": {"events": news_events},
     "filings": {"events": filings_events},
     "fundamentals": {"nse_results": fundamentals_nse_results, "yfinance": fundamentals_yfinance},
+}
+
+# Sources that can download a date range for the daily refresh: `(ticker, start, end) -> bars`.
+# The refresh walks the prices chain and uses the first one listed here ("csv"
+# is what it writes to, so it is skipped).
+DOWNLOADERS = {
+    "prices": {"yfinance": download_yfinance},
 }

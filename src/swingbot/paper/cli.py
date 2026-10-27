@@ -214,7 +214,12 @@ def _replay(args, ledger: Ledger, config):
         print(f"note: no {BENCHMARK} prices ({e}); no benchmark, sessions taken from the stocks", file=sys.stderr)
         sessions = pd.DatetimeIndex(sorted(set().union(*(b.index for b in bars.values())))) if bars \
             else pd.DatetimeIndex([])
-    return replay(records, bars, as_of, sessions, config), bench
+    rp = replay(records, bars, as_of, sessions, config)
+    # R5 latches on the drawdown itself, not only when an order is checked.
+    week, reason = rp.weekly_breach(config)
+    if week and KillSwitch(args.state_dir).latch(reason, week):
+        print(f"kill switch latched: {reason}", file=sys.stderr)
+    return rp, bench
 
 
 def _money(x) -> str:
@@ -283,7 +288,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--ledger", default=str(DEFAULT_LEDGER), help=f"ledger file (default {DEFAULT_LEDGER})")
     p.add_argument("--config", help="risk limits TOML (default config/risk.toml)")
     p.add_argument("--data-config", help="data sources TOML (default config/data_sources.toml)")
-    p.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR), help="where swingbot-risk logs its verdicts")
+    p.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR), help="swingbot-risk's verdict log and kill switch")
     p.add_argument("--book", default=str(DEFAULT_BOOK), help=f"paper broker order book (default {DEFAULT_BOOK})")
     sub = p.add_subparsers(dest="cmd", required=True)
 

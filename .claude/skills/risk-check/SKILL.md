@@ -15,7 +15,10 @@ change its limits.
 1. **Never edit `config/risk.toml` or `config/nse_holidays.toml`.** If the user
    wants a different limit, tell them to change it by hand in its own commit.
 2. **Never reset the kill switch.** `swingbot-risk kill-switch --reset` is for
-   Harsha to type by hand. If it is latched, say so and stop.
+   Harsha to type by hand. It refuses to run inside Claude Code or without a
+   terminal, and `.claude/settings.json` denies it and edits to
+   `data/state/kill_switch.json`; do not look for a way round either. If it is
+   latched, say so and stop.
 3. **A BLOCK is final for that order.** Do not shrink the quantity, move the
    stop or drop a flag to get a PASS. You may suggest a fix (a closer stop from
    a new plan, wait for results, skip the trade) and run the steps again only
@@ -69,6 +72,13 @@ swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # only a
   order or the verdict log to get a ticket.
 - **trail** (open positions): `swingbot-risk trail TICKER --entry-date D
   --entry E --initial-stop S0 --stop S`. The stop only ever moves up.
+
+**Several calls at once** (a day's swarm run): `swingbot-risk orders
+runs/signals.jsonl --portfolio portfolio.json --mood runs/risk/mood.json
+--results-dates data/results_dates.csv` runs every step above for each call
+and writes `runs/orders/<date>/`. Report the summary line, each ticket line,
+and every BLOCK and refusal as printed; skipped calls can be one line each.
+The same rules apply: never edit `config/signals.toml` to let a call through.
 
 After a paper fill, record it with `swingbot-paper fill buy --order
 runs/risk/order.json --qty N --price P --at "YYYY-MM-DD HH:MM"`, using what the

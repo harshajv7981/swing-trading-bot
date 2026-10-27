@@ -4,8 +4,9 @@ import pandas as pd
 import pytest
 
 from swingbot.paper import Ledger, replay
+from swingbot.paper.ledger import stop_fill
 from swingbot.paper.cli import main as paper_main
-from swingbot.risk import Order, RiskConfig
+from swingbot.risk import KillSwitch, Order, RiskConfig, check_order
 
 from test_backtest import bars
 
@@ -95,6 +96,24 @@ def test_stop_may_only_move_up_and_breaches_are_flagged():
     assert any(w.rule == "stop" and "through its stop" in w.detail for w in rp.warnings)
 
 
+@pytest.mark.parametrize("open_, low, want", [
+    (100.0, 96.0, None),    # never reaches the stop
+    (100.0, 94.0, 95.0),    # trades through it in the session: fills at the stop
+    (95.0, 93.0, 95.0),     # opens exactly at the stop
+    (90.0, 88.0, 90.0),     # gaps down through it: fills at the open, not the stop
+])
+def test_stop_fill_on_a_daily_bar(open_, low, want):
+    assert stop_fill(95.0, open_, low) == want
+
+
+def test_a_gap_through_the_stop_warns_with_the_open_as_the_fill():
+    b = stock([100] * 10)
+    b.loc[SESSIONS[3], ["open", "low"]] = [90.0, 88.0]               # gaps down through the 95 stop
+    rp = replay(opened() + [buy()], {"ABC": b}, AS_OF, SESSIONS)
+    [w] = [w for w in rp.warnings if w.rule == "stop"]
+    assert "opened at 90.00, below its stop 95.00" in w.detail and "about 90.00" in w.detail
+
+
 def test_entry_after_the_weekly_kill_level_is_a_break():
     # Week 1 ends at 1,00,000; by Wednesday of week 2 the account is 6% down, then it buys again.
     closes = [100] * 5 + [100, 70, 70, 70, 70]
@@ -111,9 +130,58 @@ def test_portfolio_feeds_the_risk_engine():
     p = rp.portfolio()
     assert p.equity == pytest.approx(1_000_600) and p.cash == pytest.approx(990_000)
     assert p.week_open_equity == pytest.approx(1_000_000)   # last close of the week before
-    assert p.day_open_equity == pytest.approx(1_000_600)
+    assert p.day_open_equity == pytest.approx(1_000_400)    # Thursday's close, not today's
     [pos] = p.positions
     assert (pos.ticker, pos.qty, pos.stop, pos.sector) == ("ABC", 100, 95.0, "Tech")
+
+
+def test_r6_fires_on_the_paper_portfolio():
+    # Thursday closes at 100, Friday at 96: 100 shares on 1,00,000 is a 0.4% day,
+    # 1,000 shares on 1,00,000 is a 4% day, past R6's 2%.
+    closes = [100] * 9 + [96]
+    rp = replay(opened(100_000) + [buy(qty=1_000, stop=90.0)], {"ABC": stock(closes)}, AS_OF, SESSIONS)
+    p = rp.portfolio()
+    assert p.day_open_equity == pytest.approx(100_000) and p.equity == pytest.approx(96_000)
+    v = check_order(Order("DEF", "buy", 1, 100.0, 95.0, 110.0, "Energy"), p, RiskConfig())
+    assert "R6 daily loss" in {c.rule for c in v.checks if not c.ok}
+
+
+def test_portfolio_mid_session_uses_the_last_close_as_the_day_open():
+    # Before Friday's close only Thursday's is known: the day open is Thursday's close.
+    closes = [100] * 5 + [104, 104, 104, 104, 106]
+    rp = replay(opened() + [buy()], {"ABC": stock(closes[:9])}, "2026-01-16 11:00", SESSIONS)
+    p = rp.portfolio()
+    assert p.day_open_equity == pytest.approx(1_000_400) and p.equity == pytest.approx(1_000_400)
+    assert p.week_open_equity == pytest.approx(1_000_000)
+
+
+def test_week_open_on_a_monday_morning_is_last_fridays_close():
+    closes = [100] * 4 + [103, 103, 103, 103, 103, 103]
+    rp = replay(opened() + [buy()], {"ABC": stock(closes[:5])}, "2026-01-12 10:00", SESSIONS)
+    assert rp.portfolio().week_open_equity == pytest.approx(1_000_300)
+
+
+def test_weekly_breach_is_found_from_the_closes():
+    closes = [100] * 5 + [100, 70, 70, 100, 100]     # 6% down Tuesday and Wednesday of week 2, then back
+    rp = replay(opened(100_000) + [buy(qty=200, stop=60.0)], {"ABC": stock(closes)}, AS_OF, SESSIONS,
+                RiskConfig(max_position_pct=100, risk_pct=2.0, hard_max_risk_pct=2.0))
+    week, reason = rp.weekly_breach(RiskConfig())
+    assert week == "2026-W03" and "2026-01-14" in reason   # the latest breach
+    assert replay(opened() + [buy()], {"ABC": stock([100] * 10)}, AS_OF, SESSIONS).weekly_breach(RiskConfig()) \
+        == ("", "")
+
+
+def test_paper_report_latches_the_kill_switch(tmp_path):
+    prices = tmp_path / "prices"
+    prices.mkdir()
+    stock([100] * 5 + [100, 70, 70, 100, 100]).to_csv(prices / "ABC.csv", index_label="date")
+    data_cfg = tmp_path / "data.toml"
+    data_cfg.write_text(f'[sources]\nprices = "csv"\n[paths]\nprices_dir = "{prices}"\n')
+    ledger, state = tmp_path / "ledger.jsonl", tmp_path / "state"
+    ledger.write_text("\n".join(json.dumps(r) for r in opened(100_000) + [buy(qty=200, stop=60.0)]) + "\n")
+    paper_main(["--ledger", str(ledger), "--data-config", str(data_cfg), "--state-dir", str(state),
+                "portfolio", "--as-of", AS_OF, "--out", str(tmp_path / "p.json")])
+    assert KillSwitch(state).latched and KillSwitch(state).state()["week"] == "2026-W03"
 
 
 def test_never_reads_after_the_as_of_time():

@@ -66,6 +66,17 @@ def _pct(x) -> str:
     return "n/a" if x is None else f"{x * 100:+.2f}%"
 
 
+def _trade_line(t, trade: dict) -> str:
+    """The bot is long-only: say what it actually did, apart from whether the call was right."""
+    if not trade:
+        return f"Return after costs {_pct(t['trade_ret'])}."
+    if str(trade.get("traded")).lower() != "true":
+        return f"No trade ({trade.get('no_trade_reason', 'no call')})."
+    return (f"Bot bought at {trade['trade_entry']:.2f}, stop {trade['trade_stop']:.2f}, "
+            f"target {trade['trade_target']:.2f}; out on {trade['trade_exit_date']} at "
+            f"{trade['trade_exit_price']:.2f} ({trade['exit_reason']}), {_pct(t['trade_ret'])} after costs.")
+
+
 def review_brief(trades: list) -> str:
     lines = ["# Verifier brief", "", VERIFIER_PROMPT, "", f"## Closed trades ({len(trades)})", ""]
     for t in trades:
@@ -85,7 +96,7 @@ def review_brief(trades: list) -> str:
         lines += [
             f"Outcome: held {t['entry_date']} to {t['exit_date']}, stock {_pct(t['ret'])}, "
             f"benchmark {_pct(t['bench_ret'])}, best {_pct(t['max_up'])}, worst {_pct(t['max_down'])}. "
-            f"Call was {hit}; return after costs {_pct(t['trade_ret'])}.",
+            f"Call was {hit}. {_trade_line(t, extra.get('trade', {}))}",
             "",
         ]
     return "\n".join(lines)

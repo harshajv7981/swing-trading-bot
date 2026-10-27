@@ -49,11 +49,22 @@ daily OHLC  ──> entry/exit rules ──┴──> hit / miss, return after c
    day enters at that day's open; anything later enters at the next session's
    open. The exit is the close of session N, where N = ceil(horizon / 24h), so
    72h means 3 sessions.
-4. **Scoring** (`src/swingbot/metrics.py`). Hit rate with a coin-flip p-value,
-   average return per call after a round-trip cost (default 25 bps), a
-   confidence-weighted return, Brier score for confidence calibration, rank IC
-   of crowd score against the move, an always-long baseline, and the return
-   against a benchmark when one is given.
+4. **Scoring** (`src/swingbot/metrics.py`). Two scores, kept apart:
+   * *Directional accuracy* grades the swarm: hit rate of every bullish and
+     bearish call against the move to the horizon close, with a coin-flip
+     p-value, Brier score for confidence calibration, rank IC of crowd score
+     against the move, and the move against a benchmark when one is given.
+   * *Long-only trades* are what the bot would have made. It only buys (CNC
+     delivery), so a bearish call is no trade. A bullish call buys at the entry
+     open with the stop and target from the exit planner (`--stop-rule atr:2`,
+     `--target-rule 2R`, ticks from `config/risk.toml`), planned only from bars
+     that had closed before the entry; the stop trails per R7 (`--no-trail`
+     turns that off). The trade ends at the stop, the target or the horizon
+     close. A gap through the stop or target fills at the open, and a day that
+     touches both counts as the stop. Reported: trades, win rate, average and
+     total return after a round-trip cost (default 25 bps), confidence-weighted
+     return, average R, exit reasons, calls not traded, and an always-long
+     baseline.
 
 Each run writes `runs/<timestamp>-<engine>/results.csv` (one row per event,
 including each persona's view) and `summary.json`.
@@ -172,6 +183,30 @@ swingbot-backtest --events data/my_events.csv --prices data/raw/prices \
 
 Prices come from Yahoo Finance (`TICKER.NS`), split- and bonus-adjusted.
 
+### Daily refresh
+
+Once you have data, one command keeps it current. Run it on your own machine
+after the close (16:00 IST or later); the cloud workspace can't reach Yahoo,
+GDELT or NSE.
+
+```bash
+swingbot-refresh                      # prices for the universe, Nifty and the mood series; GDELT news
+swingbot-refresh --accept-nse-terms   # also NSE filings (see the terms note below)
+swingbot-refresh --only prices --tickers TCS INFY
+```
+
+It writes where the data router reads (`config/data_sources.toml`), so
+`swingbot-data`, the briefs and the market mood pick up the new rows at once.
+Prices are fetched only from the last saved bar on, with a week of overlap: if
+Yahoo's adjusted closes for those days have moved (a split, bonus or dividend),
+the whole file is downloaded again rather than mixing old and new adjustments.
+A session that hasn't closed is never saved. News and filings resume from the
+last successful day per stock, kept in `data/raw/refresh_state.json`. Running it
+twice does nothing new, a lock stops two runs overlapping, and one stock
+failing doesn't stop the rest (exit code 1, and the next run catches up).
+Settings live under `[refresh]` in the config; the daily loop calls
+`swingbot.data.refresh.run()`.
+
 ### Getting real news
 
 Two fetchers build `data/raw/news/events.csv` for the stocks in
@@ -224,7 +259,8 @@ swingbot-risk size runs/risk/plan.json --portfolio portfolio.json --mood runs/ri
 swingbot-risk check runs/risk/order.json --portfolio portfolio.json --results-date 2026-11-14
 swingbot-risk ticket runs/risk/order.json --out runs/risk/ticket.json   # paper only, never sent
 swingbot-risk trail RELIANCE --entry-date 2026-10-20 --entry 1450 --initial-stop 1400 --stop 1400
-swingbot-risk kill-switch                       # status; --reset --by NAME is for Harsha only
+swingbot-risk kill-switch --portfolio portfolio.json   # status, latching it on a -5% week
+swingbot-risk kill-switch --reset --by Harsha   # Harsha only, typed at a terminal
 ```
 
 * **plan** sets the stop (ATR multiple, percent, price, or under a recent low)
@@ -256,13 +292,21 @@ swingbot-risk kill-switch                       # status; --reset --by NAME is f
   `data/state/risk_verdicts.jsonl`.
 * **ticket** writes the broker orders a PASSed order would become, for the
   paper journal and as the shape for the Dhan adapter: a DAY limit buy (CNC),
-  then, once it fills, an OCO pair kept at the broker (target sell, and a stop
-  that triggers at the stop with its limit 0.5% lower so a small gap still
-  fills). It copies the risk engine's numbers and adds none. It refuses unless
+  then, from the next trading day, an OCO pair kept at the broker, both legs
+  market (a target sell, and a stop-loss market sell at the stop). A
+  stop-limit would miss a gap down below its limit; a stop-loss market sells
+  at about the open instead. It copies the risk engine's numbers and adds none. It refuses unless
   the latest logged verdict for the exact order (same fingerprint) is a PASS
   from `--as-of` (default today) and the kill switch is not latched. Nothing
   sends it: Dhan's security id and request fields are the adapter's job, to be
   checked in Dhan's sandbox.
+* **kill-switch** latches on the drawdown itself, not only on an entry check:
+  any `check` (a sell too), `kill-switch --portfolio`, and every
+  `swingbot-paper report` or `portfolio`, which scans each close of the paper
+  account against its week's open. A reset asks Harsha to type RESET at a
+  terminal and refuses inside Claude Code (`CLAUDECODE` set) or with no
+  terminal; it is logged with who reset it, and that week's breach does not
+  latch it again (the gate still blocks entries while the week is 5% down).
 * **trail** moves the stop to breakeven after +1R, then 2 x ATR under the
   highest close (R7). It never moves a stop down.
 * **mood** (R11, new) calls the whole market bullish, neutral or defensive
@@ -290,6 +334,44 @@ a final execution agent from The Swarm Corporation's
 [AutoHedge](https://github.com/The-Swarm-Corporation/AutoHedge) (MIT), with
 plain code in place of an LLM. In Claude Code, the `risk-check`
 skill runs these steps after `market-research`.
+
+### From swarm calls to tickets: `swingbot-risk orders`
+
+The steps above, for a whole file of swarm calls at once. Each call is the
+ReportAgent's JSON (`ticker`, `sentiment`, `confidence`, `time_horizon`, and
+optionally `as_of`, `event_id`, `score`, `rationale`), as JSONL, a JSON list
+or CSV.
+
+```bash
+swingbot-risk mood --out runs/risk/mood.json
+swingbot-risk orders runs/signals.jsonl --portfolio portfolio.json --mood runs/risk/mood.json \
+    --results-dates data/results_dates.csv          # symbol,date; add --no-write for a dry run
+```
+
+1. **The call.** Bullish only: the bot is long-only CNC, so a bearish call is a
+   pass, never a short, and neutral is no trade. The horizon must be 1 to 20
+   sessions, the call at most 36 hours old, and the confidence at least 0.60
+   (0.75 when the mood is defensive; the gate halves the size as well).
+2. **The batch.** One call per stock (the most confident), best calls first,
+   at most 3 tickets per run.
+3. **Technical overlay**, from bars known at `--as-of`: close above the
+   200-day SMA, RSI14 at most 75, close at most 3 ATRs above EMA10. These skip
+   a call before it is sized, so a stretched chart never reaches the gate.
+4. **Plan, size, gate**: `atr:2` stop and `2R` target, sized and checked
+   exactly as `plan`, `size` and `check` do it. Every verdict goes in
+   `data/state/risk_verdicts.jsonl` and a weekly breach latches the kill
+   switch. An order under Rs 10,000 (the account is nearly spent) is skipped.
+5. **Ticket** for each PASS, plus a time exit from the horizon: 72h means sell
+   at the close of the third session, counting the entry day, as in the
+   backtest.
+
+Calls in one run are sized one after another against the same account, so
+each ticket's cash and open risk count against the next. Output goes to
+`runs/orders/<date>/`: `decisions.json` (every call, where it stopped and
+why) and a `TICKER.order.json` and `TICKER.ticket.json` per ticket. The order
+file is what `swingbot-paper fill buy --order` reads. The filters live in
+`config/signals.toml`; they can only skip a call and never loosen a limit in
+`config/risk.toml`. Nothing is sent anywhere.
 
 ## Paper account: `swingbot-paper`
 
@@ -319,12 +401,14 @@ swingbot-paper portfolio --out portfolio.json   # what swingbot-risk size/check 
 * **Rule breaks** found on replay: a buy with no PASS, no stop or a stop at or
   above the fill, risk over 1% of equity or a position over 15% (with 2% slack
   for fill prices), more than 5 positions or 2 per sector, adding to a holding,
-  a buy while the account sat 5% under the week's open, cash below zero, a sale
+  a buy while the account sat 5% under the week's open or 2% under the day's, cash below zero, a sale
   of more than is held, and a stop moved down. It also notes any session that
   traded through a stop without a sell recorded, because the broker holds the
   stop and the ledger never invents its fill.
-* **The portfolio file** takes today's open as the last close and Monday's open
-  as the previous week's last close, since the ledger only has daily closes.
+* **The portfolio file** takes today's open as the close of the session before
+  the `--as-of` day and Monday's open as the previous week's last close, since
+  the ledger only has daily closes. So a 2% fall from yesterday's close pauses
+  entries (R6), and a 5% fall in the week latches the kill switch (R5).
 
 The replay idea, start from cash, apply trades in order, mark at each close and
 flag rule breaks, comes from the challenge scoring in

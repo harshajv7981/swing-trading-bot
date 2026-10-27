@@ -31,7 +31,7 @@ class RiskConfig:
     atr_period: int = 14
     min_stop_atr: float = 0.5
     trail_atr: float = 2.0
-    tick: float = 0.05
+    tick: float = 0.05  # the smallest step used; NSE's price bands (exits.nse_tick) can only coarsen it
 
     def __post_init__(self) -> None:
         if not 0 < self.risk_pct <= self.hard_max_risk_pct:

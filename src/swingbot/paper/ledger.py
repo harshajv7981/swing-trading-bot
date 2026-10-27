@@ -17,8 +17,10 @@ rewritten, so the history can't quietly change:
 
 A fill is what actually happened (the sandbox's or broker's price), not what
 was planned. Stops are held by the broker, so the ledger does not fake a stop
-fill: when a close or low goes through a stop and no sell is recorded that
-session, the replay says so.
+fill: when a low goes through a stop and no sell is recorded that session, the
+replay says so, with the price the stop-loss market sell should have got: the
+open when the stock opened at or below the stop (a gap through it), else the
+stop.
 
 Prices come only from sessions that had closed by the as-of time. Days are
 marked at the close; a fill on a non-trading day counts on the next session.
@@ -162,21 +164,32 @@ class Replay:
     def portfolio(self) -> Portfolio:
         """What the risk engine reads (`swingbot-risk size/check --portfolio`).
 
-        With daily closes only, today's open is taken as the last close and
-        Monday's open as the previous week's last close.
+        With daily closes only, today's open is taken as the close of the
+        session before the as-of day, and Monday's open as the previous
+        week's last close. Before the first close both are the opening cash.
         """
         eq = self.end_equity
-        if self.equity.empty:
-            week_open = day_open = eq
-        else:
-            last = self.equity.index[-1]
-            day_open = eq
-            before = self.equity[self.equity.index < last - pd.Timedelta(days=last.weekday())]
-            week_open = float(before.iloc[-1]) if len(before) else self.starting_cash
+        today = _day(_ts(self.as_of))
+        day_open = _close_before(self.equity, today, self.starting_cash)
+        week_open = _close_before(self.equity, today - pd.Timedelta(days=today.weekday()), self.starting_cash)
         positions = tuple(
             Position(h.ticker, h.qty, round(h.avg_entry, 2), h.stop if h.stop is not None else 0.0, h.sector)
             for h in self.holdings.values())
         return Portfolio(round(eq, 2), round(self.cash, 2), round(week_open, 2), round(day_open, 2), positions)
+
+    def weekly_breach(self, config: RiskConfig) -> tuple[str, str]:
+        """The latest week (ISO, "2026-W03") a close was R5's limit under its
+        week's open, and why; ("", "") if none. Every close counts, so a breach
+        latches the kill switch even if no one looked at the account that week."""
+        found = ("", "")
+        for day, eq in self.equity.items():
+            week_open = _close_before(self.equity, day - pd.Timedelta(days=day.weekday()), self.starting_cash)
+            dd = (week_open - eq) / week_open * 100
+            if dd >= config.weekly_kill_pct:
+                y, w, _ = day.isocalendar()
+                found = (f"{y}-W{w:02d}", f"paper equity {eq:,.0f} at the {day:%Y-%m-%d} close is {dd:.2f}% "
+                                          f"under the week's open {week_open:,.0f}")
+        return found
 
     def summary(self, bench: pd.Series | None = None) -> dict:
         dd, top, trough = self.max_drawdown()
@@ -223,6 +236,12 @@ class Replay:
         return out
 
 
+def _close_before(equity: pd.Series | dict, day: pd.Timestamp, default: float) -> float:
+    """Equity at the last session close before `day`, or `default` if none."""
+    before = [v for d, v in equity.items() if d < day]
+    return float(before[-1]) if before else default
+
+
 def replay(records: list[dict], bars: dict[str, pd.DataFrame], as_of, sessions: pd.DatetimeIndex,
            config: RiskConfig | None = None) -> Replay:
     """Apply the ledger to the sessions up to `as_of`.
@@ -249,10 +268,10 @@ def replay(records: list[dict], bars: dict[str, pd.DataFrame], as_of, sessions: 
     def equity_now() -> float:
         return rp.cash + sum(h.qty * last_close.get(t, h.avg_entry) for t, h in holdings.items())
 
-    def week_open_equity(day: pd.Timestamp) -> float:
-        monday = day - pd.Timedelta(days=day.weekday())
-        before = [v for d, v in curve.items() if d < monday]
-        return before[-1] if before else rp.starting_cash
+    def opens(day: pd.Timestamp) -> tuple[float, float]:
+        """The week's and the day's opening equity for an entry on `day`."""
+        return (_close_before(curve, day - pd.Timedelta(days=day.weekday()), rp.starting_cash),
+                _close_before(curve, day, rp.starting_cash))
 
     for day in days:
         todays, pending = [r for r in pending if _day(_ts(r["at"])) <= day], \
@@ -263,7 +282,7 @@ def replay(records: list[dict], bars: dict[str, pd.DataFrame], as_of, sessions: 
             if r["kind"] == "stop":
                 _move_stop(rp, holdings, r, at)
             elif r["side"] == "buy":
-                _buy(rp, holdings, r, at, equity_now(), week_open_equity(day), config)
+                _buy(rp, holdings, r, at, equity_now(), *opens(day), config)
             elif r["side"] == "sell":
                 _sell(rp, holdings, r, at)
                 sold_today.add(r["ticker"].upper())
@@ -275,10 +294,15 @@ def replay(records: list[dict], bars: dict[str, pd.DataFrame], as_of, sessions: 
                 continue
             row = b.loc[day]
             last_close[t] = float(row["close"])
-            if h.stop is not None and float(row["low"]) <= h.stop and t not in sold_today:
+            fill = stop_fill(h.stop, float(row["open"]), float(row["low"])) if h.stop is not None else None
+            if fill is not None and t not in sold_today:
+                how = (f"opened at {fill:,.2f}, below its stop {h.stop:,.2f}, so the stop-loss market sell "
+                       f"fills at about the open" if fill < h.stop else
+                       f"traded at {float(row['low']):,.2f}, through its stop {h.stop:,.2f}, so the stop "
+                       f"sells at about {fill:,.2f}")
                 rp.warnings.append(Flag(f"{day:%Y-%m-%d}", "stop", (
-                    f"{t} traded at {float(row['low']):,.2f}, through its stop {h.stop:,.2f}, and no sell is "
-                    "recorded that session. Check the broker: if the stop filled, record the sell.")))
+                    f"{t} {how}, and no sell is recorded that session. Check the broker and record the "
+                    f"sell at its real price (expect about {fill:,.2f}).")))
         curve[day] = equity_now()
 
     for r in pending:  # fills dated after the last closed session: apply, mark at cost
@@ -286,13 +310,26 @@ def replay(records: list[dict], bars: dict[str, pd.DataFrame], as_of, sessions: 
         if r["kind"] == "stop":
             _move_stop(rp, holdings, r, at)
         elif r["side"] == "buy":
-            _buy(rp, holdings, r, at, equity_now(), week_open_equity(_day(_ts(r["at"]))), config)
+            _buy(rp, holdings, r, at, equity_now(), *opens(_day(_ts(r["at"]))), config)
         else:
             _sell(rp, holdings, r, at)
     rp.equity = pd.Series(curve, dtype=float)
     rp.final_equity = equity_now()
     rp.closes = {t: last_close[t] for t in holdings if t in last_close}
     return rp
+
+
+def stop_fill(stop: float, open_: float, low: float) -> float | None:
+    """Where a stop-loss market sell fills on a daily bar, or None if the stop is not hit.
+
+    An open at or below the stop is a gap through it: the sell goes at the open,
+    not at the stop. Otherwise a low at or below the stop fills at the stop.
+    """
+    if open_ <= stop:
+        return open_
+    if low <= stop:
+        return stop
+    return None
 
 
 def _move_stop(rp: Replay, holdings: dict[str, Holding], r: dict, at: str) -> None:
@@ -307,7 +344,7 @@ def _move_stop(rp: Replay, holdings: dict[str, Holding], r: dict, at: str) -> No
 
 
 def _buy(rp: Replay, holdings: dict[str, Holding], r: dict, at: str, equity: float,
-         week_open: float, config: RiskConfig) -> None:
+         week_open: float, day_open: float, config: RiskConfig) -> None:
     t, qty, price = r["ticker"].upper(), int(r["qty"]), float(r["price"])
     costs = float(r.get("costs", default_costs(qty, price)))
     stop, target, sector = r.get("stop"), r.get("target"), r.get("sector", "")
@@ -332,6 +369,9 @@ def _buy(rp: Replay, holdings: dict[str, Holding], r: dict, at: str, equity: flo
     if week_open > 0 and (week_open - equity) / week_open * 100 >= config.weekly_kill_pct:
         brk("R5 weekly kill switch", f"bought with equity {(week_open - equity) / week_open * 100:.1f}% under "
                                      "the week's open")
+    if day_open > 0 and (day_open - equity) / day_open * 100 >= config.daily_loss_pct:
+        brk("R6 daily loss", f"bought with equity {(day_open - equity) / day_open * 100:.1f}% under "
+                             "the day's open")
 
     rp.cash -= qty * price + costs
     rp.costs += costs
