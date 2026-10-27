@@ -282,3 +282,25 @@ def test_cli_start_and_finish(repo, capsys):
     write_views(Day(MORNING, DailyConfig.load(repo / "daily.toml")))
     assert daily_main(["--config", str(repo / "daily.toml"), "--as-of", "2026-11-03 08:50", "finish"]) == 0
     assert "Paper trading day 2026-11-03" in capsys.readouterr().out
+
+
+def test_refresh_adapter_wraps_the_refresh_report(repo, monkeypatch):
+    from swingbot.daily import adapters
+    import swingbot.data.refresh as refresh
+
+    seen = {}
+
+    class Report:
+        ok = False
+        def text(self): return "prices: 3 updated, 1 failed"
+        def failed(self): return ["X"]
+
+    def fake_run(router, now=None, calendar=None):
+        seen.update(router=router, now=now)
+        return Report()
+
+    monkeypatch.setattr(refresh, "run", fake_run)
+    step = adapters.refresh(Day(MORNING, config(repo)))
+    assert step.status == "failed" and "1 item(s) failed" in step.detail
+    assert f"{seen['now']:%Y-%m-%d %H:%M}" == MORNING
+    assert str(seen["router"].config.prices_dir) == str(repo / "prices")

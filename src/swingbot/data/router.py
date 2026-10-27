@@ -105,6 +105,7 @@ class Router:
 
         self.config = config or DataConfig.load()
         self.vendors = vendors.REGISTRY
+        self.downloaders = vendors.DOWNLOADERS
         self.context = vendors.VendorContext(self.config)
 
     # --- routing -----------------------------------------------------------
@@ -142,6 +143,25 @@ class Router:
                 detail = "; ".join(f"{n}: {e}" for n, e in errors)
                 raise kind(detail) from hits[0][1]
         raise AssertionError("unreachable")
+
+    def download(self, category: str, ticker: str, start, end):
+        """(vendor name, bars for `start`..`end`) from the first vendor in the chain that can
+        download a range. Used by the daily refresh, which then saves what it gets."""
+        names = [n for n in self.chain(category) if n in self.downloaders.get(category, {})]
+        if not names:
+            raise NotConfigured(f"no source in the {category!r} chain can download "
+                                f"({', '.join(self.chain(category))}); add one such as yfinance")
+        errors: list[tuple[str, DataError]] = []
+        for name in names:
+            try:
+                return name, self.downloaders[category][name](ticker.upper(), start, end)
+            except DataError as e:
+                errors.append((name, e))
+        detail = "; ".join(f"{n}: {e}" for n, e in errors)
+        for kind in (VendorUnavailable, NoData, NotConfigured):
+            if any(isinstance(e, kind) for _, e in errors):
+                raise kind(detail)
+        raise errors[0][1]
 
     # --- text for a model ----------------------------------------------------
 

@@ -8,8 +8,10 @@ and works on daily NSE bars for multi-day holds, long side only.
 Stop rules:   atr:K (K x ATR under the entry), pct:X, price:X, low:N (under the
               lowest low of the last N sessions).
 Target rules: 2R (a multiple of the stop distance) or price:X.
-Prices round DOWN to the tick: a stop a tick lower and a target a tick lower
-are both the conservative side.
+Prices round to NSE's price-banded tick (nse_tick). The entry rounds UP (a
+buy limit that fills, and a risk per share that is never understated); the
+stop and target round DOWN (a stop a tick lower and a target a tick lower are
+both the conservative side).
 """
 
 from __future__ import annotations
@@ -55,8 +57,33 @@ class ExitPlan:
         return cls(**{k: d[k] for k in cls.__dataclass_fields__})
 
 
+# NSE cash-segment tick by price, in effect since 15 Apr 2025: (upper bound, tick).
+# 250 itself is 0.05 and 1,000 itself is still 0.05 ("above 1,000 to 5,000" is 0.10).
+NSE_TICK_BANDS = ((250.0, 0.01), (1000.0, 0.05), (5000.0, 0.10), (10000.0, 0.50), (20000.0, 1.00))
+NSE_TOP_TICK = 5.00
+
+
+def nse_tick(*prices: float, floor: float = 0.0) -> float:
+    """The coarsest NSE tick among `prices`, and never below `floor` (config.tick).
+
+    NSE sets each stock's tick monthly from the last month's close, so one
+    order's legs share one tick. Taking the coarsest of the entry and the leg
+    stays valid when a stop or target sits across a band edge, because every
+    tick divides the ones above it.
+    """
+    def one(p: float) -> float:
+        if p < NSE_TICK_BANDS[0][0]:
+            return NSE_TICK_BANDS[0][1]
+        return next((t for top, t in NSE_TICK_BANDS[1:] if p <= top), NSE_TOP_TICK)
+    return max([floor, *(one(p) for p in prices)])
+
+
 def round_down(price: float, tick: float) -> float:
     return round(math.floor(price / tick + 1e-9) * tick, 2)
+
+
+def round_up(price: float, tick: float) -> float:
+    return round(math.ceil(price / tick - 1e-9) * tick, 2)
 
 
 def atr(bars: pd.DataFrame, n: int = 14) -> float | None:
@@ -113,11 +140,13 @@ def plan_exit(ticker: str, bars: pd.DataFrame, entry: float | None = None, stop_
     atr_value = atr(bars, config.atr_period)
     if atr_value is None or atr_value <= 0:
         raise PlanRefused(f"{ticker} needs more than {config.atr_period} sessions of history for an ATR")
-    entry = round(float(bars["close"].iloc[-1]) if entry is None else entry, 2)
+    entry = float(bars["close"].iloc[-1]) if entry is None else entry
     if entry <= 0:
         raise PlanRefused("the entry price must be positive")
+    entry = round_up(entry, nse_tick(entry, floor=config.tick))
 
-    stop = round_down(_raw_stop(stop_rule, entry, bars, atr_value, config.tick), config.tick)
+    raw_stop = _raw_stop(stop_rule, entry, bars, atr_value, nse_tick(entry, floor=config.tick))
+    stop = round_down(raw_stop, nse_tick(entry, raw_stop, floor=config.tick))
     if stop <= 0:
         raise PlanRefused(f"stop rule {stop_rule!r} puts the stop at or below zero")
     if stop >= entry:
@@ -129,7 +158,8 @@ def plan_exit(ticker: str, bars: pd.DataFrame, entry: float | None = None, stop_
             f"({atr_value:.2f}); one normal day's noise would hit it"
         )
 
-    target = round_down(_raw_target(target_rule, entry, risk), config.tick)
+    raw_target = _raw_target(target_rule, entry, risk)
+    target = round_down(raw_target, nse_tick(entry, raw_target, floor=config.tick))
     if target <= entry:
         raise PlanRefused(f"the target {target:.2f} is at or below the entry {entry:.2f}")
 
@@ -156,7 +186,8 @@ def trail_stop(bars: pd.DataFrame, entry_date: str, entry: float, initial_stop: 
     candidate, why = entry, "breakeven after +1R"
     atr_value = atr(bars, config.atr_period)
     if atr_value is not None:
-        trail = round_down(best - config.trail_atr * atr_value, config.tick)
+        raw = best - config.trail_atr * atr_value
+        trail = round_down(raw, nse_tick(entry, raw, floor=config.tick))
         if trail > candidate:
             candidate, why = trail, f"{config.trail_atr} x ATR ({atr_value:.2f}) under the highest close {best:.2f}"
     if candidate <= current_stop:

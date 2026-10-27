@@ -14,6 +14,7 @@ from .events import DEFAULT_LLM_CUTOFF, apply_cutoff, load_events
 from .metrics import format_summary, summarise
 from .models import IST
 from .prices import CSVPriceSource, YFinancePriceSource
+from .risk.config import RiskConfig
 from .swarm import build_engine
 
 CUTOFF_HELP = (
@@ -45,6 +46,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--horizon", default="72h", help="signal horizon, e.g. 48h or 72h")
     p.add_argument("--benchmark", help="ticker of a benchmark series, e.g. NIFTY50 (CSV) or ^NSEI (Yahoo)")
     p.add_argument("--cost-bps", type=float, default=25.0, help="round-trip cost per trade in bps")
+    p.add_argument("--stop-rule", default="atr:2", help="exit planner stop for long trades: atr:K, pct:X or low:N")
+    p.add_argument("--target-rule", default="2R", help="exit planner target for long trades, e.g. 2R")
+    p.add_argument("--no-trail", action="store_true", help="keep the initial stop instead of trailing it (R7)")
     p.add_argument("--out", default="runs", help="directory for results")
     p.add_argument("--cutoff", help=CUTOFF_HELP)
     args = p.parse_args(argv)
@@ -60,7 +64,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.engine != "recorded":
             p.error("--crowd-only only applies to --engine recorded")
         engine.crowd_only()
-    results = run_backtest(events, engine, prices, benchmark=args.benchmark, cost_bps=args.cost_bps)
+    results = run_backtest(events, engine, prices, benchmark=args.benchmark, cost_bps=args.cost_bps,
+                           stop_rule=args.stop_rule, target_rule=args.target_rule, config=RiskConfig.load(),
+                           trail=not args.no_trail)
     summary = summarise(results)
 
     out = Path(args.out) / f"{datetime.now():%Y%m%d-%H%M%S}-{engine.name}"
@@ -80,6 +86,29 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
+TIME_RULE = """Every event below broke on {day} (IST) and they are listed in the order they
+were published. Judge each event as if it were that event's timestamp: use only
+its own block and the events listed above it. Never let a story listed below
+it, or anything you know about what happened afterwards, change its views."""
+
+
+def _ist_day(event):
+    return event.published_at.astimezone(IST).date()
+
+
+def _same_day_batch(events: list, limit: int) -> list:
+    """The first `limit` events from the earliest IST day in `events`.
+
+    Batching across days would put later headlines in front of Claude while it
+    judges earlier ones, which is look-ahead leakage in a backtest.
+    """
+    if not events:
+        return []
+    events = sorted(events, key=lambda e: e.published_at)
+    day = _ist_day(events[0])
+    return [e for e in events if _ist_day(e) == day][:limit]
+
+
 def briefs_main(argv: list[str] | None = None) -> int:
     """swingbot-briefs: write the brief Claude Code role-plays from.
 
@@ -87,6 +116,12 @@ def briefs_main(argv: list[str] | None = None) -> int:
     --with-technicals and --with-context add data known when each story broke. Events that
     already have views in --views are left out, so a long run can be done in
     batches.
+
+    A brief only ever holds events from one IST calendar day, the earliest day
+    still to do, so a later day's headline can't sit next to an earlier one and
+    leak into its judgment. Within that day events are listed in publication
+    order and the brief tells Claude to judge each one only from itself and the
+    stories above it. --limit 1 isolates every event completely.
     """
     from .swarm import DEFAULT_PERSONAS
     from .swarm.reasoners import SYSTEM_PROMPT
@@ -104,7 +139,8 @@ def briefs_main(argv: list[str] | None = None) -> int:
                    help="add the week's earlier news, filings and the latest results filing for each "
                         "event's stock, taken from the same events file")
     p.add_argument("--views", help="existing views JSONL; events already in it are skipped")
-    p.add_argument("--limit", type=int, default=10, help="max events in this brief")
+    p.add_argument("--limit", type=int, default=10,
+                   help="max events in this brief; all come from the same IST day")
     p.add_argument("--out", default="runs/brief.md")
     p.add_argument("--cutoff", default=DEFAULT_LLM_CUTOFF, help=CUTOFF_HELP)
     p.add_argument("--with-lessons", metavar="MEMORY_DB",
@@ -141,7 +177,7 @@ def briefs_main(argv: list[str] | None = None) -> int:
     if args.since:
         since = pd.Timestamp(args.since, tz=IST)
         todo = [e for e in todo if e.published_at >= since]
-    todo = todo[: args.limit]
+    todo = _same_day_batch(todo, args.limit)
 
     lines = ["# Swarm brief", "", SYSTEM_PROMPT, "", "## Personas", ""]
     lines += [f"- **{p.name}**: {p.description}" for p in DEFAULT_PERSONAS]
@@ -150,6 +186,8 @@ def briefs_main(argv: list[str] | None = None) -> int:
         lines += ["", "## Market mood", "", MOOD_PROMPT]
     if memory:
         lines += ["", "## Memory", "", MEMORY_PROMPT]
+    if todo:
+        lines += ["", "## Time rule", "", TIME_RULE.format(day=_ist_day(todo[0]).isoformat())]
     lines += ["", f"## Events ({len(todo)} in this batch)", ""]
     for e in todo:
         lines += [
