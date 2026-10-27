@@ -522,6 +522,7 @@ swingbot-dhan check                 # mode, URL and the sandbox account's funds
 swingbot-dhan scrips --refresh      # Dhan's scrip master -> data/state/dhan_scrips.csv
 swingbot-dhan submit ticket.json    # a PASSed ticket from swingbot-risk ticket
 swingbot-dhan sync                  # after 09:15: fills, then the stop for yesterday's buys
+swingbot-dhan sync --at-open        # run it before the open and it waits for 09:16
 swingbot-dhan book
 ```
 
@@ -538,7 +539,19 @@ P&L.
   happened in 60 seconds it cancels and tries once more; if the second try
   fails the position is sold at market (`flatten_unprotected` in
   `config/broker.toml`). A stop that later disappears at Dhan while the shares
-  are still held is placed again on the next sync.
+  are still held is placed again on the next sync. A market sell Dhan rejects
+  (a lower circuit) or lets lapse is dropped on the next sync, so the shares
+  get a stop again instead of sitting with none.
+* **Every session day after 09:15.** Dhan takes a Forever Order only while the
+  market is open, and the daily loop runs before it. Schedule `swingbot-dhan
+  sync --at-open` for each session morning (cron or launchd on the Mac); started
+  before 09:16 it waits, then places and confirms the stops.
+* **Splits and bonuses.** The exchange cancels pending orders on the ex-date.
+  The next sync moves the holding's shares, stop and target onto the new terms
+  from `data/state/corporate_actions.csv` (the file the paper broker reads) and
+  places the stop again. Bonus shares reach the demat account a few days after
+  the ex-date, so the stop first covers what Dhan holds and is placed again for
+  all the shares once they arrive.
 * **R10, rate limits.** Every call is counted in `data/state/dhan_rate.json`
   against Dhan's limits (10 order calls a second, 250 a minute, 1,000 an hour,
   7,000 a day; 5 data calls a second). A busy second or minute is waited out;
