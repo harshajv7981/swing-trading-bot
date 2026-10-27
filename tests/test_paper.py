@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from swingbot.paper import Ledger, replay
+from swingbot.paper.ledger import stop_fill
 from swingbot.paper.cli import main as paper_main
 from swingbot.risk import Order, RiskConfig
 
@@ -93,6 +94,24 @@ def test_stop_may_only_move_up_and_breaches_are_flagged():
     rp = replay(recs, {"ABC": b}, AS_OF, SESSIONS)
     assert rules(rp) == ["R7 stop only moves up"]
     assert any(w.rule == "stop" and "through its stop" in w.detail for w in rp.warnings)
+
+
+@pytest.mark.parametrize("open_, low, want", [
+    (100.0, 96.0, None),    # never reaches the stop
+    (100.0, 94.0, 95.0),    # trades through it in the session: fills at the stop
+    (95.0, 93.0, 95.0),     # opens exactly at the stop
+    (90.0, 88.0, 90.0),     # gaps down through it: fills at the open, not the stop
+])
+def test_stop_fill_on_a_daily_bar(open_, low, want):
+    assert stop_fill(95.0, open_, low) == want
+
+
+def test_a_gap_through_the_stop_warns_with_the_open_as_the_fill():
+    b = stock([100] * 10)
+    b.loc[SESSIONS[3], ["open", "low"]] = [90.0, 88.0]               # gaps down through the 95 stop
+    rp = replay(opened() + [buy()], {"ABC": b}, AS_OF, SESSIONS)
+    [w] = [w for w in rp.warnings if w.rule == "stop"]
+    assert "opened at 90.00, below its stop 95.00" in w.detail and "about 90.00" in w.detail
 
 
 def test_entry_after_the_weekly_kill_level_is_a_break():

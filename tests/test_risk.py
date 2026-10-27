@@ -290,7 +290,7 @@ def passed(order, at="2026-10-26 10:15", status="PASS"):
     return {"at": at, "status": status, "fingerprint": order.fingerprint}
 
 
-def test_ticket_copies_the_passed_order_and_puts_the_stop_limit_a_gap_below():
+def test_ticket_copies_the_passed_order_and_uses_a_stop_loss_market_exit():
     o = entry(qty=30, price=1000.0, stop=960.0, target=1080.0)
     t = make_ticket(o, passed(o), date(2026, 10, 26), CFG)
     assert t["paper_only"] and t["fingerprint"] == o.fingerprint
@@ -298,9 +298,12 @@ def test_ticket_copies_the_passed_order_and_puts_the_stop_limit_a_gap_below():
                           "securityId": None, "transactionType": "BUY", "orderType": "LIMIT",
                           "validity": "DAY", "quantity": 30, "price": 1000.0}
     x = t["exits"]
-    assert x["orderFlag"] == "OCO" and x["target"]["price"] == 1080.0 and x["target"]["quantity"] == 30
-    assert x["stop"]["triggerPrice"] == 960.0 and x["stop"]["price"] == 955.2  # 960 less 0.5%, on the tick
-    assert t["loss_at_stop"] == 1200.0 and t["loss_at_stop_limit"] == 1344.0
+    assert x["orderFlag"] == "OCO" and x["orderType"] == "MARKET"
+    assert x["target"]["triggerPrice"] == 1080.0 and x["target"]["quantity"] == 30
+    # A stop-loss market: no limit price, so a gap down below the stop still sells (at the open).
+    assert x["stop"]["orderType"] == "STOP_LOSS_MARKET" and x["stop"]["triggerPrice"] == 960.0
+    assert "price" not in x["stop"]
+    assert t["loss_at_stop"] == 1200.0 and t["loss_with_gap"] == 1344.0  # 960 less 0.5% = 955.20
 
 
 @pytest.mark.parametrize("verdict, today, latched, words", [
