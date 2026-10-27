@@ -599,6 +599,28 @@ Run `swingbot-daily alerts --test` to check it arrives. With the default
 `channel = "none"`, alerts only go to `data/state/alerts.jsonl`. A message that
 fails to send is kept and tried again next run, and never stops the loop.
 
+### Walk-forward replay: `swingbot-walkforward`
+
+```
+swingbot-walkforward init --from 2026-07-01 --to 2026-10-23 --cash 500000 \
+    --prices data/raw/prices --events data/raw/news/events.csv
+swingbot-walkforward next     # runs days until one needs the swarm, then stops with its brief
+(play the swarm on that day's brief.md, appending to its views.jsonl)
+swingbot-walkforward next     # the next batch, or finish the day and go on
+swingbot-walkforward report
+```
+
+The per-event backtest scores each story on its own. The walk-forward replay
+runs the real daily loop on every NSE session in the range, at 08:30 and
+08:50 IST: the same news window, signal filters, risk gate, paper broker,
+kill switch and learning memory. Positions, sector limits and open risk then
+interact the way they will when trading. Nothing is fetched. Each step cuts
+the saved files to the run's clock (bars to closed sessions, news to what was
+published, lessons to trades that had closed). The run keeps its own ledger,
+book, kill switch and memory under `runs/walkforward/`, so it never touches
+the real paper account. News from before 1 July 2026 is left out, because the
+swarm's model may remember what came next.
+
 ## Persona scorecard: `swingbot-scorecard`
 
 Scores each persona's final stance, the judge and the final call as separate

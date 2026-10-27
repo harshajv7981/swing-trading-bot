@@ -77,6 +77,7 @@ class DailyConfig:
     with_mood: bool = True
     with_lessons: bool = True
     alerts: alerts.AlertConfig = field(default_factory=alerts.AlertConfig)
+    news_cutoff: str | None = None  # drop news before this date (the walk-forward sets the model's cutoff)
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "DailyConfig":
@@ -280,6 +281,8 @@ def window_events(day: Day, state: dict) -> list:
     if not day.data.events_file.exists():
         return []
     since, until = ist(state["since"]), ist(state["until"])
+    if day.config.news_cutoff:
+        since = max(since, ist(day.config.news_cutoff))
     return [e for e in load_events(day.data.events_file) if since <= e.published_at < until]
 
 
@@ -292,7 +295,7 @@ def brief(day: Day, state: dict) -> Step:
         return Step("swarm brief", OK, f"no news between {state['since']} and {state['until']}: nothing to trade today")
     prices = str(day.data.prices_dir)
     argv = ["--events", day.data.events_file, "--views", day.path("views.jsonl"), "--limit", day.config.batch,
-            "--out", day.path("brief.md"), "--cutoff", "none", "--since", state["since"], "--until", state["until"]]
+            "--out", day.path("brief.md"), "--cutoff", day.config.news_cutoff or "none", "--since", state["since"], "--until", state["until"]]
     if day.config.with_technicals:
         argv += ["--with-technicals", prices]
     if day.config.with_mood:
