@@ -304,3 +304,24 @@ def test_refresh_adapter_wraps_the_refresh_report(repo, monkeypatch):
     assert step.status == "failed" and "1 item(s) failed" in step.detail
     assert f"{seen['now']:%Y-%m-%d %H:%M}" == MORNING
     assert str(seen["router"].config.prices_dir) == str(repo / "prices")
+
+
+def test_monday_trades_friday_evening_news_with_the_real_signal_hook(repo, monkeypatch):
+    import swingbot.risk.signals as signals_mod
+    from swingbot.daily import adapters
+
+    monkeypatch.setattr(signals_mod, "load_sectors", lambda *a, **k: {"ABC": "Tech"})
+    closes = [100 + i * 0.4 + (3 if i % 2 else -3) for i in range(260)]   # a choppy uptrend, RSI well under 75
+    for t in ("ABC", "NIFTY50"):
+        frame(closes, end="2026-11-06").to_csv(repo / "prices" / f"{t}.csv")
+    (repo / "events.csv").write_text("event_id,ticker,published_at,headline,body,source\n"
+                                     "e1,ABC,2026-11-06 18:00+05:30,ABC wins a large order,,test\n")
+    open_account(repo)
+    hooks = Hooks().make()
+    hooks["signal_to_order"] = adapters.signal_to_order
+    cfg = config(repo)
+    start(Day("2026-11-09 08:30", cfg, hooks))
+    write_views(Day("2026-11-09 08:30", cfg))
+    finish(Day("2026-11-09 08:50", cfg, hooks))
+    [d] = json.loads((cfg.runs_dir / "2026-11-09" / "signal_decisions.json").read_text())["decisions"]
+    assert d["status"] == "sized", d["reasons"]

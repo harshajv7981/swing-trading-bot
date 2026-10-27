@@ -352,6 +352,8 @@ def _signals(day: Day, state: dict, steps: list[Step]) -> list[dict]:
             missing.append(e.event_id)
             continue
         out.append({"event_id": e.event_id, "ticker": s.ticker, "published_at": e.published_at.isoformat(),
+                    # The swarm made the call this morning; the news window already limits how old the news is.
+                    "as_of": state["as_of"],
                     "headline": e.headline, "sentiment": s.sentiment.value, "confidence": round(s.confidence, 4),
                     "score": round(s.score, 4), "rationale": s.rationale})
     if missing:
