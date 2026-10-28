@@ -164,13 +164,18 @@ def indian_source(domain: str) -> bool:
 
 
 # Other companies whose names start with a universe company's name. A match on one
-# of these names nobody, so "L&T Technology Services" is not read as LT.
+# of these names nobody, so "L&T Technology Services" is not read as LT. The
+# parent still counts when the title names it on its own as well: "SBI sells a
+# stake in SBI Funds Management" is SBI news.
 OTHER_COMPANIES = (
     "L&T Technology Services", "Larsen & Toubro Technology Services", "Larsen and Toubro Technology Services",
     "L&T Finance", "Larsen & Toubro Finance", "L&T Mutual Fund",
     # Spun out of Vedanta in the 2026 demerger and listed on their own.
     "Vedanta Iron", "Vedanta Oil", "Vedanta Power",  # also covers "Vedanta Iron & Steel", "Vedanta Oil & Gas"
     "SBI Mutual Fund", "SBI MF", "SBI Funds Management", "SBI Research",
+    # Listed or branded separately from the universe company they start with.
+    "SBI Card", "SBI Cards", "SBI Securities", "SBI Capital Markets", "SBI Capital", "SBI Caps", "SBICAPS", "SBI General",
+    "Abhinandan Lodha",
 )
 
 # Titles about a company that are not news about its stock: job notices and fund products.
@@ -201,6 +206,21 @@ class HeadlineMatcher:
             for c in self.by_term[m.group(1).lower()]:
                 found.setdefault(c.symbol, c)
         return list(found.values())
+
+    def refilter(self, rows: list[dict]) -> tuple[list[dict], list[dict]]:
+        """Split saved GDELT rows into (kept, dropped) under today's rules, with no new download.
+
+        A row stays when its headline still names its ticker. Rows from other
+        sources (NSE filings) are always kept.
+        """
+        kept, dropped = [], []
+        for r in rows:
+            if not str(r.get("source", "")).startswith("gdelt:"):
+                kept.append(r)
+                continue
+            names = {c.symbol for c in self.companies(r.get("headline", ""))}
+            (kept if r.get("ticker") in names else dropped).append(r)
+        return kept, dropped
 
 
 # A date in the URL (2013/05/07, 2013-05-07, 20130507). GKG includes pages GDELT
