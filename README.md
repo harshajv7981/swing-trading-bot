@@ -247,7 +247,11 @@ python scripts/fetch_nse_announcements.py --accept-nse-terms --start 2026-07-01 
   The bulk fetcher reads the Global Knowledge Graph files GDELT writes every 15
   minutes and keeps titles from Indian outlets (`--any-source` for all) that name
   a company. Its rows carry the batch time, the same ids as the API's, and the
-  run resumes by day from `events.csv.gkg_days.json`.
+  run resumes by day from `events.csv.gkg_days.json`. It skips names that belong
+  to other companies (L&T Technology Services, the demerged Vedanta units, SBI
+  Mutual Fund: `OTHER_COMPANIES` in `swingbot/news.py`), job notices and fund
+  pages, and pages whose URL dates them more than a week before GDELT saw them.
+  Market roundups that name several stocks are kept, one row per stock.
 * **NSE filings** use the exchange dissemination time. Routine paperwork
   (trading window, newspaper ads, ESOP allotments) is dropped unless you pass
   `--keep-routine`. NSE's terms of use forbid automated collection and
