@@ -79,9 +79,9 @@ and a rule that flips sign between decades is not one to trade. B is +0.029R
 and +0.041R, but within noise of TREND in both periods.
 
 **Verdict: no rule passes.**
-- None beats the trend baseline by the planned margin in both periods. The only
-  discovery pass, B at hold 5, is +0.025R: half the bar, and it reversed in
-  the holdout.
+- None beats the trend baseline by the planned margin in either period. The
+  closest, B at hold 5 in discovery, is +0.025R (t 3.0): half the bar, and it
+  reversed in the holdout.
 - With this ticket (limit at the close, 2.5 ATR stop, 2R target, 5 sessions), an
   ordinary uptrend day is about break-even after costs. Simple price and volume
   triggers don't add a reliable edge to that, even with survivorship bias
