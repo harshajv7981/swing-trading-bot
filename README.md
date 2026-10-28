@@ -235,6 +235,9 @@ python scripts/fetch_gdelt_news.py --start 2026-07-01 --end 2026-10-15
 # (it blocks an IP for a day or more after heavy use) or for windows older than
 # three months. No request limit, but it downloads about 0.5 to 1 GB a day of news.
 python scripts/fetch_gdelt_bulk.py --start 2026-07-01 --end 2026-10-27
+# Or let GitHub do the download (free on a public repo): Actions > "Fetch data" >
+# Run workflow, then fetch the few-MB result of news and prices:
+gh run download --repo harshajv7981/swing-trading-bot --name swingbot-data --dir .
 
 # NSE exchange filings, timestamped to the second. Read --help first.
 python scripts/fetch_nse_announcements.py --accept-nse-terms --start 2026-07-01 --end 2026-10-15
@@ -247,7 +250,11 @@ python scripts/fetch_nse_announcements.py --accept-nse-terms --start 2026-07-01 
   The bulk fetcher reads the Global Knowledge Graph files GDELT writes every 15
   minutes and keeps titles from Indian outlets (`--any-source` for all) that name
   a company. Its rows carry the batch time, the same ids as the API's, and the
-  run resumes by day from `events.csv.gkg_days.json`.
+  run resumes by day from `events.csv.gkg_days.json`. It skips names that belong
+  to other companies (L&T Technology Services, the demerged Vedanta units, SBI
+  Mutual Fund: `OTHER_COMPANIES` in `swingbot/news.py`), job notices and fund
+  pages, and pages whose URL dates them more than a week before GDELT saw them.
+  Market roundups that name several stocks are kept, one row per stock.
 * **NSE filings** use the exchange dissemination time. Routine paperwork
   (trading window, newspaper ads, ESOP allotments) is dropped unless you pass
   `--keep-routine`. NSE's terms of use forbid automated collection and

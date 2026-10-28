@@ -1,0 +1,57 @@
+# Fetch news (GDELT bulk files) and prices (Yahoo) on GitHub's servers, so the
+# big download never touches your own connection. Start it by hand from the
+# Actions tab ("Fetch data" > Run workflow). The results are uploaded as a run
+# artifact named "swingbot-data" (a few MB): data/raw/news/events.csv and
+# data/raw/prices/*.csv. Nothing is committed.
+#
+# Fetch it with:  gh run download --repo harshajv7981/swing-trading-bot --name swingbot-data --dir .
+#
+# The repo is public, so anyone signed in to GitHub can download the artifact.
+# That is fine for GDELT headlines and Yahoo prices; never add NSE filings here
+# (NSE's terms forbid sharing them).
+name: Fetch data
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "First news day (UTC), YYYY-MM-DD"
+        required: true
+        default: "2026-07-01"
+      end:
+        description: "Last news day (UTC), YYYY-MM-DD"
+        required: true
+      prices_start:
+        description: "First price day; the mood's 200-day check needs ~10 months before the first test day"
+        required: true
+        default: "2025-07-01"
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[data]"
+      - name: Prices
+        continue-on-error: true  # the news still runs if Yahoo has a bad day
+        run: |
+          python scripts/fetch_prices.py --tickers $(tail -n +2 data/universe/nifty100.csv | cut -d, -f1) \
+            --start "${{ inputs.prices_start }}" --end "$(date -u -d "${{ inputs.end }} + 1 day" +%F)" \
+            --out data/raw/prices --mood
+      - name: News
+        run: |
+          python scripts/fetch_gdelt_bulk.py --universe data/universe/nifty100.csv \
+            --start "${{ inputs.start }}" --end "${{ inputs.end }}" --workers 8 --out data/raw/news/events.csv
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: swingbot-data
+          path: |
+            data/raw/news/events.csv
+            data/raw/news/events.csv.gkg_days.json
+            data/raw/prices/
+          retention-days: 90

@@ -1,6 +1,7 @@
 import csv
 from datetime import date
 
+import pandas as pd
 import pytest
 
 from swingbot.events import load_events
@@ -192,3 +193,41 @@ def test_gkg_lines_reads_a_zip_and_skips_missing_batches(monkeypatch):
     lines, size = remote.gkg_lines(datetime(2026, 8, 3, 2, 30, tzinfo=UTC))
     assert lines == ["a\tb", "c\td"] and size == len(payload)
     assert remote.gkg_lines(datetime(2026, 8, 3, 2, 45, tzinfo=UTC)) is None
+
+
+def test_matcher_skips_other_companies_and_non_news():
+    from swingbot.news import HeadlineMatcher
+
+    sbi = Company("SBIN", "State Bank of India", ("SBI",))
+    vedl = Company("VEDL", "Vedanta")
+    kotak = Company("KOTAKBANK", "Kotak Mahindra Bank")
+    m = HeadlineMatcher([LT, sbi, vedl, kotak])
+    assert m.companies("L&T Technology Services launches AI lab") == []
+    assert m.companies("Hold Larsen and Toubro Technology Services, says ICICI") == []
+    assert m.companies("Vedanta Iron & Steel lists at a premium") == []
+    assert m.companies("SBI Dividend Yield Fund: NAV today") == []
+    assert m.companies("SBI Apprentice Admit Card 2026 out") == []
+    assert m.companies("Legal Manager, Kotak Mahindra Bank, Mumbai - Job") == []
+    assert m.companies("Legal Manager, Kotak Mahindra Bank Limited [Mumbai], Job") == []
+    assert m.companies("Vedanta Iron shares rally on debut") == []
+    assert [c.symbol for c in m.companies("Kotak Mahindra Bank profit rises")] == ["KOTAKBANK"]
+    assert m.companies("SBI Research sees rate cut") == []
+    # The parent still matches, also next to a spun-off name.
+    assert [c.symbol for c in m.companies("Vedanta shares fall after Vedanta Power lists")] == ["VEDL"]
+    assert [c.symbol for c in m.companies("L&T wins order; L&T Finance up")] == ["LT"]
+    assert [c.symbol for c in m.companies("SBI raises lending rates")] == ["SBIN"]
+    assert [c.symbol for c in m.companies("SBI Recruitment 2026: apply for 500 posts")] == []
+    assert [c.symbol for c in m.companies("SBI job cuts hit branch staff")] == ["SBIN"]  # news about jobs stays
+
+
+def test_gkg_rows_drop_recrawled_old_pages():
+    from swingbot.news import HeadlineMatcher, gkg_rows, stale_url
+
+    seen = pd.Timestamp("2026-07-01 12:00", tz="Asia/Kolkata")
+    assert stale_url("https://a.in/2013/05/07/ril-story", seen)
+    assert stale_url("https://a.in/news-20250101-ril", seen)
+    assert not stale_url("https://a.in/2026/06/30/ril-story", seen)
+    assert not stale_url("https://a.in/articleshow/120260512345.cms", seen)  # long ids are not dates
+    lines = [gkg_line("20260701063000", "livemint.com", "https://livemint.com/2013/05/07/x", "RIL shares jump"),
+             gkg_line("20260701063000", "livemint.com", "https://livemint.com/2026/07/01/y", "RIL shares jump")]
+    assert [r["url"] for r in gkg_rows(lines, HeadlineMatcher([RIL]))] == ["https://livemint.com/2026/07/01/y"]

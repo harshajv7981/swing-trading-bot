@@ -163,11 +163,30 @@ def indian_source(domain: str) -> bool:
     return any(".".join(parts[i:]) in _INDIAN_DOMAINS for i in range(len(parts) - 1))
 
 
+# Other companies whose names start with a universe company's name. A match on one
+# of these names nobody, so "L&T Technology Services" is not read as LT.
+OTHER_COMPANIES = (
+    "L&T Technology Services", "Larsen & Toubro Technology Services", "Larsen and Toubro Technology Services",
+    "L&T Finance", "Larsen & Toubro Finance", "L&T Mutual Fund",
+    # Spun out of Vedanta in the 2026 demerger and listed on their own.
+    "Vedanta Iron", "Vedanta Oil", "Vedanta Power",  # also covers "Vedanta Iron & Steel", "Vedanta Oil & Gas"
+    "SBI Mutual Fund", "SBI MF", "SBI Funds Management", "SBI Research",
+)
+
+# Titles about a company that are not news about its stock: job notices and fund products.
+NOT_NEWS = re.compile(
+    # Job notices, but not news about jobs: "TCS job cuts" and "TCS hiring" stay.
+    r"\b(admit card|recruitment 20\d\d|vacanc(?:y|ies)|apply online|job (?:openings?|notification|alert)|"
+    r"(?:equity|debt|hybrid|yield|index|bluechip|small ?cap|mid ?cap|large ?cap|flexi ?cap|elss) fund)\b"
+    r"|[-|,\u2013]\s*jobs?\s*$",
+    re.IGNORECASE)
+
+
 class HeadlineMatcher:
     """Finds which companies a headline names, with one regex for the whole universe."""
 
-    def __init__(self, companies: list[Company]):
-        self.by_term: dict[str, list[Company]] = {}
+    def __init__(self, companies: list[Company], others: tuple[str, ...] = OTHER_COMPANIES):
+        self.by_term: dict[str, list[Company]] = {t.lower(): [] for t in others}
         for c in companies:
             for t in c.terms:
                 self.by_term.setdefault(t.lower(), []).append(c)
@@ -175,11 +194,31 @@ class HeadlineMatcher:
         self.pattern = re.compile(r"(?<!\w)(" + "|".join(re.escape(t) for t in terms) + r")(?!\w)", re.IGNORECASE)
 
     def companies(self, title: str) -> list[Company]:
+        if NOT_NEWS.search(title):
+            return []
         found: dict[str, Company] = {}
         for m in self.pattern.finditer(title):
             for c in self.by_term[m.group(1).lower()]:
                 found.setdefault(c.symbol, c)
         return list(found.values())
+
+
+# A date in the URL (2013/05/07, 2013-05-07, 20130507). GKG includes pages GDELT
+# re-crawled years later; their "seen" time is not when the news broke.
+_URL_DATE = re.compile(r"(?<!\d)(20\d{2})[/-]?(0[1-9]|1[0-2])[/-]?(0[1-9]|[12]\d|3[01])(?!\d)")
+STALE_DAYS = 7
+
+
+def stale_url(url: str, seen: pd.Timestamp, days: int = STALE_DAYS) -> bool:
+    """True when the URL carries a date more than `days` before GDELT saw the page."""
+    for m in _URL_DATE.finditer(url):
+        try:
+            when = pd.Timestamp(int(m.group(1)), int(m.group(2)), int(m.group(3)), tz=seen.tz)
+        except ValueError:
+            continue
+        if when < seen.normalize() - pd.Timedelta(days=days):
+            return True
+    return False
 
 
 def gkg_title(extras: str) -> str:
@@ -214,9 +253,12 @@ def gkg_rows(lines, matcher: HeadlineMatcher, any_source: bool = False) -> list[
         if not hits:
             continue
         try:
-            published = parse_gkg_date(head[GKG_DATE]).isoformat()
+            seen = parse_gkg_date(head[GKG_DATE])
         except ValueError:
             continue
+        if stale_url(url, seen):
+            continue
+        published = seen.isoformat()
         for c in hits:
             rows.append({
                 "event_id": _event_id("gd", f"{c.symbol}|{url}"),
