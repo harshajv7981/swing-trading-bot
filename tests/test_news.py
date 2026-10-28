@@ -270,3 +270,14 @@ def test_matcher_case_rules_drop_common_words_and_people():
     assert [c.symbol for c in m.companies("RCF, Gail enter into MoU for urea plant")] == ["GAIL"]
     assert [c.symbol for c in m.companies("Titan Q1 sales up 20%")] == ["TITAN"]
     assert [c.symbol for c in m.companies("GAIL SHARES JUMP 5%")] == ["GAIL"]
+
+
+def test_matcher_drops_rivers_exams_taxes_and_etfs():
+    m = HeadlineMatcher(load_universe("data/universe/nifty100.csv"))
+    for title in ["Power grid bottlenecks slow solar", "Floods on the River Trent", "RRB NTPC result out",
+                  "SBI IT ETF NAV today", "GST and ITC fraud: raids in Surat", "TCS credit rules eased",
+                  "Coal India Open golf", "DLF-3 demolition drive", "Motherson Sumi Wiring Q1"]:
+        assert m.companies(title) == [], title
+    for title, sym in [("Power Grid Q1 profit", "POWERGRID"), ("Trent Q1 revenue up", "TRENT"),
+                       ("NTPC commissions plant", "NTPC"), ("TCS Q2 results", "TCS"), ("DLF sales", "DLF")]:
+        assert [c.symbol for c in m.companies(title)] == [sym], title
