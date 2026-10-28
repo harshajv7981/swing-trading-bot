@@ -187,13 +187,25 @@ OTHER_COMPANIES = (
     "Attack on Titan", "moon Titan",
     # People who share a universe name.
     "Christa Gail Pike", "Gail Porter", "Gail Giustino",
+    "River Trent", "Trent Crimm",
+    "Titan Biotech", "Emperium Titan",
+    "Vedanta Math", "Ramakrishna Vedanta",
+    "Saatvik Solar Industries", "Saatvik Solar",
+    "Motherson Sumi Wiring",
+    "Sun Pharma Advanced Research", "Sun Pharmaceutical Advanced Research",
+    "Coal India Open",
+    "DLF Phase", "DLF-3", "DLF 3",
+    # Not companies: exams, taxes and SBI products.
+    "RRB NTPC", "SBI PO", "SBI Clerk", "TCS credit", "ITC fraud", "fake ITC", "ITC claims", "ITC claim",
+    "SBI Healthcare", "SBI Gold", "SBI Gilt",
 )
 
 # Titles about a company that are not news about its stock: job notices and fund products.
 NOT_NEWS = re.compile(
     # Job notices, but not news about jobs: "TCS job cuts" and "TCS hiring" stay.
     r"\b(admit card|recruitment 20\d\d|vacanc(?:y|ies)|apply online|job (?:openings?|notification|alert)|"
-    r"(?:equity|debt|gilt|hybrid|yield|index|bluechip|small ?cap|mid ?cap|large ?cap|flexi ?cap|elss) fund)\b"
+    r"(?:equity|debt|gilt|gold|healthcare|hybrid|yield|index|bluechip|small ?cap|mid ?cap|large ?cap|flexi ?cap|elss) fund)\b"
+    r"|\bETFs?\b"
     r"|[-|,\u2013]\s*jobs?\s*$",
     re.IGNORECASE)
 
@@ -202,16 +214,17 @@ def case_ok(seen: str, term: str) -> bool:
     """Whether a title's spelling of a term can be the company, not a common word or a person.
 
     A short acronym must be in capitals ("HAL", not the actor Hal; "TCS", not
-    "TCs"), and anything else must start with a capital ("Titan", not "tech titan";
-    "Power Grid", not "the US power grid"). Longer acronyms are often written
-    "Gail" or "Ntpc", so those only need the capital; people named Gail are in
-    OTHER_COMPANIES. Titles written all in capitals skip this.
+    "TCs"), and every capitalised word of anything else must start with a capital
+    ("Titan", not "tech titan"; "Power Grid", not "Power grid bottlenecks").
+    Longer acronyms are often written "Gail" or "Ntpc", so those only need the
+    capital; people named Gail are in OTHER_COMPANIES. Titles written all in
+    capitals skip this.
     """
     if not term:
         return True
     if term.isupper() and len(term) <= 3:
         return seen.isupper()
-    return not term[0].isupper() or seen[0].isupper()
+    return all(not t[0].isupper() or w[0].isupper() for t, w in zip(term.split(), seen.split(), strict=False))
 
 
 class HeadlineMatcher:
