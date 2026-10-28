@@ -266,6 +266,7 @@ def test_matcher_case_rules_drop_common_words_and_people():
     m = HeadlineMatcher([titan, gail])
     assert m.companies("Nilekani, the tech titan") == []
     assert m.companies("Attack on Titan gets a sequel") == []
-    assert m.companies("Gail Simmons opens a restaurant") == []
+    assert m.companies("Gail Porter opens a restaurant") == []
+    assert [c.symbol for c in m.companies("RCF, Gail enter into MoU for urea plant")] == ["GAIL"]
     assert [c.symbol for c in m.companies("Titan Q1 sales up 20%")] == ["TITAN"]
     assert [c.symbol for c in m.companies("GAIL SHARES JUMP 5%")] == ["GAIL"]

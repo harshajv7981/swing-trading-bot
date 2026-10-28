@@ -185,6 +185,8 @@ OTHER_COMPANIES = (
     "Wipro Consumer", "Wipro Consumer Care",
     "M&M Financial", "M&M Finance", "Mahindra & Mahindra Financial", "Mahindra and Mahindra Financial",
     "Attack on Titan", "moon Titan",
+    # People who share a universe name.
+    "Christa Gail Pike", "Gail Porter", "Gail Giustino",
 )
 
 # Titles about a company that are not news about its stock: job notices and fund products.
@@ -199,13 +201,15 @@ NOT_NEWS = re.compile(
 def case_ok(seen: str, term: str) -> bool:
     """Whether a title's spelling of a term can be the company, not a common word or a person.
 
-    An acronym must be in capitals ("HAL", not the actor Hal; "GAIL", not someone
-    named Gail), and a name must start with a capital ("Titan", not "tech titan";
-    "Power Grid", not "the US power grid"). Titles written all in capitals skip this.
+    A short acronym must be in capitals ("HAL", not the actor Hal; "TCS", not
+    "TCs"), and anything else must start with a capital ("Titan", not "tech titan";
+    "Power Grid", not "the US power grid"). Longer acronyms are often written
+    "Gail" or "Ntpc", so those only need the capital; people named Gail are in
+    OTHER_COMPANIES. Titles written all in capitals skip this.
     """
     if not term:
         return True
-    if term.isupper():
+    if term.isupper() and len(term) <= 3:
         return seen.isupper()
     return not term[0].isupper() or seen[0].isupper()
 
