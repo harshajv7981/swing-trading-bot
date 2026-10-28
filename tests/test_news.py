@@ -273,6 +273,8 @@ def test_matcher_case_rules_drop_common_words_and_people():
 
 
 def test_matcher_drops_rivers_exams_taxes_and_etfs():
+    from swingbot.news import HeadlineMatcher, load_universe
+
     m = HeadlineMatcher(load_universe("data/universe/nifty100.csv"))
     for title in ["Power grid bottlenecks slow solar", "Floods on the River Trent", "RRB NTPC result out",
                   "SBI IT ETF NAV today", "GST and ITC fraud: raids in Surat", "TCS credit rules eased",
