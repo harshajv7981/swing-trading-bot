@@ -254,3 +254,18 @@ def test_refilter_drops_rows_todays_rules_reject():
     assert [r["headline"] for r in dropped] == [
         "Amitabh Bachchan buys land: Abhinandan Lodha", "Shailesh Lodha's daughter gets married"]
     assert len(kept) == 3
+
+
+def test_matcher_case_rules_drop_common_words_and_people():
+    from swingbot.news import HeadlineMatcher, case_ok
+
+    assert case_ok("HAL", "HAL") and not case_ok("Hal", "HAL")
+    assert case_ok("Titan", "Titan") and not case_ok("titan", "Titan")
+    titan = Company("TITAN", "Titan Company", ("Titan",))
+    gail = Company("GAIL", "GAIL India", ("GAIL",))
+    m = HeadlineMatcher([titan, gail])
+    assert m.companies("Nilekani, the tech titan") == []
+    assert m.companies("Attack on Titan gets a sequel") == []
+    assert m.companies("Gail Simmons opens a restaurant") == []
+    assert [c.symbol for c in m.companies("Titan Q1 sales up 20%")] == ["TITAN"]
+    assert [c.symbol for c in m.companies("GAIL SHARES JUMP 5%")] == ["GAIL"]

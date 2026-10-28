@@ -181,6 +181,10 @@ OTHER_COMPANIES = (
     "Indigo Paints",
     "PNB Housing Finance", "PNB Housing", "PNB MetLife",
     "Mangal Prabhat Lodha",
+    "ITC Hotels", "US ITC", "U.S. ITC",
+    "Wipro Consumer", "Wipro Consumer Care",
+    "M&M Financial", "M&M Finance", "Mahindra & Mahindra Financial", "Mahindra and Mahindra Financial",
+    "Attack on Titan", "moon Titan",
 )
 
 # Titles about a company that are not news about its stock: job notices and fund products.
@@ -192,14 +196,30 @@ NOT_NEWS = re.compile(
     re.IGNORECASE)
 
 
+def case_ok(seen: str, term: str) -> bool:
+    """Whether a title's spelling of a term can be the company, not a common word or a person.
+
+    An acronym must be in capitals ("HAL", not the actor Hal; "GAIL", not someone
+    named Gail), and a name must start with a capital ("Titan", not "tech titan";
+    "Power Grid", not "the US power grid"). Titles written all in capitals skip this.
+    """
+    if not term:
+        return True
+    if term.isupper():
+        return seen.isupper()
+    return not term[0].isupper() or seen[0].isupper()
+
+
 class HeadlineMatcher:
     """Finds which companies a headline names, with one regex for the whole universe."""
 
     def __init__(self, companies: list[Company], others: tuple[str, ...] = OTHER_COMPANIES):
         self.by_term: dict[str, list[Company]] = {t.lower(): [] for t in others}
+        self.spelling: dict[str, str] = {}  # how the universe writes each term, for the case check
         for c in companies:
             for t in c.terms:
                 self.by_term.setdefault(t.lower(), []).append(c)
+                self.spelling.setdefault(t.lower(), t)
         terms = sorted(self.by_term, key=len, reverse=True)  # longest first, so "Tata Steel" beats "Tata"
         self.pattern = re.compile(r"(?<!\w)(" + "|".join(re.escape(t) for t in terms) + r")(?!\w)", re.IGNORECASE)
 
@@ -207,7 +227,10 @@ class HeadlineMatcher:
         if NOT_NEWS.search(title):
             return []
         found: dict[str, Company] = {}
+        shouting = title.isupper()
         for m in self.pattern.finditer(title):
+            if not shouting and not case_ok(m.group(1), self.spelling.get(m.group(1).lower(), "")):
+                continue
             for c in self.by_term[m.group(1).lower()]:
                 found.setdefault(c.symbol, c)
         return list(found.values())
