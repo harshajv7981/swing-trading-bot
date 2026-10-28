@@ -213,8 +213,10 @@ def test_matcher_skips_other_companies_and_non_news():
     assert [c.symbol for c in m.companies("Kotak Mahindra Bank profit rises")] == ["KOTAKBANK"]
     assert m.companies("SBI Research sees rate cut") == []
     # The parent still matches, also next to a spun-off name.
-    assert [c.symbol for c in m.companies("Vedanta shares fall after Vedanta Power lists")] == ["VEDL"]
-    assert [c.symbol for c in m.companies("L&T wins order; L&T Finance up")] == ["LT"]
+    # A title naming a spun-off or separate company isn't counted for the parent.
+    assert m.companies("Vedanta Oil & Gas, three other Vedanta stocks rise") == []
+    assert m.companies("SBI Card shares slip; SBI unchanged") == []
+    assert [c.symbol for c in m.companies("Vedanta shares fall")] == ["VEDL"]
     assert [c.symbol for c in m.companies("SBI raises lending rates")] == ["SBIN"]
     assert [c.symbol for c in m.companies("SBI Recruitment 2026: apply for 500 posts")] == []
     assert [c.symbol for c in m.companies("SBI job cuts hit branch staff")] == ["SBIN"]  # news about jobs stays
@@ -231,3 +233,19 @@ def test_gkg_rows_drop_recrawled_old_pages():
     lines = [gkg_line("20260701063000", "livemint.com", "https://livemint.com/2013/05/07/x", "RIL shares jump"),
              gkg_line("20260701063000", "livemint.com", "https://livemint.com/2026/07/01/y", "RIL shares jump")]
     assert [r["url"] for r in gkg_rows(lines, HeadlineMatcher([RIL]))] == ["https://livemint.com/2026/07/01/y"]
+
+
+def test_refilter_drops_rows_todays_rules_reject():
+    from swingbot.news import HeadlineMatcher
+
+    lodha = Company("LODHA", "Lodha Developers", ("Lodha",))
+    m = HeadlineMatcher([lodha, RIL])
+    rows = [
+        {"ticker": "LODHA", "headline": "Lodha Developers sales rise 10%", "source": "gdelt:mint.com"},
+        {"ticker": "LODHA", "headline": "Amitabh Bachchan buys land: Abhinandan Lodha", "source": "gdelt:bt.in"},
+        {"ticker": "RELIANCE", "headline": "Roundup: Lodha, RIL in focus", "source": "gdelt:et.com"},
+        {"ticker": "LODHA", "headline": "Lodha: Board meeting outcome", "source": "nse-filing"},
+    ]
+    kept, dropped = m.refilter(rows)
+    assert [r["headline"] for r in dropped] == ["Amitabh Bachchan buys land: Abhinandan Lodha"]
+    assert len(kept) == 3
