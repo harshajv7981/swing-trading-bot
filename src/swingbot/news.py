@@ -169,22 +169,49 @@ def indian_source(domain: str) -> bool:
 # stake in SBI Funds Management" is SBI news.
 OTHER_COMPANIES = (
     "L&T Technology Services", "Larsen & Toubro Technology Services", "Larsen and Toubro Technology Services",
+    "L&T Technology", "L&T Tech",
     "L&T Finance", "Larsen & Toubro Finance", "L&T Mutual Fund",
     # Spun out of Vedanta in the 2026 demerger and listed on their own.
     "Vedanta Iron", "Vedanta Oil", "Vedanta Power",  # also covers "Vedanta Iron & Steel", "Vedanta Oil & Gas"
-    "SBI Mutual Fund", "SBI MF", "SBI Funds Management", "SBI Research",
+    "SBI Mutual Fund", "SBI MF", "SBI Funds Management", "SBI Funds", "SBI AMC", "SBI Research", "SBI Report",
     # Listed or branded separately from the universe company they start with.
     "SBI Card", "SBI Cards", "SBI Securities", "SBI Capital Markets", "SBI Capital", "SBI Caps", "SBICAPS", "SBI General",
     "Abhinandan Lodha",
+    "Shailesh Lodha",
+    "Indigo Paints",
+    "PNB Housing Finance", "PNB Housing", "PNB MetLife",
+    "Mangal Prabhat Lodha",
+    "ITC Hotels", "US ITC", "U.S. ITC",
+    "Wipro Consumer", "Wipro Consumer Care",
+    "M&M Financial", "M&M Finance", "Mahindra & Mahindra Financial", "Mahindra and Mahindra Financial",
+    "Attack on Titan", "moon Titan",
+    # People who share a universe name.
+    "Christa Gail Pike", "Gail Porter", "Gail Giustino",
 )
 
 # Titles about a company that are not news about its stock: job notices and fund products.
 NOT_NEWS = re.compile(
     # Job notices, but not news about jobs: "TCS job cuts" and "TCS hiring" stay.
     r"\b(admit card|recruitment 20\d\d|vacanc(?:y|ies)|apply online|job (?:openings?|notification|alert)|"
-    r"(?:equity|debt|hybrid|yield|index|bluechip|small ?cap|mid ?cap|large ?cap|flexi ?cap|elss) fund)\b"
+    r"(?:equity|debt|gilt|hybrid|yield|index|bluechip|small ?cap|mid ?cap|large ?cap|flexi ?cap|elss) fund)\b"
     r"|[-|,\u2013]\s*jobs?\s*$",
     re.IGNORECASE)
+
+
+def case_ok(seen: str, term: str) -> bool:
+    """Whether a title's spelling of a term can be the company, not a common word or a person.
+
+    A short acronym must be in capitals ("HAL", not the actor Hal; "TCS", not
+    "TCs"), and anything else must start with a capital ("Titan", not "tech titan";
+    "Power Grid", not "the US power grid"). Longer acronyms are often written
+    "Gail" or "Ntpc", so those only need the capital; people named Gail are in
+    OTHER_COMPANIES. Titles written all in capitals skip this.
+    """
+    if not term:
+        return True
+    if term.isupper() and len(term) <= 3:
+        return seen.isupper()
+    return not term[0].isupper() or seen[0].isupper()
 
 
 class HeadlineMatcher:
@@ -192,9 +219,11 @@ class HeadlineMatcher:
 
     def __init__(self, companies: list[Company], others: tuple[str, ...] = OTHER_COMPANIES):
         self.by_term: dict[str, list[Company]] = {t.lower(): [] for t in others}
+        self.spelling: dict[str, str] = {}  # how the universe writes each term, for the case check
         for c in companies:
             for t in c.terms:
                 self.by_term.setdefault(t.lower(), []).append(c)
+                self.spelling.setdefault(t.lower(), t)
         terms = sorted(self.by_term, key=len, reverse=True)  # longest first, so "Tata Steel" beats "Tata"
         self.pattern = re.compile(r"(?<!\w)(" + "|".join(re.escape(t) for t in terms) + r")(?!\w)", re.IGNORECASE)
 
@@ -202,7 +231,10 @@ class HeadlineMatcher:
         if NOT_NEWS.search(title):
             return []
         found: dict[str, Company] = {}
+        shouting = title.isupper()
         for m in self.pattern.finditer(title):
+            if not shouting and not case_ok(m.group(1), self.spelling.get(m.group(1).lower(), "")):
+                continue
             for c in self.by_term[m.group(1).lower()]:
                 found.setdefault(c.symbol, c)
         return list(found.values())

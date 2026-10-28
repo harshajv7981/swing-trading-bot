@@ -125,3 +125,42 @@ def test_a_run_with_no_latch_says_nothing_about_it(data):
     run.init(date(2026, 11, 2), date(2026, 11, 2), 1_000_000, prices, events, str(holidays))
     run.next(lambda _: None)
     assert run.latched() is None and "kill switch" not in run.report()
+
+
+def test_select_events_drops_roundups_and_keeps_the_first_per_stock():
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from swingbot.daily.loop import select_events
+
+    def ev(i, ticker, at, headline):
+        return SimpleNamespace(event_id=i, ticker=ticker, published_at=pd.Timestamp(at, tz="Asia/Kolkata"),
+                               headline=headline)
+
+    events = [
+        ev("b", "INDIGO", "2026-07-01 12:00", "IndiGo Lite fare, retold"),
+        ev("a", "INDIGO", "2026-07-01 10:00", "IndiGo launches Lite fares"),
+        ev("r1", "TCS", "2026-07-01 09:00", "Stocks to watch: TCS, Infosys"),
+        ev("r2", "INFY", "2026-07-01 09:00", "Stocks to watch: TCS, Infosys"),
+        ev("t", "TCS", "2026-07-01 11:00", "TCS wins a deal"),
+    ]
+    assert [e.event_id for e in select_events(events)] == ["r1", "r2", "a", "t", "b"]
+    assert [e.event_id for e in select_events(events, skip_roundups=True)] == ["a", "t", "b"]
+    assert [e.event_id for e in select_events(events, per_stock=1, skip_roundups=True)] == ["a", "t"]
+    assert [e.event_id for e in select_events(events, per_stock=1)] == ["r1", "r2", "a"]
+
+
+def test_a_run_with_selection_briefs_only_the_chosen_news(data):
+    tmp, prices, events, holidays = data
+    with events.open("a") as fh:
+        fh.write("e1b,TCS,2026-11-02 19:00+05:30,TCS order retold,,test\n"
+                 "r,TCS,2026-11-02 20:00+05:30,Stocks to watch: TCS and more,,test\n"
+                 "r,INFY,2026-11-02 20:00+05:30,Stocks to watch: TCS and more,,test\n")
+    from datetime import date
+    run = Run(tmp / "wf")
+    run.init(date(2026, 11, 2), date(2026, 11, 6), 1_000_000, prices, events, str(holidays),
+             per_stock=1, skip_roundups=True)
+    assert run.next(lambda *_: None) == "brief"
+    brief = (tmp / "wf/days/2026-11-03/brief.md").read_text()
+    assert "### e1" in brief and "e1b" not in brief and "Stocks to watch" not in brief

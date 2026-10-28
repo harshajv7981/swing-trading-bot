@@ -219,6 +219,7 @@ def test_matcher_skips_other_companies_and_non_news():
     assert [c.symbol for c in m.companies("SBI sells 1.42% stake in SBI Funds Management")] == ["SBIN"]
     assert m.companies("SBI Card shares slip 3%") == []
     assert m.companies("SBI Capital flags December hike risk") == []
+    assert m.companies("SBI Funds IPO subscribed 2.77x on Day 2") == []
     assert [c.symbol for c in m.companies("SBI raises lending rates")] == ["SBIN"]
     assert [c.symbol for c in m.companies("SBI Recruitment 2026: apply for 500 posts")] == []
     assert [c.symbol for c in m.companies("SBI job cuts hit branch staff")] == ["SBIN"]  # news about jobs stays
@@ -245,9 +246,27 @@ def test_refilter_drops_rows_todays_rules_reject():
     rows = [
         {"ticker": "LODHA", "headline": "Lodha Developers sales rise 10%", "source": "gdelt:mint.com"},
         {"ticker": "LODHA", "headline": "Amitabh Bachchan buys land: Abhinandan Lodha", "source": "gdelt:bt.in"},
+        {"ticker": "LODHA", "headline": "Shailesh Lodha's daughter gets married", "source": "gdelt:abp.in"},
         {"ticker": "RELIANCE", "headline": "Roundup: Lodha, RIL in focus", "source": "gdelt:et.com"},
         {"ticker": "LODHA", "headline": "Lodha: Board meeting outcome", "source": "nse-filing"},
     ]
     kept, dropped = m.refilter(rows)
-    assert [r["headline"] for r in dropped] == ["Amitabh Bachchan buys land: Abhinandan Lodha"]
+    assert [r["headline"] for r in dropped] == [
+        "Amitabh Bachchan buys land: Abhinandan Lodha", "Shailesh Lodha's daughter gets married"]
     assert len(kept) == 3
+
+
+def test_matcher_case_rules_drop_common_words_and_people():
+    from swingbot.news import HeadlineMatcher, case_ok
+
+    assert case_ok("HAL", "HAL") and not case_ok("Hal", "HAL")
+    assert case_ok("Titan", "Titan") and not case_ok("titan", "Titan")
+    titan = Company("TITAN", "Titan Company", ("Titan",))
+    gail = Company("GAIL", "GAIL India", ("GAIL",))
+    m = HeadlineMatcher([titan, gail])
+    assert m.companies("Nilekani, the tech titan") == []
+    assert m.companies("Attack on Titan gets a sequel") == []
+    assert m.companies("Gail Porter opens a restaurant") == []
+    assert [c.symbol for c in m.companies("RCF, Gail enter into MoU for urea plant")] == ["GAIL"]
+    assert [c.symbol for c in m.companies("Titan Q1 sales up 20%")] == ["TITAN"]
+    assert [c.symbol for c in m.companies("GAIL SHARES JUMP 5%")] == ["GAIL"]

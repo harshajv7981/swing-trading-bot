@@ -93,7 +93,8 @@ class Run:
                            state_dir=self.dir / "state", memory_db=self.dir / "memory.db",
                            holidays=Path(st["holidays"]) if st.get("holidays") else None,
                            risk_config=st.get("risk_config"), data_config=str(self.dir / "data.toml"),
-                           news_cutoff=DEFAULT_LLM_CUTOFF)
+                           news_cutoff=DEFAULT_LLM_CUTOFF, per_stock=int(st.get("per_stock", 0)),
+                           skip_roundups=bool(st.get("skip_roundups", False)))
 
     def day(self, st: dict, when: str) -> Day:
         return Day(f"{st['days'][st['index']]} {when}", self.config(st))
@@ -102,7 +103,7 @@ class Run:
 
     def init(self, start: date, end: date, cash: float, prices: Path, events: Path,
              holidays: str | None = None, risk_config: str | None = None,
-             results_dates: Path | None = None) -> dict:
+             results_dates: Path | None = None, per_stock: int = 0, skip_roundups: bool = False) -> dict:
         if self.state_path.exists():
             raise ValueError(f"{self.dir} already holds a run; pick another --dir or delete it by hand")
         if not prices.is_dir():
@@ -133,7 +134,8 @@ class Run:
         Ledger(self.dir / "ledger.jsonl").append(
             {"kind": "open", "at": f"{days[0] - timedelta(days=1)} 18:00", "cash": float(cash)})
         st = {"from": start.isoformat(), "to": end.isoformat(), "cash": cash, "days": [d.isoformat() for d in days],
-              "index": 0, "stage": "start", "holidays": holidays, "risk_config": risk_config}
+              "index": 0, "stage": "start", "holidays": holidays, "risk_config": risk_config,
+              "per_stock": per_stock, "skip_roundups": skip_roundups}
         self.save(st)
         return st
 
@@ -244,6 +246,10 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--risk-config", help="risk TOML (default config/risk.toml)")
     i.add_argument("--results-dates", help="symbol,date CSV of results meetings over the run, for the "
                                            "R9 blackout (the news file's NSE notices are read as well)")
+    i.add_argument("--per-stock", type=int, default=0,
+                   help="at most this many headlines per stock per day for the swarm, earliest first (0 = all)")
+    i.add_argument("--skip-roundups", action="store_true",
+                   help="leave out headlines that name several stocks (market roundups, stocks to watch)")
     sub.add_parser("next", help="run days until one needs the swarm")
     sub.add_parser("status")
     sub.add_parser("report")
@@ -257,7 +263,8 @@ def main(argv: list[str] | None = None) -> int:
                       "remember it), so those days will trade nothing")
             st = run.init(start_day, end_day, args.cash, Path(args.prices), Path(args.events),
                           args.holidays, args.risk_config,
-                          Path(args.results_dates) if args.results_dates else None)
+                          Path(args.results_dates) if args.results_dates else None,
+                          args.per_stock, args.skip_roundups)
             print(f"walk-forward run in {run.dir}: {len(st['days'])} sessions from {st['days'][0]} to "
                   f"{st['days'][-1]}, cash {args.cash:,.0f}. Next: `swingbot-walkforward next`.")
             return 0
