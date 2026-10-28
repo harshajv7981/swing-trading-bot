@@ -1,4 +1,4 @@
-"""Network calls for news: the GDELT DOC API and NSE's corporate announcements.
+"""Network calls for news: the GDELT DOC API, GDELT's bulk GKG files and NSE's corporate announcements.
 
 Kept apart from `swingbot.news` (pure parsing, tested offline) so the fetch
 scripts and the daily refresh share one copy. Nothing here runs in the cloud
@@ -14,13 +14,15 @@ collects stays under the git-ignored data/raw/ and must not be shared.
 from __future__ import annotations
 
 import http.cookiejar
+import io
 import json
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date
+import zipfile
+from datetime import date, datetime
 
 GDELT_API = "https://api.gdeltproject.org/api/v2/doc/doc"
 GDELT_UA = "swingbot-research/0.1 (personal backtest)"
@@ -83,6 +85,40 @@ def gdelt_articles(query: str, start: date, end: date, retries: int = 4) -> list
         print(f"  GDELT rate limit; waiting {wait:.0f}s", file=sys.stderr)
         time.sleep(wait)
     return []
+
+
+GKG_FILES = "http://data.gdeltproject.org/gdeltv2"
+
+
+def gkg_url(at: datetime) -> str:
+    """The English GKG 2.0 file for the 15-minute batch ending at `at` (UTC)."""
+    return f"{GKG_FILES}/{at:%Y%m%d%H%M%S}.gkg.csv.zip"
+
+
+def gkg_lines(at: datetime, retries: int = 3) -> tuple[list[str], int] | None:
+    """The lines of one GKG file and its zipped size, or None when GDELT has no file for that batch.
+
+    A few batches are missing on GDELT's side every month; those 404 and are skipped.
+    """
+    url = gkg_url(at)
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": GDELT_UA})
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = resp.read()
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                raw = z.read(z.namelist()[0])
+            return raw.decode("utf-8", "replace").splitlines(), len(data)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            if attempt == retries - 1:
+                raise
+        except (urllib.error.URLError, TimeoutError, zipfile.BadZipFile, ConnectionError):
+            if attempt == retries - 1:
+                raise
+        time.sleep(5 * (attempt + 1))
+    return None
 
 
 class NSESession:
