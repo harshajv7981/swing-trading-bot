@@ -86,3 +86,27 @@ and +0.041R, but within noise of TREND in both periods.
   ordinary uptrend day is about break-even after costs. Simple price and volume
   triggers don't add a reliable edge to that, even with survivorship bias
   flattering every long.
+
+## Part 2 plan: patterns in the news calls (written before looking)
+
+Data: the walk-forward's scored judge calls on Harsha's Mac (runs/walkforward-pilot
+and runs/walkforward-augoct; score-judge, score-crowd, score-lexicon), at the
+72-hour horizon. Discovery: calls from 1 Jul to 31 Aug 2026. Holdout: 1 Sep to
+27 Oct 2026.
+
+Slices, fixed now (each is a judge directional call unless noted):
+1. Direction: bullish, bearish.
+2. News type, by keywords in the headline: results (Q1, Q2, profit, revenue, results,
+   earnings), orders (order, contract, wins, bags), ratings (upgrade, downgrade,
+   target, buy, sell, rating), regulator (SEBI, RBI, FDA, USFDA, IRDAI, FSSAI,
+   penalty, probe, ban), other.
+3. Trend: stock above or below its 200-day average on the call day.
+4. Market mood on the call day (as the brief recorded it).
+5. Conviction: under 0.5, 0.5 and up.
+6. Each persona's own directional calls (crowd scorecard rows).
+
+Pass: hit rate of at least 60% on at least 20 calls in discovery, AND at least 55%
+on at least 15 calls in the holdout, AND the mean 72-hour return in the call's
+direction beats the Nifty's over the same window in both periods. The number of
+slices tried is reported next to any pass. With about 25 slices, one or two
+will pass discovery by luck, so only holdout survivors count.
