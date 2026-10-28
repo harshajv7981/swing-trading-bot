@@ -110,3 +110,38 @@ on at least 15 calls in the holdout, AND the mean 72-hour return in the call's
 direction beats the Nifty's over the same window in both periods. The number of
 slices tried is reported next to any pass. With about 25 slices, one or two
 will pass discovery by luck, so only holdout survivors count.
+
+## Part 2 results (run 2026-10-28 on the Mac)
+
+18 slices tried (no day had a "bearish" mood), **0 pass**, and none passes even the
+discovery stage. Discovery has 149 judge directional calls (Jul–Aug); the
+holdout has 45 (Sep–Oct). Excess is the mean 72-hour return in the call's
+direction minus the Nifty's, in %.
+
+| Slice | Discovery n / hit / excess | Holdout n / hit / excess |
+|---|---|---|
+| Bullish | 101 / 47% / +0.01 | 30 / 33% / -0.02 |
+| Bearish | 48 / 52% / -0.15 | 15 / 67% / +0.83 |
+| Results news | 66 / 45% / +0.11 | 10 / 60% / +1.86 |
+| Order news | 9 / 33% / -1.49 | 3 / 33% / -0.38 |
+| Rating news | 13 / 69% / +1.52 | 5 / 40% / +1.21 |
+| Regulator news | 2 / 0% / -1.08 | 5 / 60% / -0.26 |
+| Other news | 59 / 51% / -0.30 | 22 / 36% / -0.38 |
+| Above SMA200 | 82 / 45% / -0.08 | 22 / 41% / +0.52 |
+| Below SMA200 | 61 / 49% / -0.12 | 23 / 48% / +0.02 |
+| Mood bullish | 47 / 55% / -0.00 | 0 |
+| Mood defensive | 5 / 20% / -0.23 | 11 / 55% / +0.32 |
+| Mood neutral | 97 / 46% / -0.05 | 34 / 41% / +0.26 |
+| Conviction < 0.5 | 117 / 49% / +0.03 | 43 / 44% / +0.29 |
+| Conviction >= 0.5 | 32 / 47% / -0.30 | 2 / 50% / +0.02 |
+| Retail Bull persona | 251 / 47% / +0.07 | 108 / 38% / +0.06 |
+| Institutional Bear persona | 128 / 59% / -0.06 | 31 / 61% / +1.08 |
+| FII persona | 190 / 46% / -0.06 | 58 / 45% / +0.30 |
+| Financial Media persona | 235 / 48% / +0.05 | 65 / 42% / +0.11 |
+
+There are three near-misses, and none of them counts:
+- **Institutional Bear persona:** 59% in discovery, but with negative excess, and the Sep–Oct fall flatters a bear.
+- **Rating news:** 69% in discovery, but on only 13 calls.
+- **Bearish calls:** 67% in the holdout, but only 52% in discovery.
+
+**Overall:** neither the price rules nor the news calls show an edge that survives an honest out-of-sample check.
