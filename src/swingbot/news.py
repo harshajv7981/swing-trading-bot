@@ -176,6 +176,7 @@ OTHER_COMPANIES = (
     # Listed or branded separately from the universe company they start with.
     "SBI Card", "SBI Cards", "SBI Securities", "SBI Capital Markets", "SBI Capital", "SBI Caps", "SBICAPS", "SBI General",
     "Abhinandan Lodha",
+    "Shailesh Lodha",
 )
 
 # Titles about a company that are not news about its stock: job notices and fund products.

@@ -246,9 +246,11 @@ def test_refilter_drops_rows_todays_rules_reject():
     rows = [
         {"ticker": "LODHA", "headline": "Lodha Developers sales rise 10%", "source": "gdelt:mint.com"},
         {"ticker": "LODHA", "headline": "Amitabh Bachchan buys land: Abhinandan Lodha", "source": "gdelt:bt.in"},
+        {"ticker": "LODHA", "headline": "Shailesh Lodha's daughter gets married", "source": "gdelt:abp.in"},
         {"ticker": "RELIANCE", "headline": "Roundup: Lodha, RIL in focus", "source": "gdelt:et.com"},
         {"ticker": "LODHA", "headline": "Lodha: Board meeting outcome", "source": "nse-filing"},
     ]
     kept, dropped = m.refilter(rows)
-    assert [r["headline"] for r in dropped] == ["Amitabh Bachchan buys land: Abhinandan Lodha"]
+    assert [r["headline"] for r in dropped] == [
+        "Amitabh Bachchan buys land: Abhinandan Lodha", "Shailesh Lodha's daughter gets married"]
     assert len(kept) == 3
