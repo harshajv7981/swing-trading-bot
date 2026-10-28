@@ -235,6 +235,9 @@ python scripts/fetch_gdelt_news.py --start 2026-07-01 --end 2026-10-15
 # (it blocks an IP for a day or more after heavy use) or for windows older than
 # three months. No request limit, but it downloads about 0.5 to 1 GB a day of news.
 python scripts/fetch_gdelt_bulk.py --start 2026-07-01 --end 2026-10-27
+# Or let GitHub do the download (free on a public repo): Actions > "Fetch data" >
+# Run workflow, then fetch the few-MB result of news and prices:
+gh run download --repo harshajv7981/swing-trading-bot --name swingbot-data --dir .
 
 # NSE exchange filings, timestamped to the second. Read --help first.
 python scripts/fetch_nse_announcements.py --accept-nse-terms --start 2026-07-01 --end 2026-10-15
