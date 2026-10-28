@@ -55,3 +55,34 @@ bar below are fixed here so the results cannot steer them.
   TREND, and the rule beats TREND in at least 60% of holdout years.
 - With 4 rules, one may pass by luck. A rule that passes only one of the two
   periods counts as a fail.
+
+## Results (run 2026-10-28, after the plan above was committed)
+
+`scripts/research/price_rules_study.py` and `price_rules_tables.py`, on eod2_data
+to 23 Oct 2026. R is per trade after 0.25% costs. "vs TREND" is the rule's mean R
+minus the TREND baseline's, with a t-stat.
+
+Hold 5 sessions (the plan's main test):
+
+| Rule | Discovery 2010–19 | Holdout 2020–26 | Holdout years beating TREND | Verdict |
+|---|---|---|---|---|
+| TREND baseline | -0.015R (104,579 days) | -0.003R (92,216) | | |
+| A. Volume thrust | -0.037R, -0.022 vs TREND (t -1.4), n 1,565 | +0.015R, +0.018 (t +1.0), n 1,640 | 4/7 | fail |
+| B. Pullback in uptrend | +0.010R, +0.025 (t +3.0), n 5,113 | -0.012R, -0.009 (t -1.0), n 4,499 | 2/7 | fail |
+| C. 52-week high | -0.044R, -0.030 (t -2.0), n 1,784 | -0.020R, -0.017 (t -1.0), n 1,835 | 3/7 | fail |
+| D. Shock dip | -0.076R, -0.061 (t -1.9), n 352 | -0.003R, -0.000 (t 0.0), n 441 | 1/7 | fail |
+
+Hold 10 (the check): TREND is +0.012R and +0.043R. A turns positive in the
+holdout (+0.093R, +0.050 vs TREND, t +2.1, 6 of 7 years) but lost in discovery
+(-0.059 vs TREND, t -2.9). Under the plan, passing only one period is a fail,
+and a rule that flips sign between decades is not one to trade. B is +0.029R
+and +0.041R, but within noise of TREND in both periods.
+
+**Verdict: no rule passes.**
+- None beats the trend baseline by the planned margin in both periods. The only
+  discovery pass, B at hold 5, is +0.025R: half the bar, and it reversed in
+  the holdout.
+- With this ticket (limit at the close, 2.5 ATR stop, 2R target, 5 sessions), an
+  ordinary uptrend day is about break-even after costs. Simple price and volume
+  triggers don't add a reliable edge to that, even with survivorship bias
+  flattering every long.
