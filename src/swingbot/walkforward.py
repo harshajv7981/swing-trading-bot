@@ -94,7 +94,8 @@ class Run:
                            holidays=Path(st["holidays"]) if st.get("holidays") else None,
                            risk_config=st.get("risk_config"), data_config=str(self.dir / "data.toml"),
                            news_cutoff=DEFAULT_LLM_CUTOFF, per_stock=int(st.get("per_stock", 0)),
-                           skip_roundups=bool(st.get("skip_roundups", False)))
+                           skip_roundups=bool(st.get("skip_roundups", False)),
+                           min_tone=float(st.get("min_tone", 0.0)))
 
     def day(self, st: dict, when: str) -> Day:
         return Day(f"{st['days'][st['index']]} {when}", self.config(st))
@@ -103,7 +104,8 @@ class Run:
 
     def init(self, start: date, end: date, cash: float, prices: Path, events: Path,
              holidays: str | None = None, risk_config: str | None = None,
-             results_dates: Path | None = None, per_stock: int = 0, skip_roundups: bool = False) -> dict:
+             results_dates: Path | None = None, per_stock: int = 0, skip_roundups: bool = False,
+             min_tone: float = 0.0) -> dict:
         if self.state_path.exists():
             raise ValueError(f"{self.dir} already holds a run; pick another --dir or delete it by hand")
         if not prices.is_dir():
@@ -135,7 +137,7 @@ class Run:
             {"kind": "open", "at": f"{days[0] - timedelta(days=1)} 18:00", "cash": float(cash)})
         st = {"from": start.isoformat(), "to": end.isoformat(), "cash": cash, "days": [d.isoformat() for d in days],
               "index": 0, "stage": "start", "holidays": holidays, "risk_config": risk_config,
-              "per_stock": per_stock, "skip_roundups": skip_roundups}
+              "per_stock": per_stock, "skip_roundups": skip_roundups, "min_tone": min_tone}
         self.save(st)
         return st
 
@@ -250,6 +252,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="at most this many headlines per stock per day for the swarm, earliest first (0 = all)")
     i.add_argument("--skip-roundups", action="store_true",
                    help="leave out headlines that name several stocks (market roundups, stocks to watch)")
+    i.add_argument("--min-tone", type=float, default=0.0,
+                   help="skip headlines whose keyword tone is weaker than this, a free screen before the "
+                        "swarm (0 = keep all)")
+    sc = sub.add_parser("screen", help="change the keyword-tone screen for the days not yet played")
+    sc.add_argument("--min-tone", type=float, required=True)
     sub.add_parser("next", help="run days until one needs the swarm")
     sub.add_parser("status")
     sub.add_parser("report")
@@ -264,9 +271,15 @@ def main(argv: list[str] | None = None) -> int:
             st = run.init(start_day, end_day, args.cash, Path(args.prices), Path(args.events),
                           args.holidays, args.risk_config,
                           Path(args.results_dates) if args.results_dates else None,
-                          args.per_stock, args.skip_roundups)
+                          args.per_stock, args.skip_roundups, args.min_tone)
             print(f"walk-forward run in {run.dir}: {len(st['days'])} sessions from {st['days'][0]} to "
                   f"{st['days'][-1]}, cash {args.cash:,.0f}. Next: `swingbot-walkforward next`.")
+            return 0
+        if args.cmd == "screen":
+            st = run.state()
+            st["min_tone"] = args.min_tone
+            run.save(st)
+            print(f"keyword-tone screen set to {args.min_tone} from {st['days'][st['index']]} on")
             return 0
         if args.cmd == "next":
             run.next()

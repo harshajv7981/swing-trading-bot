@@ -164,3 +164,23 @@ def test_a_run_with_selection_briefs_only_the_chosen_news(data):
     assert run.next(lambda *_: None) == "brief"
     brief = (tmp / "wf/days/2026-11-03/brief.md").read_text()
     assert "### e1" in brief and "e1b" not in brief and "Stocks to watch" not in brief
+
+
+def test_select_events_screens_out_flat_headlines_before_picking_per_stock():
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from swingbot.daily.loop import select_events
+
+    def ev(i, ticker, at, headline):
+        return SimpleNamespace(event_id=i, ticker=ticker, published_at=pd.Timestamp(at, tz="Asia/Kolkata"),
+                               headline=headline, body="")
+
+    events = [
+        ev("flat", "TCS", "2026-07-01 09:00", "TCS to hold board meeting on Thursday"),
+        ev("beat", "TCS", "2026-07-01 10:00", "TCS profit jumps, beats estimates"),
+        ev("cut", "INFY", "2026-07-01 11:00", "Infosys slashes guidance, shares plunge"),
+    ]
+    assert [e.event_id for e in select_events(events, per_stock=1, min_tone=0.2)] == ["beat", "cut"]
+    assert [e.event_id for e in select_events(events, per_stock=1)] == ["flat", "cut"]

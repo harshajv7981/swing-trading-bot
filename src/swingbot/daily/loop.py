@@ -55,6 +55,7 @@ from ..risk.gate import DEFAULT_STATE_DIR, KillSwitch
 from ..risk import results
 from ..risk.portfolio import Order, Portfolio
 from ..risk.ticket import describe as describe_ticket
+from ..swarm.reasoners import news_tone
 from ..swarm.recorded import MissingViews, RecordedSwarm
 from .hooks import BLOCKED, FAILED, HOOKS, OK, SKIPPED, Step, load_hook
 from .session import CLOSED, HOLIDAY, OPEN_NOW, PRE_OPEN, ist, news_window, next_session, phase
@@ -83,6 +84,7 @@ class DailyConfig:
     news_cutoff: str | None = None  # drop news before this date (the walk-forward sets the model's cutoff)
     per_stock: int = 0              # at most this many headlines per stock per day for the swarm (0 = all)
     skip_roundups: bool = False     # leave out headlines naming several stocks ("Stocks to watch: A, B, C")
+    min_tone: float = 0.0           # skip headlines whose keyword tone is weaker than this (0 = keep all)
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "DailyConfig":
@@ -110,6 +112,7 @@ class DailyConfig:
             **{k: bool(brief.get(k, True)) for k in ("with_technicals", "with_context", "with_mood", "with_lessons")},
             per_stock=int(brief.get("per_stock", 0)),
             skip_roundups=bool(brief.get("skip_roundups", False)),
+            min_tone=float(brief.get("min_tone", 0.0)),
             alerts=alerts.AlertConfig.from_toml(raw.get("alerts", {})),
         )
 
@@ -313,14 +316,19 @@ def _results(day: Day, steps: list[Step]) -> None:
                                            f"date ahead; {blackout}"))
 
 
-def select_events(events: list, per_stock: int = 0, skip_roundups: bool = False) -> list:
+def select_events(events: list, per_stock: int = 0, skip_roundups: bool = False, min_tone: float = 0.0) -> list:
     """The day's news the swarm sees, oldest first.
 
     A roundup is a headline filed under more than one stock (the matcher gives
-    each named stock its own row). `per_stock` keeps each stock's earliest
-    headlines: most of a day's stories on one stock are the same story retold.
+    each named stock its own row). `min_tone` is a free screen before the
+    swarm: it drops headlines whose keyword tone (the lexicon engine's
+    `news_tone`) is weaker than this, which are mostly news the swarm calls
+    neutral anyway. `per_stock` then keeps each stock's earliest headlines:
+    most of a day's stories on one stock are the same story retold.
     """
     events = sorted(events, key=lambda e: e.published_at)
+    if min_tone > 0:
+        events = [e for e in events if abs(news_tone(f"{e.headline} {e.headline} {e.body}")) >= min_tone]
     if skip_roundups:
         tickers: dict[str, set[str]] = {}
         for e in events:
@@ -342,7 +350,7 @@ def _headline_key(headline: str) -> str:
 
 
 def _selecting(config: DailyConfig) -> bool:
-    return config.per_stock > 0 or config.skip_roundups
+    return config.per_stock > 0 or config.skip_roundups or config.min_tone > 0
 
 
 def window_events(day: Day, state: dict) -> list:
@@ -352,7 +360,7 @@ def window_events(day: Day, state: dict) -> list:
     if day.config.news_cutoff:
         since = max(since, ist(day.config.news_cutoff))
     events = [e for e in load_events(day.data.events_file) if since <= e.published_at < until]
-    return select_events(events, day.config.per_stock, day.config.skip_roundups)
+    return select_events(events, day.config.per_stock, day.config.skip_roundups, day.config.min_tone)
 
 
 def _selected_file(day: Day, events: list) -> Path:
