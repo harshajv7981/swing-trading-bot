@@ -169,6 +169,7 @@ def indian_source(domain: str) -> bool:
 # stake in SBI Funds Management" is SBI news.
 OTHER_COMPANIES = (
     "L&T Technology Services", "Larsen & Toubro Technology Services", "Larsen and Toubro Technology Services",
+    "L&T Technology", "L&T Tech",
     "L&T Finance", "Larsen & Toubro Finance", "L&T Mutual Fund",
     # Spun out of Vedanta in the 2026 demerger and listed on their own.
     "Vedanta Iron", "Vedanta Oil", "Vedanta Power",  # also covers "Vedanta Iron & Steel", "Vedanta Oil & Gas"
@@ -178,13 +179,15 @@ OTHER_COMPANIES = (
     "Abhinandan Lodha",
     "Shailesh Lodha",
     "Indigo Paints",
+    "PNB Housing Finance", "PNB Housing", "PNB MetLife",
+    "Mangal Prabhat Lodha",
 )
 
 # Titles about a company that are not news about its stock: job notices and fund products.
 NOT_NEWS = re.compile(
     # Job notices, but not news about jobs: "TCS job cuts" and "TCS hiring" stay.
     r"\b(admit card|recruitment 20\d\d|vacanc(?:y|ies)|apply online|job (?:openings?|notification|alert)|"
-    r"(?:equity|debt|hybrid|yield|index|bluechip|small ?cap|mid ?cap|large ?cap|flexi ?cap|elss) fund)\b"
+    r"(?:equity|debt|gilt|hybrid|yield|index|bluechip|small ?cap|mid ?cap|large ?cap|flexi ?cap|elss) fund)\b"
     r"|[-|,\u2013]\s*jobs?\s*$",
     re.IGNORECASE)
 
