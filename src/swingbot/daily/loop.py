@@ -25,6 +25,7 @@ never edits a limit and never talks to a real broker.
 
 from __future__ import annotations
 
+import csv
 import io
 import json
 import tomllib
@@ -80,6 +81,8 @@ class DailyConfig:
     with_lessons: bool = True
     alerts: alerts.AlertConfig = field(default_factory=alerts.AlertConfig)
     news_cutoff: str | None = None  # drop news before this date (the walk-forward sets the model's cutoff)
+    per_stock: int = 0              # at most this many headlines per stock per day for the swarm (0 = all)
+    skip_roundups: bool = False     # leave out headlines naming several stocks ("Stocks to watch: A, B, C")
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "DailyConfig":
@@ -105,6 +108,8 @@ class DailyConfig:
             data_config=opt(paths, "data_config"),
             batch=int(brief.get("batch", 10)),
             **{k: bool(brief.get(k, True)) for k in ("with_technicals", "with_context", "with_mood", "with_lessons")},
+            per_stock=int(brief.get("per_stock", 0)),
+            skip_roundups=bool(brief.get("skip_roundups", False)),
             alerts=alerts.AlertConfig.from_toml(raw.get("alerts", {})),
         )
 
@@ -308,13 +313,62 @@ def _results(day: Day, steps: list[Step]) -> None:
                                            f"date ahead; {blackout}"))
 
 
+def select_events(events: list, per_stock: int = 0, skip_roundups: bool = False) -> list:
+    """The day's news the swarm sees, oldest first.
+
+    A roundup is a headline filed under more than one stock (the matcher gives
+    each named stock its own row). `per_stock` keeps each stock's earliest
+    headlines: most of a day's stories on one stock are the same story retold.
+    """
+    events = sorted(events, key=lambda e: e.published_at)
+    if skip_roundups:
+        tickers: dict[str, set[str]] = {}
+        for e in events:
+            tickers.setdefault(_headline_key(e.headline), set()).add(e.ticker)
+        events = [e for e in events if len(tickers[_headline_key(e.headline)]) == 1]
+    if per_stock > 0:
+        seen: dict[str, int] = {}
+        kept = []
+        for e in events:
+            if seen.get(e.ticker, 0) < per_stock:
+                seen[e.ticker] = seen.get(e.ticker, 0) + 1
+                kept.append(e)
+        events = kept
+    return events
+
+
+def _headline_key(headline: str) -> str:
+    return " ".join("".join(ch if ch.isalnum() else " " for ch in headline.lower()).split())
+
+
+def _selecting(config: DailyConfig) -> bool:
+    return config.per_stock > 0 or config.skip_roundups
+
+
 def window_events(day: Day, state: dict) -> list:
     if not day.data.events_file.exists():
         return []
     since, until = ist(state["since"]), ist(state["until"])
     if day.config.news_cutoff:
         since = max(since, ist(day.config.news_cutoff))
-    return [e for e in load_events(day.data.events_file) if since <= e.published_at < until]
+    events = [e for e in load_events(day.data.events_file) if since <= e.published_at < until]
+    return select_events(events, day.config.per_stock, day.config.skip_roundups)
+
+
+def _selected_file(day: Day, events: list) -> Path:
+    """The day's chosen events as their own file, so the brief shows exactly those."""
+    keep = {e.event_id for e in events}
+    with open(day.data.events_file, newline="") as f:
+        reader = csv.DictReader(f)
+        rows = [r for r in reader if r.get("event_id") in keep]
+        fields = reader.fieldnames or []
+    path = day.path("events.csv")
+    day.dir.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(rows)
+    return path
 
 
 def brief(day: Day, state: dict) -> Step:
@@ -325,7 +379,8 @@ def brief(day: Day, state: dict) -> Step:
     if not events:
         return Step("swarm brief", OK, f"no news between {state['since']} and {state['until']}: nothing to trade today")
     prices = str(day.data.prices_dir)
-    argv = ["--events", day.data.events_file, "--views", day.path("views.jsonl"), "--limit", day.config.batch,
+    source = _selected_file(day, events) if _selecting(day.config) else day.data.events_file
+    argv = ["--events", source, "--views", day.path("views.jsonl"), "--limit", day.config.batch,
             "--out", day.path("brief.md"), "--cutoff", day.config.news_cutoff or "none", "--since", state["since"], "--until", state["until"]]
     if day.config.with_technicals:
         argv += ["--with-technicals", prices]

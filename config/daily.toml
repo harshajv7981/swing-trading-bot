@@ -25,6 +25,8 @@ with_technicals = true  # a technical snapshot per stock, from closed sessions o
 with_context = true     # the week's earlier news and filings, and the latest results
 with_mood = true        # the market mood (R12)
 with_lessons = true     # past lessons from runs/memory.db, once it exists
+per_stock = 0           # at most this many headlines per stock per day, earliest first (0 = all; ~170 a day)
+skip_roundups = false   # true leaves out headlines naming several stocks ("Stocks to watch: A, B, C")
 
 [alerts]
 # Phone alerts for fills, stops, a stop that lapsed, the kill switch latch and
