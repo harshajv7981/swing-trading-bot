@@ -23,6 +23,10 @@ Everything goes where the data router reads it (config/data_sources.toml), so
   session that hasn't closed yet is never saved.
 * News: GDELT headlines since the last successful run for each stock (one day
   of overlap, since GDELT can see an article late), merged into the events file.
+  With `--news-source github` (or `news_source = "github"` under [refresh]) the
+  DOC API isn't called at all: the newest `swingbot-news-daily` artifact from the
+  repo's nightly "Fetch data" workflow is downloaded with `gh` and merged instead,
+  so this machine's IP never meets GDELT's rate limit.
 * Filings: NSE announcements the same way, only with --accept-nse-terms (or
   `accept_nse_terms = true` under [refresh] in the config). NSE's terms forbid
   automated collection and simulation use; see `swingbot.data.remote`.
@@ -36,10 +40,14 @@ two runs overlapping. One stock failing doesn't stop the rest; the exit code is
 from __future__ import annotations
 
 import argparse
+import csv
 import fcntl
 import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from contextlib import contextmanager
@@ -76,6 +84,8 @@ class RefreshSettings:
     accept_nse_terms: bool = False
     gdelt_pause: float = 5.0  # GDELT asks for one request every 5 seconds
     nse_pause: float = 4.0
+    news_source: str = "gdelt"  # gdelt (the DOC API from here) or github (the nightly Actions artifact)
+    github_repo: str = "harshajv7981/swing-trading-bot"
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "RefreshSettings":
@@ -88,6 +98,8 @@ class RefreshSettings:
             accept_nse_terms=bool(raw.get("accept_nse_terms", base.accept_nse_terms)),
             gdelt_pause=float(raw.get("gdelt_pause", base.gdelt_pause)),
             nse_pause=float(raw.get("nse_pause", base.nse_pause)),
+            news_source=str(raw.get("news_source", base.news_source)),
+            github_repo=str(raw.get("github_repo", base.github_repo)),
         )
 
 
@@ -290,6 +302,66 @@ def refresh_news(router: Router, companies: list[news.Company], now: pd.Timestam
     return items
 
 
+NIGHTLY_ARTIFACT = "swingbot-news-daily"
+NIGHTLY_MAX_AGE = pd.Timedelta(hours=48)  # older than this, the nightly run has stopped
+
+
+def gh_download(repo: str, dest: Path) -> pd.Timestamp:
+    """Download the newest `NIGHTLY_ARTIFACT` of `repo` into `dest` with the GitHub CLI.
+
+    Returns when the run that made it finished. Raises RuntimeError with what to do
+    when gh is missing, signed out, or there is no artifact.
+    """
+    if not shutil.which("gh"):
+        raise RuntimeError("the GitHub CLI isn't installed: `brew install gh`, then `gh auth login`")
+    if subprocess.run(["gh", "auth", "status"], capture_output=True, check=False).returncode:
+        raise RuntimeError("the GitHub CLI isn't signed in: run `gh auth login`")
+    listing = subprocess.run(
+        ["gh", "api", f"repos/{repo}/actions/artifacts?name={NIGHTLY_ARTIFACT}&per_page=10"],
+        capture_output=True, text=True, check=False)
+    if listing.returncode:
+        raise RuntimeError(f"couldn't list {repo}'s artifacts: {listing.stderr.strip()[:200]}")
+    live = [a for a in json.loads(listing.stdout).get("artifacts", []) if not a.get("expired")]
+    if not live:
+        raise RuntimeError(f"no {NIGHTLY_ARTIFACT} artifact in {repo}: has the nightly Fetch data run happened?")
+    newest = max(live, key=lambda a: a["created_at"])
+    got = subprocess.run(["gh", "run", "download", str(newest["workflow_run"]["id"]), "--repo", repo,
+                          "--name", NIGHTLY_ARTIFACT, "--dir", str(dest)],
+                         capture_output=True, text=True, check=False)
+    if got.returncode:
+        raise RuntimeError(f"gh run download failed: {got.stderr.strip()[:200]}")
+    return pd.Timestamp(newest["created_at"])
+
+
+def refresh_news_github(router: Router, companies: list[news.Company], now: pd.Timestamp, repo: str, *,
+                        download: Callable[[str, Path], pd.Timestamp] | None = None) -> list[Item]:
+    """Merge the nightly Actions artifact's headlines instead of calling the DOC API.
+
+    One report line for the whole download, since it isn't fetched per stock.
+    Rows merge by id, so the day of overlap between nightly runs adds nothing twice.
+    """
+    download = download or gh_download
+    wanted = {c.symbol for c in companies}
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            made = download(repo, Path(tmp))
+            found = sorted(Path(tmp).rglob("events.csv"))
+            if not found:
+                raise RuntimeError(f"the {NIGHTLY_ARTIFACT} artifact has no events.csv")
+            with open(found[0], newline="") as f:
+                rows = [r for r in csv.DictReader(f) if r.get("ticker") in wanted]
+        except Exception as e:  # noqa: BLE001  gh missing or signed out, network, an empty artifact
+            return [Item("news", "*", "failed", f"GitHub nightly news: {e}")]
+    added, _ = news.merge_into(router.config.events_file, rows)
+    age = pd.Timestamp(now) - made.tz_convert(IST)
+    detail = f"{NIGHTLY_ARTIFACT} made {made.tz_convert(IST):%Y-%m-%d %H:%M} IST, {len(rows)} headlines"
+    if age > NIGHTLY_MAX_AGE:
+        return [Item("news", "*", "failed",
+                     f"{detail}; it is {age.days} days old, so the nightly run has stopped (check the Actions "
+                     "tab: GitHub disables schedules after 60 days without repo activity)", added)]
+    return [Item("news", "*", "updated" if added else "no_new", detail, added)]
+
+
 def refresh_filings(router: Router, companies: list[news.Company], now: pd.Timestamp, state_file: Path, *,
                     session_factory: Callable | None = None, pause: float = 4.0,
                     sleep: Callable[[float], None] = time.sleep) -> list[Item]:
@@ -353,7 +425,7 @@ def run(router: Router | None = None, settings: RefreshSettings | None = None, *
         tickers: list[str] | None = None, accept_nse_terms: bool | None = None,
         calendar: NSECalendar | None = None, gdelt_fetch: Callable | None = None,
         nse_session: Callable | None = None, sleep: Callable[[float], None] = time.sleep,
-        actions_dir: Path | None = DEFAULT_ACTIONS_DIR) -> RefreshReport:
+        actions_dir: Path | None = DEFAULT_ACTIONS_DIR, github_download: Callable | None = None) -> RefreshReport:
     """The daily refresh. The daily loop calls this; `main` is the command line around it.
 
     `tickers` narrows the universe (and, for prices, drops the index series
@@ -378,7 +450,10 @@ def run(router: Router | None = None, settings: RefreshSettings | None = None, *
     with _lock(settings.state_file.with_name("refresh.lock")):
         if "prices" in only:
             report.items += refresh_prices(router, symbols, now, calendar, actions_dir)
-        if "news" in only:
+        if "news" in only and settings.news_source == "github":
+            report.items += refresh_news_github(router, companies, now, settings.github_repo,
+                                                download=github_download)
+        elif "news" in only:
             report.items += refresh_news(router, companies, now, settings.state_file,
                                          fetch=gdelt_fetch, pause=settings.gdelt_pause, sleep=sleep)
         if "filings" in only:
@@ -401,6 +476,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--universe", help="symbol,name,aliases CSV (default from [refresh] in the config)")
     p.add_argument("--accept-nse-terms", action="store_true",
                    help="also fetch NSE filings; this breaks NSE's terms of use, see swingbot.data.remote")
+    p.add_argument("--news-source", choices=["gdelt", "github"],
+                   help="gdelt: the DOC API from this machine; github: the nightly Actions artifact, "
+                        "via the gh CLI (default from [refresh] in the config, else gdelt)")
     p.add_argument("--config", help="data sources TOML (default config/data_sources.toml)")
     p.add_argument("--now", help="pretend it is this IST time, 'YYYY-MM-DD HH:MM' (for re-runs and tests)")
     p.add_argument("--json", action="store_true", help="print the report as JSON")
@@ -409,6 +487,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = RefreshSettings.load(args.config)
     if args.universe:
         settings = RefreshSettings(**{**asdict(settings), "universe": Path(args.universe)})
+    if args.news_source:
+        settings = RefreshSettings(**{**asdict(settings), "news_source": args.news_source})
     try:
         report = run(Router(DataConfig.load(args.config)), settings,
                      now=parse_as_of(args.now) if args.now else None, only=tuple(args.only),

@@ -238,6 +238,10 @@ python scripts/fetch_gdelt_bulk.py --start 2026-07-01 --end 2026-10-27
 # Or let GitHub do the download (free on a public repo): Actions > "Fetch data" >
 # Run workflow, then fetch the few-MB result of news and prices:
 gh run download --repo harshajv7981/swing-trading-bot --name swingbot-data --dir .
+# After that backfill, the same workflow runs by itself every night at 22:00 IST
+# for yesterday and today (news only), and the daily refresh merges that file
+# instead of calling GDELT from your machine (needs `gh`, signed in):
+swingbot-refresh --news-source github   # or news_source = "github" under [refresh]
 
 # NSE exchange filings, timestamped to the second. Read --help first.
 python scripts/fetch_nse_announcements.py --accept-nse-terms --start 2026-07-01 --end 2026-10-15
@@ -255,6 +259,14 @@ python scripts/fetch_nse_announcements.py --accept-nse-terms --start 2026-07-01 
   Mutual Fund: `OTHER_COMPANIES` in `swingbot/news.py`), job notices and fund
   pages, and pages whose URL dates them more than a week before GDELT saw them.
   Market roundups that name several stocks are kept, one row per stock.
+* **The nightly GitHub run** uploads a `swingbot-news-daily` artifact (kept 14
+  days). With `--news-source github` the refresh downloads the newest one with
+  the GitHub CLI and merges it by id, as one `news *` line in its report; it
+  reports a failure if `gh` is missing or signed out, or if the newest file is
+  more than two days old. GitHub disables a scheduled workflow after 60 days
+  without activity in the repo, so if that happens, re-enable "Fetch data" from
+  the Actions tab. The repo is public, so its artifacts are too: GDELT
+  headlines and Yahoo prices only. NSE filings must never go through Actions.
 * **NSE filings** use the exchange dissemination time. Routine paperwork
   (trading window, newspaper ads, ESOP allotments) is dropped unless you pass
   `--keep-routine`. NSE's terms of use forbid automated collection and
