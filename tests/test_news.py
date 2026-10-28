@@ -213,10 +213,12 @@ def test_matcher_skips_other_companies_and_non_news():
     assert [c.symbol for c in m.companies("Kotak Mahindra Bank profit rises")] == ["KOTAKBANK"]
     assert m.companies("SBI Research sees rate cut") == []
     # The parent still matches, also next to a spun-off name.
-    # A title naming a spun-off or separate company isn't counted for the parent.
-    assert m.companies("Vedanta Oil & Gas, three other Vedanta stocks rise") == []
-    assert m.companies("SBI Card shares slip; SBI unchanged") == []
-    assert [c.symbol for c in m.companies("Vedanta shares fall")] == ["VEDL"]
+    # The parent still counts when the title names it on its own too.
+    assert [c.symbol for c in m.companies("Vedanta shares fall after Vedanta Power lists")] == ["VEDL"]
+    assert [c.symbol for c in m.companies("L&T wins order; L&T Finance up")] == ["LT"]
+    assert [c.symbol for c in m.companies("SBI sells 1.42% stake in SBI Funds Management")] == ["SBIN"]
+    assert m.companies("SBI Card shares slip 3%") == []
+    assert m.companies("SBI Capital flags December hike risk") == []
     assert [c.symbol for c in m.companies("SBI raises lending rates")] == ["SBIN"]
     assert [c.symbol for c in m.companies("SBI Recruitment 2026: apply for 500 posts")] == []
     assert [c.symbol for c in m.companies("SBI job cuts hit branch staff")] == ["SBIN"]  # news about jobs stays

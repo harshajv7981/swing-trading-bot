@@ -164,10 +164,9 @@ def indian_source(domain: str) -> bool:
 
 
 # Other companies whose names start with a universe company's name. A match on one
-# of these names nobody, so "L&T Technology Services" is not read as LT, and a
-# title that names one is not about the company it starts with at all: in
-# "Vedanta Oil & Gas, three other Vedanta stocks rise" the second "Vedanta" means
-# the demerged units too, so the title is not counted for VEDL.
+# of these names nobody, so "L&T Technology Services" is not read as LT. The
+# parent still counts when the title names it on its own as well: "SBI sells a
+# stake in SBI Funds Management" is SBI news.
 OTHER_COMPANIES = (
     "L&T Technology Services", "Larsen & Toubro Technology Services", "Larsen and Toubro Technology Services",
     "L&T Finance", "Larsen & Toubro Finance", "L&T Mutual Fund",
@@ -175,7 +174,7 @@ OTHER_COMPANIES = (
     "Vedanta Iron", "Vedanta Oil", "Vedanta Power",  # also covers "Vedanta Iron & Steel", "Vedanta Oil & Gas"
     "SBI Mutual Fund", "SBI MF", "SBI Funds Management", "SBI Research",
     # Listed or branded separately from the universe company they start with.
-    "SBI Card", "SBI Cards", "SBI Securities", "SBI Capital Markets", "SBI Caps", "SBICAPS", "SBI General",
+    "SBI Card", "SBI Cards", "SBI Securities", "SBI Capital Markets", "SBI Capital", "SBI Caps", "SBICAPS", "SBI General",
     "Abhinandan Lodha",
 )
 
@@ -196,10 +195,6 @@ class HeadlineMatcher:
         for c in companies:
             for t in c.terms:
                 self.by_term.setdefault(t.lower(), []).append(c)
-        # Each other company's name -> the universe companies whose name it starts with.
-        self.shadows: dict[str, set[str]] = {
-            o.lower(): {c.symbol for c in companies for t in c.terms if o.lower().startswith(f"{t.lower()} ")}
-            for o in others}
         terms = sorted(self.by_term, key=len, reverse=True)  # longest first, so "Tata Steel" beats "Tata"
         self.pattern = re.compile(r"(?<!\w)(" + "|".join(re.escape(t) for t in terms) + r")(?!\w)", re.IGNORECASE)
 
@@ -207,13 +202,10 @@ class HeadlineMatcher:
         if NOT_NEWS.search(title):
             return []
         found: dict[str, Company] = {}
-        shadowed: set[str] = set()
         for m in self.pattern.finditer(title):
-            term = m.group(1).lower()
-            shadowed |= self.shadows.get(term, set())
-            for c in self.by_term[term]:
+            for c in self.by_term[m.group(1).lower()]:
                 found.setdefault(c.symbol, c)
-        return [c for s, c in found.items() if s not in shadowed]
+        return list(found.values())
 
     def refilter(self, rows: list[dict]) -> tuple[list[dict], list[dict]]:
         """Split saved GDELT rows into (kept, dropped) under today's rules, with no new download.
