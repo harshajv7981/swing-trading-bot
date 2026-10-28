@@ -208,6 +208,8 @@ def test_matcher_skips_other_companies_and_non_news():
     assert m.companies("SBI Dividend Yield Fund: NAV today") == []
     assert m.companies("SBI Apprentice Admit Card 2026 out") == []
     assert m.companies("Legal Manager, Kotak Mahindra Bank, Mumbai - Job") == []
+    assert m.companies("Legal Manager, Kotak Mahindra Bank Limited [Mumbai], Job") == []
+    assert m.companies("Vedanta Iron shares rally on debut") == []
     assert [c.symbol for c in m.companies("Kotak Mahindra Bank profit rises")] == ["KOTAKBANK"]
     assert m.companies("SBI Research sees rate cut") == []
     # The parent still matches, also next to a spun-off name.
