@@ -219,6 +219,7 @@ def test_matcher_skips_other_companies_and_non_news():
     assert [c.symbol for c in m.companies("SBI sells 1.42% stake in SBI Funds Management")] == ["SBIN"]
     assert m.companies("SBI Card shares slip 3%") == []
     assert m.companies("SBI Capital flags December hike risk") == []
+    assert m.companies("SBI Funds IPO subscribed 2.77x on Day 2") == []
     assert [c.symbol for c in m.companies("SBI raises lending rates")] == ["SBIN"]
     assert [c.symbol for c in m.companies("SBI Recruitment 2026: apply for 500 posts")] == []
     assert [c.symbol for c in m.companies("SBI job cuts hit branch staff")] == ["SBIN"]  # news about jobs stays

@@ -172,7 +172,7 @@ OTHER_COMPANIES = (
     "L&T Finance", "Larsen & Toubro Finance", "L&T Mutual Fund",
     # Spun out of Vedanta in the 2026 demerger and listed on their own.
     "Vedanta Iron", "Vedanta Oil", "Vedanta Power",  # also covers "Vedanta Iron & Steel", "Vedanta Oil & Gas"
-    "SBI Mutual Fund", "SBI MF", "SBI Funds Management", "SBI Research",
+    "SBI Mutual Fund", "SBI MF", "SBI Funds Management", "SBI Funds", "SBI AMC", "SBI Research",
     # Listed or branded separately from the universe company they start with.
     "SBI Card", "SBI Cards", "SBI Securities", "SBI Capital Markets", "SBI Capital", "SBI Caps", "SBICAPS", "SBI General",
     "Abhinandan Lodha",
