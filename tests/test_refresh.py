@@ -224,3 +224,69 @@ def test_a_second_run_cannot_overlap(env):
     with refresh._lock(env[1].state_file.with_name("refresh.lock")):
         with pytest.raises(RuntimeError, match="another refresh"):
             go(env, "2026-10-27 16:00")
+
+
+def nightly(rows, made="2026-10-27T16:40:00Z", calls=None):
+    """A fake `gh` download: writes an artifact's events.csv into the folder it is given."""
+    def download(repo, dest):
+        if calls is not None:
+            calls.append(repo)
+        (dest / "news").mkdir()
+        pd.DataFrame(rows, columns=["event_id", "ticker", "published_at", "headline", "body", "source", "url"]) \
+            .to_csv(dest / "news" / "events.csv", index=False)
+        return pd.Timestamp(made)
+    return download
+
+
+NIGHTLY = [
+    {"event_id": "gd-1", "ticker": "AAA", "published_at": "2026-10-27T10:15:00+05:30",
+     "headline": "Alpha Industries wins order", "body": "", "source": "gdelt:x.in", "url": "https://x.in/1"},
+    {"event_id": "gd-2", "ticker": "ZZZ", "published_at": "2026-10-27T11:00:00+05:30",
+     "headline": "Zeta outside the universe", "body": "", "source": "gdelt:x.in", "url": "https://x.in/2"},
+]
+
+
+def github_env(env):
+    router, settings, *rest = env
+    return (router, RefreshSettings(**{**settings.__dict__, "news_source": "github"}), *rest)
+
+
+def test_github_news_merges_the_nightly_artifact_without_calling_gdelt(env):
+    env = github_env(env)
+    calls, gdelt_calls = [], []
+    report = go(env, "2026-10-28 08:00", only=("news",), github_download=nightly(NIGHTLY, calls=calls),
+                gdelt_fetch=gdelt(ARTICLES, gdelt_calls))
+    assert report.ok and gdelt_calls == [] and calls == ["harshajv7981/swing-trading-bot"]
+    [item] = report.items
+    assert (item.ticker, item.status, item.added) == ("*", "updated", 1)
+    assert list(pd.read_csv(env[3] / "news" / "events.csv")["ticker"]) == ["AAA"]  # ZZZ isn't in the universe
+
+    again = go(env, "2026-10-28 09:00", only=("news",), github_download=nightly(NIGHTLY))
+    assert [(i.status, i.added) for i in again.items] == [("no_new", 0)]  # merged by id
+
+
+def test_github_news_fails_clearly_when_gh_is_missing_or_the_artifact_is_stale(env):
+    env = github_env(env)
+
+    def no_gh(repo, dest):
+        raise RuntimeError("the GitHub CLI isn't installed: `brew install gh`, then `gh auth login`")
+
+    report = go(env, "2026-10-28 08:00", only=("news",), github_download=no_gh)
+    assert not report.ok and "brew install gh" in report.failed()[0].detail
+
+    stale = go(env, "2026-10-31 08:00", only=("news",), github_download=nightly(NIGHTLY))
+    [item] = stale.failed()
+    assert item.added == 1 and "nightly run has stopped" in item.detail  # rows are kept, the age is flagged
+
+
+def test_news_source_comes_from_the_config(tmp_path):
+    cfg = tmp_path / "data_sources.toml"
+    cfg.write_text('[refresh]\nnews_source = "github"\n')
+    assert RefreshSettings.load(cfg).news_source == "github"
+    assert RefreshSettings.load(tmp_path / "missing.toml").news_source == "gdelt"
+
+
+def test_gh_download_says_what_to_install(monkeypatch, tmp_path):
+    monkeypatch.setattr(refresh.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="brew install gh"):
+        refresh.gh_download("owner/repo", tmp_path)

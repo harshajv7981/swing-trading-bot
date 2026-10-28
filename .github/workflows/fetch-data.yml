@@ -6,12 +6,21 @@
 #
 # Fetch it with:  gh run download --repo harshajv7981/swing-trading-bot --name swingbot-data --dir .
 #
+# It also runs by itself every night at 22:00 IST (16:30 UTC), news only, for
+# yesterday and today (UTC), uploaded as "swingbot-news-daily". The daily
+# refresh pulls that one with `swingbot-refresh --news-source github` (or
+# news_source = "github" under [refresh] in config/data_sources.toml). GitHub
+# turns scheduled workflows off after 60 days without activity in the repo;
+# re-enable it from the Actions tab if the refresh reports the file is stale.
+#
 # The repo is public, so anyone signed in to GitHub can download the artifact.
 # That is fine for GDELT headlines and Yahoo prices; never add NSE filings here
 # (NSE's terms forbid sharing them).
 name: Fetch data
 
 on:
+  schedule:
+    - cron: "30 16 * * *"   # 22:00 IST, after the close; GitHub may start it some minutes late
   workflow_dispatch:
     inputs:
       start:
@@ -37,6 +46,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[data]"
       - name: Prices
+        if: github.event_name == 'workflow_dispatch'  # the nightly run is news only; the Mac refreshes prices
         continue-on-error: true  # the news still runs if Yahoo has a bad day
         run: |
           python scripts/fetch_prices.py --tickers $(tail -n +2 data/universe/nifty100.csv | cut -d, -f1) \
@@ -44,14 +54,18 @@ jobs:
             --out data/raw/prices --mood
       - name: News
         run: |
+          # A scheduled run has no inputs: yesterday and today (UTC). Today's later
+          # batches don't exist yet and are skipped; the next night fetches them.
+          start="${{ inputs.start }}"; end="${{ inputs.end }}"
           python scripts/fetch_gdelt_bulk.py --universe data/universe/nifty100.csv \
-            --start "${{ inputs.start }}" --end "${{ inputs.end }}" --workers 8 --out data/raw/news/events.csv
+            --start "${start:-$(date -u -d yesterday +%F)}" --end "${end:-$(date -u +%F)}" \
+            --workers 8 --out data/raw/news/events.csv
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: swingbot-data
+          name: ${{ github.event_name == 'schedule' && 'swingbot-news-daily' || 'swingbot-data' }}
           path: |
             data/raw/news/events.csv
             data/raw/news/events.csv.gkg_days.json
             data/raw/prices/
-          retention-days: 90
+          retention-days: ${{ github.event_name == 'schedule' && 14 || 90 }}
