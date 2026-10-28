@@ -21,5 +21,7 @@ cache_prices = true
 universe = "data/universe/nifty100.csv"
 state_file = "data/raw/refresh_state.json"  # last successful news/filings day per stock
 accept_nse_terms = false   # true also fetches NSE filings; read the terms note in swingbot.data.remote first
-gdelt_pause = 5.0          # seconds between GDELT requests
+news_source = "github"     # github: merge the nightly "Fetch data" Actions artifact (needs `gh`, signed in);
+                           # gdelt: call GDELT's DOC API from this machine (rate limited per IP)
+gdelt_pause = 5.0          # seconds between GDELT requests (news_source = "gdelt")
 nse_pause = 4.0            # seconds between NSE requests
