@@ -109,3 +109,86 @@ def test_gdelt_retries_rate_limits_but_not_a_bad_query(monkeypatch):
     with pytest.raises(ValueError, match="too short"):
         remote.gdelt_articles("q", date(2026, 7, 1), date(2026, 7, 7))
     assert len(calls) == 1
+
+
+def gkg_line(date, source, url, title, orgs=""):
+    cols = [""] * 27
+    cols[0], cols[1], cols[3], cols[4], cols[14] = "1", date, source, url, orgs
+    cols[26] = f"<PAGE_PRECISEPUBTIMESTAMP>x</PAGE_PRECISEPUBTIMESTAMP><PAGE_TITLE>{title}</PAGE_TITLE>"
+    return "\t".join(cols) + "\n"
+
+
+def test_gkg_rows_keep_indian_titles_naming_a_company():
+    from swingbot.news import HeadlineMatcher, gkg_rows
+
+    tatasteel = Company("TATASTEEL", "Tata Steel")
+    tatamotors = Company("TATAMOTORS", "Tata Motors")
+    m = HeadlineMatcher([RIL, LT, tatasteel, tatamotors])
+    lines = [
+        gkg_line("20260803023000", "economictimes.indiatimes.com", "https://et.com/1",
+                 "RIL and Tata Steel shares rise"),
+        gkg_line("20260803023000", "livemint.com", "https://mint.com/2", "L&amp;T wins Rs 5,000 crore order"),
+        gkg_line("20260803023000", "reuters.com", "https://reuters.com/3", "Reliance Industries profit beats"),
+        gkg_line("20260803023000", "thehindu.com", "https://hindu.com/4", "Sensex ends flat"),
+        gkg_line("20260803023000", "moneycontrol.com", "https://mc.com/5", "PRILL prices fall"),
+        "short\tline\n",
+    ]
+    rows = gkg_rows(lines, m)
+    assert sorted((r["ticker"], r["headline"]) for r in rows) == [
+        ("LT", "L&T wins Rs 5,000 crore order"),       # HTML entity undone, & alias matched
+        ("RELIANCE", "RIL and Tata Steel shares rise"),
+        ("TATASTEEL", "RIL and Tata Steel shares rise"),  # one story, two companies
+    ]
+    assert rows[0]["published_at"] == "2026-08-03T08:00:00+05:30"
+    assert rows[0]["source"] == "gdelt:economictimes.indiatimes.com"
+    # Reuters is kept only when asked for any outlet.
+    assert {r["url"] for r in gkg_rows(lines, m, any_source=True)} >= {"https://reuters.com/3"}
+
+
+def test_gkg_rows_share_ids_with_the_doc_api():
+    from swingbot.news import HeadlineMatcher, gkg_rows
+
+    line = gkg_line("20260803023000", "livemint.com", "https://a.in/1", "RIL shares jump")
+    bulk = gkg_rows([line], HeadlineMatcher([RIL]))
+    api = gdelt_rows([{"url": "https://a.in/1", "title": "RIL shares jump", "seendate": "20260803T023000Z"}], RIL)
+    assert bulk[0]["event_id"] == api[0]["event_id"]
+
+
+def test_indian_source():
+    from swingbot.news import indian_source
+
+    assert indian_source("economictimes.indiatimes.com")
+    assert indian_source("businesstoday.in") and indian_source("livemint.com")
+    assert not indian_source("reuters.com") and not indian_source("notlivemint.com")
+
+
+def test_gkg_lines_reads_a_zip_and_skips_missing_batches(monkeypatch):
+    import io
+    import urllib.error
+    import zipfile
+    from datetime import UTC, datetime
+
+    from swingbot.data import remote
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("20260803023000.gkg.csv", "a\tb\nc\td\n")
+    payload = buf.getvalue()
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(req, timeout):
+        if "20260803024500" in req.full_url:
+            raise urllib.error.HTTPError(req.full_url, 404, "nf", {}, None)
+        assert req.full_url == "http://data.gdeltproject.org/gdeltv2/20260803023000.gkg.csv.zip"
+        return Resp(payload)
+
+    monkeypatch.setattr(remote.urllib.request, "urlopen", fake)
+    lines, size = remote.gkg_lines(datetime(2026, 8, 3, 2, 30, tzinfo=UTC))
+    assert lines == ["a\tb", "c\td"] and size == len(payload)
+    assert remote.gkg_lines(datetime(2026, 8, 3, 2, 45, tzinfo=UTC)) is None

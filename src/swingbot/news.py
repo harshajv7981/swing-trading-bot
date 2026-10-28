@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import html
 import os
 import re
 from dataclasses import dataclass
@@ -122,6 +123,110 @@ def gdelt_rows(articles: list[dict], company: Company) -> list[dict]:
             "source": "gdelt:" + (a.get("domain") or urlparse(url).netloc),
             "url": url,
         })
+    return rows
+
+
+# --- GDELT bulk GKG files ------------------------------------------------------
+#
+# GDELT also publishes everything it saw as a zipped file every 15 minutes, the
+# Global Knowledge Graph (GKG 2.0), at data.gdeltproject.org. Those files have no
+# request limit, unlike the DOC API, and reach back to 2015. They are big (all
+# the world's news, not one company), so the fetcher streams each one, keeps the
+# rows whose page title names a company, and throws the rest away.
+
+GKG_DATE, GKG_SOURCE, GKG_URL, GKG_EXTRAS = 1, 3, 4, 26  # columns of a tab-separated GKG 2.0 row
+_GKG_TITLE = re.compile(r"<PAGE_TITLE>(.*?)</PAGE_TITLE>", re.DOTALL)
+
+# Indian outlets, matched on the end of GKG's source domain. GKG has no source
+# country, so this stands in for the DOC API's `sourcecountry:IN`.
+INDIAN_SOURCES = (
+    ".in", "indiatimes.com", "livemint.com", "business-standard.com", "moneycontrol.com",
+    "thehindubusinessline.com", "thehindu.com", "financialexpress.com", "ndtvprofit.com", "ndtv.com",
+    "hindustantimes.com", "indianexpress.com", "news18.com", "zeebiz.com", "zeenews.india.com",
+    "cnbctv18.com", "deccanherald.com", "thequint.com", "firstpost.com", "theprint.in", "scroll.in",
+    "outlookindia.com", "outlookbusiness.com", "businesstoday.in", "indiatoday.in", "tribuneindia.com",
+    "telegraphindia.com", "newindianexpress.com", "dnaindia.com", "freepressjournal.in",
+    "ibef.org", "thestatesman.com", "siasat.com", "devdiscourse.com",
+    "lokmattimes.com", "republicworld.com", "india.com", "goodreturns.in", "businessinsider.in",
+)
+
+
+_INDIAN_DOMAINS = frozenset(s for s in INDIAN_SOURCES if not s.startswith("."))
+_INDIAN_TLDS = tuple(s for s in INDIAN_SOURCES if s.startswith("."))
+
+
+def indian_source(domain: str) -> bool:
+    d = domain.lower().strip()
+    if d.endswith(_INDIAN_TLDS):
+        return True
+    parts = d.split(".")
+    return any(".".join(parts[i:]) in _INDIAN_DOMAINS for i in range(len(parts) - 1))
+
+
+class HeadlineMatcher:
+    """Finds which companies a headline names, with one regex for the whole universe."""
+
+    def __init__(self, companies: list[Company]):
+        self.by_term: dict[str, list[Company]] = {}
+        for c in companies:
+            for t in c.terms:
+                self.by_term.setdefault(t.lower(), []).append(c)
+        terms = sorted(self.by_term, key=len, reverse=True)  # longest first, so "Tata Steel" beats "Tata"
+        self.pattern = re.compile(r"(?<!\w)(" + "|".join(re.escape(t) for t in terms) + r")(?!\w)", re.IGNORECASE)
+
+    def companies(self, title: str) -> list[Company]:
+        found: dict[str, Company] = {}
+        for m in self.pattern.finditer(title):
+            for c in self.by_term[m.group(1).lower()]:
+                found.setdefault(c.symbol, c)
+        return list(found.values())
+
+
+def gkg_title(extras: str) -> str:
+    m = _GKG_TITLE.search(extras or "")
+    return " ".join(html.unescape(m.group(1)).split()) if m else ""
+
+
+def parse_gkg_date(value: str) -> pd.Timestamp:
+    """`20260801123000` (UTC, the 15-minute batch GDELT saw it in) -> IST timestamp."""
+    return pd.Timestamp(pd.to_datetime(value, format="%Y%m%d%H%M%S", utc=True)).tz_convert(IST)
+
+
+def gkg_rows(lines, matcher: HeadlineMatcher, any_source: bool = False) -> list[dict]:
+    """Event rows from the lines of one GKG 2.0 file: articles whose title names a company.
+
+    The event_id matches `gdelt_rows` (symbol and URL), so an article found both
+    ways is kept once when the files are merged.
+    """
+    rows = []
+    for line in lines:
+        # Rows run to tens of kilobytes; split off only the columns needed, cheapest checks first.
+        head = line.split("\t", GKG_URL + 1)
+        if len(head) <= GKG_URL + 1 or line.count("\t") < GKG_EXTRAS:
+            continue
+        url, source = head[GKG_URL], head[GKG_SOURCE]
+        if not url.startswith("http") or not (any_source or indian_source(source)):
+            continue
+        title = gkg_title(line.rsplit("\t", 1)[1])
+        if not title:
+            continue
+        hits = matcher.companies(title)
+        if not hits:
+            continue
+        try:
+            published = parse_gkg_date(head[GKG_DATE]).isoformat()
+        except ValueError:
+            continue
+        for c in hits:
+            rows.append({
+                "event_id": _event_id("gd", f"{c.symbol}|{url}"),
+                "ticker": c.symbol,
+                "published_at": published,
+                "headline": title,
+                "body": "",
+                "source": "gdelt:" + (source or urlparse(url).netloc),
+                "url": url,
+            })
     return rows
 
 

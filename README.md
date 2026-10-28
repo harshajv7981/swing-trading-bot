@@ -231,6 +231,11 @@ set to yesterday, only adds new items.
 # Headlines from Indian outlets, via GDELT. Free, no key, open licence.
 python scripts/fetch_gdelt_news.py --start 2026-07-01 --end 2026-10-15
 
+# The same headlines from GDELT's bulk files, when the API above rate limits you
+# (it blocks an IP for a day or more after heavy use) or for windows older than
+# three months. No request limit, but it downloads about 0.5 to 1 GB a day of news.
+python scripts/fetch_gdelt_bulk.py --start 2026-07-01 --end 2026-10-27
+
 # NSE exchange filings, timestamped to the second. Read --help first.
 python scripts/fetch_nse_announcements.py --accept-nse-terms --start 2026-07-01 --end 2026-10-15
 ```
@@ -239,6 +244,10 @@ python scripts/fetch_nse_announcements.py --accept-nse-terms --start 2026-07-01 
   minutes of publication. Its DOC API only promises the last three months, so
   pull older windows soon. It matches body text, so the fetcher keeps only
   headlines that name the company. Cite "The GDELT Project" if you publish results.
+  The bulk fetcher reads the Global Knowledge Graph files GDELT writes every 15
+  minutes and keeps titles from Indian outlets (`--any-source` for all) that name
+  a company. Its rows carry the batch time, the same ids as the API's, and the
+  run resumes by day from `events.csv.gkg_days.json`.
 * **NSE filings** use the exchange dissemination time. Routine paperwork
   (trading window, newspaper ads, ESOP allotments) is dropped unless you pass
   `--keep-routine`. NSE's terms of use forbid automated collection and
