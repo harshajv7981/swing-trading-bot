@@ -12,19 +12,25 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from momentum_broad_study import adjust_jumps
 
 COST = 0.0025
 TOP = 10
 
 
+UNIVERSE = Path(__file__).resolve().parents[2] / "data/universe/nifty100.csv"
+
+
 def closes(data):
+    wanted = {"niftybees"} | {line.split(",")[0].lower().replace("&", "_")
+                              for line in UNIVERSE.read_text().splitlines()[1:] if line}
     out = {}
-    for p in sorted(data.glob("*.csv")):
+    for p in sorted(x for x in data.glob("*.csv") if x.stem in wanted):
         df = pd.read_csv(p, parse_dates=["Date"], index_col="Date")
         if "Series" in df:
             df = df[df["Series"].fillna("EQ") == "EQ"]
         s = df["Close"].astype(float)
-        out[p.stem.upper()] = s[~s.index.duplicated()].sort_index()
+        out[p.stem.upper()] = adjust_jumps(s[~s.index.duplicated()].sort_index())
     return pd.DataFrame(out)
 
 
