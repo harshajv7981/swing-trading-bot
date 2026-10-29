@@ -51,7 +51,13 @@ MIN_HISTORY = 260
 LOOKBACK = 6
 # Index series, ETFs and debt funds share the folder with the stocks.
 NOT_STOCK = re.compile(r"\s|etf|bees$|sensex|nifty|liquid|gilt|gsec")
-INDEXES = {"Nifty Midcap 150": "nifty midcap 150", "Nifty Midcap150 Momentum 50": "nifty midcap150 momentum 50"}
+INDEXES = {"Nifty Midcap 150": "nifty midcap 150", "Nifty Midcap150 Momentum 50": "nifty midcap150 momentum 50",
+           "Gold ETF (GOLDBEES)": "goldbees"}
+# Shadow ledger from docs/research/momentum-gold-prereg.md: the paper portfolio held as 70%
+# of the money next to 30% in GOLDBEES, back to 70/30 at each December booking.
+GOLD = "Gold ETF (GOLDBEES)"
+GOLD_SHARE = 0.30
+GOLD_COST = 0.001  # per side on gold moved; no STT on gold ETFs
 
 
 def adjust_jumps(c: pd.Series) -> pd.Series:
@@ -298,6 +304,33 @@ def update(data: Path, ledger_path: Path = LEDGER, calendar: NSECalendar | None 
     return done
 
 
+def gold_mix(ledger: dict) -> list[float | None]:
+    """Value of the 70/30 gold shadow at each booked month, as a multiple of the starting capital.
+
+    None from the first month that has no gold close (data missing, or booked before
+    the shadow existed)."""
+    out, eq, gold = [], 0.0, 0.0
+    for i, m in enumerate(ledger["months"]):
+        g = m["indexes"].get(GOLD)
+        if g is None or (out and out[-1] is None):
+            out.append(None)
+            continue
+        if i == 0:
+            eq = (1 - GOLD_SHARE) * m["value"] / ledger["capital"]
+            gold = GOLD_SHARE * (1 - GOLD_COST)
+        else:
+            prev = ledger["months"][i - 1]
+            eq *= m["value"] / prev["value"]
+            gold *= g / prev["indexes"][GOLD]
+            if m["date"][5:7] == "12":
+                total = eq + gold
+                moved = abs(gold - GOLD_SHARE * total)
+                total -= moved * (COST_SIDE + GOLD_COST)
+                eq, gold = (1 - GOLD_SHARE) * total, GOLD_SHARE * total
+        out.append(eq + gold)
+    return out
+
+
 def report(ledger: dict) -> str:
     months = ledger["months"]
     if not months:
@@ -306,8 +339,9 @@ def report(ledger: dict) -> str:
     lines = ["# Mid-cap momentum paper trial", "",
              f"Started {first['date']} with Rs {ledger['capital']:,.0f}. Rule: docs/research/momentum-paper-trial.md.", "",
              "| Month-end | Paper value | Month | Since start | Mid-cap EW since start | "
-             + " | ".join(f"{n} since start" for n in INDEXES) + " | Turnover | Costs |",
-             "|---|---|---|---|---|" + "---|" * len(INDEXES) + "---|---|"]
+             + " | ".join(f"{n} since start" for n in INDEXES) + " | 70/30 with gold since start | Turnover | Costs |",
+             "|---|---|---|---|---|" + "---|" * len(INDEXES) + "---|---|---|"]
+    shadow = gold_mix(ledger)
     peak, worst = 0.0, 0.0
     for i, m in enumerate(months):
         prev = months[i - 1]["value"] if i else ledger["capital"]
@@ -317,9 +351,10 @@ def report(ledger: dict) -> str:
         for n in INDEXES:
             a, b = first["indexes"].get(n), m["indexes"].get(n)
             idx.append(f"{b / a - 1:+.1%}" if a and b else "n/a")
+        mixed = f"{shadow[i] - 1:+.1%}" if shadow[i] is not None else "n/a"
         lines.append(f"| {m['date']} | Rs {m['value']:,.0f} | {m['value'] / prev - 1:+.1%} | "
                      f"{m['value'] / ledger['capital'] - 1:+.1%} | {m['ew']['level'] - 1:+.1%} | "
-                     + " | ".join(idx) + f" | {m['turnover']:.0%} | Rs {m['costs']:,.0f} |")
+                     + " | ".join(idx) + f" | {mixed} | {m['turnover']:.0%} | Rs {m['costs']:,.0f} |")
     last = months[-1]
     lines += ["", f"Worst fall from a peak so far: {worst:.1%}.", "",
               f"## Holdings from {last['date']} ({len(last['holdings'])} stocks, cash Rs {last['cash']:,.0f})", "",
