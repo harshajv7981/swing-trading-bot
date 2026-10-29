@@ -100,10 +100,10 @@ Its worst year is 2011, at -26% against M6's -50%. Gold rose 30% that year.
 
 **How much of this is luck:**
 - **Gold had two big years.** It rose 30% in 2011 and 72% in 2025. Over 2010–26
-  it made 12.7% a year, above its long-run ~9–10% in rupees. If gold only keeps
-  pace with inflation, the mix would lose some of its CAGR lead, but most of the
-  drawdown and Sharpe gain should stay. That gain comes from gold moving
-  against mid caps, not from gold's level.
+  it made 12.7% a year, which is high for gold. If gold only keeps pace with
+  inflation, the mix would lose its CAGR lead. The drawdown cut depends less on
+  gold's level than on gold moving against mid caps, so we expect it to hold
+  better. That is a reasoned guess, not something this test shows.
 - **Gold falls too.** It lost money in 2013–15 (-6%, -9%, -8%), while momentum
   was mixed.
 - **The result does not hinge on the 30% weight.** Every gold weight tried
