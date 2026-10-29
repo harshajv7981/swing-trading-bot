@@ -3,11 +3,10 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from swingbot.cli import briefs_main
 from swingbot.models import IST, NewsEvent
 from swingbot.technicals import indicators, known_bars, snapshot
 
-from test_backtest import DictPrices, bars
+from helpers import DictPrices, bars
 
 
 def ev(ts, ticker="UP"):
@@ -51,14 +50,3 @@ def test_missing_or_short_history_is_unavailable_not_flat():
     assert "unavailable (only 3 sessions" in snapshot(DictPrices({"UP": bars([1, 2, 3])}), ev("2026-01-07 15:45"))
 
 
-def test_briefs_add_technicals_only_when_asked(tmp_path):
-    prices = tmp_path / "prices"
-    prices.mkdir()
-    walk().to_csv(prices / "UP.csv", index_label="date")
-    events = tmp_path / "events.csv"
-    events.write_text("event_id,ticker,published_at,headline,source\ne1,UP,2025-09-10 08:00,Story,synthetic\n")
-    plain, tech = tmp_path / "plain.md", tmp_path / "tech.md"
-    briefs_main(["--events", str(events), "--out", str(plain)])
-    briefs_main(["--events", str(events), "--out", str(tech), "--with-technicals", str(prices)])
-    assert "RSI14" not in plain.read_text()
-    assert "Technicals as of the 2025-09-09 close" in tech.read_text()

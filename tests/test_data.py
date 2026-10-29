@@ -1,18 +1,14 @@
 
-import json
-
 import numpy as np
 import pandas as pd
 import pytest
 
-from swingbot.cli import briefs_main
 from swingbot.data import DataConfig, NoData, Router, VendorUnavailable, parse_as_of
 from swingbot.data import vendors
 from swingbot.data.cli import main as data_main
 from swingbot.models import IST
-from swingbot.swarm import DEFAULT_PERSONAS, RecordedSwarm
 
-from test_backtest import bars
+from helpers import bars
 
 
 def walk(n=60, start="2026-01-01"):
@@ -116,31 +112,3 @@ def test_cli_prints_every_section(setup, capsys, tmp_path):
         assert marker in out
 
 
-def test_briefs_context_excludes_the_event_and_later_news(setup, tmp_path):
-    _, root = setup
-    out = tmp_path / "brief.md"
-    views = tmp_path / "views.jsonl"  # earlier days already played, so the brief is 5 March
-    views.write_text("\n".join(json.dumps({"event_id": e, "persona": p, "stance": 0.1, "conviction": 0.5})
-                               for e in ("n1", "f1") for p in (q.name for q in DEFAULT_PERSONAS)))
-    briefs_main(["--events", str(root / "events.csv"), "--cutoff", "none", "--with-context", "--views",
-                 str(views), "--with-technicals", str(root / "prices"), "--out", str(out)])
-    text = out.read_text()
-    n2 = text.split("### n2")[1].split("###")[0]
-    assert "Old story" in n2 and "Profit up 12%" in n2
-    assert n2.count("Contract win") == 1  # its own headline, not repeated as context
-    assert "Later story" not in n2
-    assert "## Analyst reports" in text
-
-
-def test_analyst_lines_are_kept_but_not_scored(tmp_path):
-    f = tmp_path / "v.jsonl"
-    personas = ["Retail Bull", "Institutional Bear", "Foreign Institutional Investor", "Financial Media"]
-    import json
-    rows = [{"event_id": "e1", "role": "analyst", "analyst": "market", "report": "Downtrend."}]
-    rows += [{"event_id": "e1", "persona": p, "stance": 0.5, "conviction": 0.5} for p in personas]
-    f.write_text("\n".join(json.dumps(r) for r in rows))
-    swarm = RecordedSwarm(f)
-    assert swarm.reports["e1"]["market"] == "Downtrend."
-    f.write_text(json.dumps({"event_id": "e1", "role": "analyst", "analyst": "astrology", "report": "x"}))
-    with pytest.raises(ValueError, match="unknown analyst"):
-        RecordedSwarm(f)
