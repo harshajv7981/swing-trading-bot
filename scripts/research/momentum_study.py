@@ -7,6 +7,7 @@ Month-end rebalance; EW baseline, M12 (12-1 month), M6 (6-1 month) and M12F
 Cost: 0.25% times the fraction of the portfolio replaced.
 """
 import sys
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -32,7 +33,7 @@ def run(px, weights_fn, cash_mask=None):
     sessions = px.notna().cumsum()
     rets, prev_w = [], pd.Series(dtype=float)
     dates = month_end.index
-    for a, b in zip(dates[:-1], dates[1:], strict=False):
+    for a, b in pairwise(dates):
         w = weights_fn(a, month_end, sessions.loc[a])
         if cash_mask is not None and cash_mask.loc[a]:
             w = pd.Series(dtype=float)

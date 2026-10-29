@@ -63,7 +63,7 @@ M6's excess over EW year by year:
 M6 turns over 39% a month, about 4 of the 10 names.
 
 **What the pass means, and what it doesn't:**
-- **M6 passes the plan as written.** It is the only one of the four tests in either study that does. It beat the same stocks held equally in 8 of 10 discovery years and 5 of 7 holdout years. M12 behaves almost the same and misses the discovery bar only narrowly (t 1.9). So this looks like one effect, not luck in one setting.
+- **M6 passes the plan as written.** It is the only one of the 25 rules, slices and portfolios tested across these studies that does. It beat the same stocks held equally in 8 of 10 discovery years and 5 of 7 holdout years. M12 behaves almost the same and misses the discovery bar only narrowly (t 1.9). So this looks like one effect, not luck in one setting.
 - **The holdout evidence is weak on its own** (t 0.9), and **the last two years were bad**: -17% versus EW in both 2025 and 2026. Momentum is known for sharp losing stretches when market leadership flips.
 - **Survivorship bias flatters momentum more than it flatters EW.** Today's Nifty 100 holds the stocks that kept rising. Momentum buys the risers, and the risers that later crashed out of the index are missing from this data. Some of the excess is likely this bias, and these files can't measure how much. That needs historical index membership.
 - **The market filter (M12F) cut the worst drawdown from -32% to -17%,** but it also gave up most of the excess. It is reported, not chosen.
