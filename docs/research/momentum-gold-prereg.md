@@ -74,3 +74,43 @@ pre-tax comparison slightly understates G30.
   October 2027 review compares the two.
 - **If it fails:** the drawdown stays a question of how much money goes into the
   strategy.
+
+## Results (run 2026-10-29 on the Mac, eod2_data to 23 Oct 2026)
+
+`scripts/research/momentum_gold_study.py`, Jan 2010 – Sep 2026, 201 months.
+Over the whole period, the correlation of monthly returns with gold was -0.13
+for both M6 and the mid-bucket EW.
+
+| Mix | CAGR | Worst drawdown | Sharpe | 2010–19 CAGR / Sharpe | 2020–26 CAGR / Sharpe |
+|---|---|---|---|---|---|
+| Mid-bucket EW | +7.8% | -62.6% | 0.19 | +0.2% / -0.09 | +20.2% / 0.65 |
+| A, 100% M6 | +14.9% | -61.7% | 0.43 | +4.6% / 0.09 | +32.2% / 0.98 |
+| **G30, 70/30 (judged)** | **+16.0%** | **-35.1%** | **0.57** | +7.3% / 0.16 | +30.2% / 1.20 |
+| G20, 80/20 (info) | +15.8% | -44.1% | 0.52 | +6.6% / 0.13 | +31.0% / 1.12 |
+| G40, 60/40 (info) | +16.0% | -25.5% | 0.63 | +7.8% / 0.18 | +29.3% / 1.27 |
+| 60/20/20 with cash (info) | +14.4% | -29.1% | 0.55 | +7.2% / 0.15 | +25.9% / 1.16 |
+| Gold alone (info) | +12.7% | -24.4% | 0.48 | +7.6% / 0.18 | +20.5% / 0.88 |
+
+**Verdict: G30 passes all three checks.**
+- **Drawdown:** -35.1%, against a bar of -41.2%.
+- **Sharpe:** above A in both periods.
+- **CAGR:** above the mid EW in both periods.
+
+Its worst year is 2011, at -26% against M6's -50%. Gold rose 30% that year.
+
+**How much of this is luck:**
+- **Gold had two big years.** It rose 30% in 2011 and 72% in 2025. Over 2010–26
+  it made 12.7% a year, above its long-run ~9–10% in rupees. If gold only keeps
+  pace with inflation, the mix would lose some of its CAGR lead, but most of the
+  drawdown and Sharpe gain should stay. That gain comes from gold moving
+  against mid caps, not from gold's level.
+- **Gold falls too.** It lost money in 2013–15 (-6%, -9%, -8%), while momentum
+  was mixed.
+- **The result does not hinge on the 30% weight.** Every gold weight tried
+  (20%, 30%, 40%) lowered the drawdown and raised the Sharpe.
+- **Tax was left out,** and it slightly favours the mix (12.5% long-term tax on
+  gold sold each December).
+
+**Next step, as planned:** the paper trial gains a 70/30 gold shadow ledger
+(`swingbot-momentum report`, "70/30 with gold since start"). The October 2027
+review judges both.

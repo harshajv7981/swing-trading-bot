@@ -29,6 +29,15 @@ All three are price-only, like the paper account:
   funds track it. If the trial can't beat it, buying such a fund is the simpler
   way to own the same idea.
 
+Added 2026-10-29, after [momentum-gold-prereg.md](momentum-gold-prereg.md) passed:
+- **Gold ETF (GOLDBEES):** gold on its own.
+- **70/30 with gold:** a shadow ledger. It is the paper portfolio's month-by-month
+  return on 70% of the money, plus GOLDBEES on the other 30%. The mix is set
+  back to 70/30 at each December booking, paying 0.20% on the equity moved and
+  0.10% on the gold moved. It is computed from the same ledger, so the paper
+  trades do not change. The October 2027 review judges both the trial and this
+  mix.
+
 ## Replay check (done before the start, not evidence)
 
 `swingbot-momentum` was run over Sep 2025 to Sep 2026, data that the study's

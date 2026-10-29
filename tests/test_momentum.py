@@ -119,3 +119,21 @@ def test_report_shows_months_holdings_and_orders(tmp_path):
     momentum.update(tmp_path / "d", ledger, KNOWN_2025, start="2025-07-01")
     text = momentum.report(json.loads(ledger.read_text()))
     assert "| 2025-08-29 |" in text and "Holdings from 2025-08-29" in text and "| S5 |" in text
+
+
+def test_gold_shadow_holds_30_percent_gold_and_rebalances_in_december():
+    def month(date, value, gold):
+        return {"date": date, "value": value, "indexes": {momentum.GOLD: gold}}
+
+    ledger = {"capital": 100.0, "months": [month("2025-10-31", 100.0, 10.0), month("2025-11-28", 110.0, 10.0),
+                                           month("2025-12-31", 110.0, 20.0), month("2026-01-30", 110.0, 20.0)]}
+    out = momentum.gold_mix(ledger)
+    gold0 = 0.3 * (1 - momentum.GOLD_COST)
+    assert out[0] == pytest.approx(0.7 + gold0)
+    assert out[1] == pytest.approx(0.77 + gold0)  # stocks up 10%, gold flat
+    total = 0.77 + 2 * gold0  # gold doubled, then back to 70/30 at the December booking
+    moved = 2 * gold0 - 0.3 * total
+    assert out[2] == pytest.approx(total - moved * (momentum.COST_SIDE + momentum.GOLD_COST))
+    assert out[3] == pytest.approx(out[2])
+    ledger["months"][1]["indexes"] = {}
+    assert momentum.gold_mix(ledger)[1:] == [None, None, None]
