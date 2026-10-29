@@ -71,3 +71,29 @@ Also reported:
   month-end, and the October 2027 review compares it with A. A pass here is
   not a reason to switch the trial mid-way.
 - **If it fails:** we keep plain M6, and smoothness is dropped as a filter.
+
+## Results (run 2026-10-29 on the Mac, eod2_data to 23 Oct 2026)
+
+`scripts/research/momentum_smooth_study.py`, Jan 2010 – Sep 2026.
+
+| Portfolio | CAGR | Worst drawdown | Sharpe | 2010–19 CAGR / Sharpe | 2020–26 CAGR / Sharpe | Turnover/month |
+|---|---|---|---|---|---|---|
+| Mid EW | +7.8% | -62.6% | 0.19 | +0.2% / -0.09 | +20.2% / 0.65 | |
+| A, M6 | +14.9% | -61.7% | 0.43 | +4.6% / 0.09 | +32.2% / 0.98 | 51% |
+| **S, smooth** | +15.7% | -62.1% | 0.47 | +5.7% / 0.12 | +32.3% / 1.01 | 53% |
+| A + 30% gold | +16.0% | -35.1% | 0.57 | +7.3% / 0.16 | +30.2% / 1.20 | |
+| S + 30% gold (info) | +16.5% | -35.5% | 0.62 | +8.0% / 0.19 | +30.3% / 1.24 | |
+
+**S against the mid EW:**
+- **Discovery:** +0.46% a month (t 2.5).
+- **Holdout:** +0.84% a month (t 2.1), beating EW in 6 of 7 years.
+
+**S minus A:**
+- **Discovery:** +0.05% a month (t 0.3).
+- **Holdout:** -0.03% a month (t -0.1).
+- **By year:** the difference swings from -21% (2023) to +18% (2020) with no
+  pattern.
+
+**Verdict: fail.** S beats the mid-cap average, but it is no better than plain
+M6 in either period. The extra half point of CAGR is noise. Smoothness is
+dropped as a filter, and the paper trial keeps plain M6.
