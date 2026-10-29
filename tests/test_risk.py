@@ -14,7 +14,7 @@ from swingbot.risk.cli import main as risk_main
 from swingbot.risk.exits import ExitPlan, nse_tick
 from swingbot.risk.sizing import gap_risk_per_share
 
-from test_backtest import bars
+from helpers import bars
 
 CFG = RiskConfig()
 

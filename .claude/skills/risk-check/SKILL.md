@@ -1,6 +1,6 @@
 ---
 name: risk-check
-description: Turn a swarm view into a sized, rule-checked paper order with swingbot-risk (exit plan, Time Machine odds, position size, PASS/BLOCK gate), or move the trailing stop on an open position. Use after market-research gives a bullish view, or when asked "how many shares", "where's my stop", "can I take this trade", "is this safe", "what are the odds", "run the time machine", "trail my stop". Never places an order.
+description: Turn a swarm view into a sized, rule-checked paper order with swingbot-risk (exit plan, Time Machine odds, position size, PASS/BLOCK gate), or move the trailing stop on an open position. Use when there is a bullish view, or when asked "how many shares", "where's my stop", "can I take this trade", "is this safe", "what are the odds", "run the time machine", "trail my stop". Never places an order.
 ---
 
 # Risk check, run by Claude Code
@@ -26,7 +26,7 @@ change its limits.
 4. **Nothing here places an order.** There is no broker step yet. The output
    is a paper order for the journal.
 5. **Same `--as-of` for every step** of one decision, and the same one the
-   market-research run used.
+   view was formed at.
 
 ## Steps
 

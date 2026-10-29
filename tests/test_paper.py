@@ -8,7 +8,7 @@ from swingbot.paper.ledger import stop_fill
 from swingbot.paper.cli import main as paper_main
 from swingbot.risk import KillSwitch, Order, RiskConfig, check_order
 
-from test_backtest import bars
+from helpers import bars
 
 # Mon 5 Jan .. Fri 16 Jan 2026: ten sessions.
 SESSIONS = pd.bdate_range("2026-01-05", periods=10)

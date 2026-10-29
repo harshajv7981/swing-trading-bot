@@ -138,24 +138,6 @@ def test_mood_cli_reads_saved_csvs(tmp_path):
     assert json.loads(out.read_text())["verdict"] == "defensive"
 
 
-def test_briefs_show_the_mood_as_of_each_story(tmp_path):
-    from swingbot.cli import briefs_main
-
-    prices = tmp_path / "prices"
-    prices.mkdir()
-    names = {"nifty": "NIFTY50", "fmcg": "NIFTYFMCG", "gold": "GOLDBEES", "usdinr": "USDINR", "vix": "INDIAVIX"}
-    for key, df in risk_on().items():
-        df.rename_axis("date").to_csv(prices / f"{names[key]}.csv")
-    events = tmp_path / "events.csv"
-    events.write_text("event_id,ticker,published_at,headline,body,source\n"
-                      "e1,ABC,2026-10-20 08:30+05:30,ABC wins an order,,synthetic\n")
-    out = tmp_path / "brief.md"
-    assert briefs_main(["--events", str(events), "--with-mood", str(prices), "--out", str(out)]) == 0
-    text = out.read_text()
-    assert "## Market mood" in text
-    assert "Market mood as of 2026-10-20 08:30 IST: BULLISH" in text
-
-
 def test_usdinr_bar_is_known_only_from_next_morning():
     from swingbot.regime import fx_bars_known_at
     bars = flat(84.0, n=5)
