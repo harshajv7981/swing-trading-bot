@@ -1,7 +1,7 @@
 """Collect NSE corporate announcements (exchange filings) into a backtest events file.
 
     python scripts/fetch_nse_announcements.py --accept-nse-terms \
-        --universe data/universe/nifty100.csv \
+        --universe data/universe/nifty100.csv data/universe/midcap150.csv \
         --start 2026-07-01 --end 2026-10-15 --out data/raw/news/events.csv
 
 Read this before running it. NSE's terms of use (https://www.nseindia.com/static/nse-terms-of-use)
@@ -29,7 +29,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--accept-nse-terms", action="store_true",
                    help="confirm you have read the terms note above and accept the risk")
-    p.add_argument("--universe", default="data/universe/nifty100.csv")
+    p.add_argument("--universe", nargs="+", default=["data/universe/nifty100.csv", "data/universe/midcap150.csv"],
+                   help="symbol,name,aliases CSV(s); a symbol in two is read once")
     p.add_argument("--tickers", nargs="*", help="only these symbols from the universe")
     p.add_argument("--start", required=True, type=date.fromisoformat)
     p.add_argument("--end", required=True, type=date.fromisoformat)

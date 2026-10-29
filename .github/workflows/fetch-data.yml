@@ -51,7 +51,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'  # the nightly run is news only; the Mac refreshes prices
         continue-on-error: true  # the news still runs if Yahoo has a bad day
         run: |
-          python scripts/fetch_prices.py --tickers $(tail -n +2 data/universe/nifty100.csv | cut -d, -f1) \
+          python scripts/fetch_prices.py --tickers $(tail -q -n +2 data/universe/nifty100.csv data/universe/midcap150.csv | cut -d, -f1) \
             --start "${{ inputs.prices_start }}" --end "$(date -u -d "${{ inputs.end }} + 1 day" +%F)" \
             --out data/raw/prices --mood
       - name: News
@@ -59,7 +59,7 @@ jobs:
           # A scheduled run has no inputs: yesterday and today (UTC). Today's later
           # batches don't exist yet and are skipped; the next night fetches them.
           start="${{ inputs.start }}"; end="${{ inputs.end }}"
-          python scripts/fetch_gdelt_bulk.py --universe data/universe/nifty100.csv \
+          python scripts/fetch_gdelt_bulk.py --universe data/universe/nifty100.csv data/universe/midcap150.csv \
             --start "${start:-$(date -u -d yesterday +%F)}" --end "${end:-$(date -u +%F)}" \
             --workers 8 --out data/raw/news/events.csv
       - uses: actions/upload-artifact@v4

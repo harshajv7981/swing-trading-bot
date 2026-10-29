@@ -79,7 +79,7 @@ NSE_CHUNK_DAYS = 31
 
 @dataclass(frozen=True)
 class RefreshSettings:
-    universe: Path = Path("data/universe/nifty100.csv")
+    universe: tuple[Path, ...] = (Path("data/universe/nifty100.csv"), Path("data/universe/midcap150.csv"))
     state_file: Path = Path("data/raw/refresh_state.json")
     accept_nse_terms: bool = False
     gdelt_pause: float = 5.0  # GDELT asks for one request every 5 seconds
@@ -93,7 +93,7 @@ class RefreshSettings:
         raw = tomllib.loads(path.read_text()).get("refresh", {}) if path.exists() else {}
         base = cls()
         return cls(
-            universe=Path(raw.get("universe", base.universe)),
+            universe=_paths(raw.get("universe", base.universe)),
             state_file=Path(raw.get("state_file", base.state_file)),
             accept_nse_terms=bool(raw.get("accept_nse_terms", base.accept_nse_terms)),
             gdelt_pause=float(raw.get("gdelt_pause", base.gdelt_pause)),
@@ -101,6 +101,11 @@ class RefreshSettings:
             news_source=str(raw.get("news_source", base.news_source)),
             github_repo=str(raw.get("github_repo", base.github_repo)),
         )
+
+
+def _paths(value) -> tuple[Path, ...]:
+    """One universe file or a list of them, from the config or the command line."""
+    return tuple(Path(v) for v in ([value] if isinstance(value, (str, Path)) else value))
 
 
 @dataclass
@@ -473,7 +478,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--only", nargs="+", choices=["prices", "news", "filings"],
                    default=["prices", "news", "filings"])
     p.add_argument("--tickers", nargs="+", help="only these symbols (default: the universe and the mood series)")
-    p.add_argument("--universe", help="symbol,name,aliases CSV (default from [refresh] in the config)")
+    p.add_argument("--universe", nargs="+",
+                   help="symbol,name,aliases CSV(s) (default from [refresh] in the config)")
     p.add_argument("--accept-nse-terms", action="store_true",
                    help="also fetch NSE filings; this breaks NSE's terms of use, see swingbot.data.remote")
     p.add_argument("--news-source", choices=["gdelt", "github"],
@@ -486,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = RefreshSettings.load(args.config)
     if args.universe:
-        settings = RefreshSettings(**{**asdict(settings), "universe": Path(args.universe)})
+        settings = RefreshSettings(**{**asdict(settings), "universe": _paths(args.universe)})
     if args.news_source:
         settings = RefreshSettings(**{**asdict(settings), "news_source": args.news_source})
     try:

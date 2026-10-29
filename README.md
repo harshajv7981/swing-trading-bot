@@ -217,13 +217,21 @@ Settings live under `[refresh]` in the config; the daily loop calls
 Two fetchers build `data/raw/news/events.csv` for the stocks in
 `data/universe/nifty100.csv`, the Nifty 100 (checked against NSE's own list on 27 Oct 2026,
 after the September rebalance: BSE, POWERINDIA, POLYCAB, VAML and IDEA joined;
-INDHOTEL, LODHA, RECLTD, SHREECEM and UNITDSPR left and are still listed). NSE rebalances the index in
-March and September: run `python scripts/update_universe.py` on your own
+INDHOTEL, LODHA, RECLTD, SHREECEM and UNITDSPR left and are still listed), and
+`data/universe/midcap150.csv`, the Nifty Midcap 150 (from NSE's list on 29 Oct 2026;
+the five stocks already in nifty100.csv are listed there only, so 145 rows). The
+`universe` setting under `[refresh]` and every fetcher's `--universe` take one
+file or several. NSE rebalances both indices in
+March and September: run `python scripts/update_universe.py` (and
+`--index midcap150`) on your own
 machine afterwards to see what joined or left, and `--write` to add the
 joiners with a sector each (`data/universe/sectors.csv`, which R4 reads).
 Leavers are kept until you drop them by hand, since one may still be held.
-With 100 stocks a full news refresh takes longer: GDELT asks for one request
-every 5 seconds, so allow about 10 minutes before the daily loop's brief.
+Midcaps trade less: R8's liquidity floor (`min_traded_value_cr` in
+config/risk.toml, ₹10 crore a day) applies to them too; raise it by hand if
+you want a wider margin. With about 250 stocks a full GDELT DOC refresh takes
+longer still (one request every 5 seconds, about 20 minutes); the nightly
+GitHub artifact (`news_source = "github"`) avoids that.
 Both merge into the file, so running them again, or daily with `--start`
 set to yesterday, only adds new items.
 

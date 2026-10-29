@@ -1,6 +1,6 @@
 """Collect Indian business headlines from GDELT's bulk files into a backtest events file.
 
-    python scripts/fetch_gdelt_bulk.py --universe data/universe/nifty100.csv \
+    python scripts/fetch_gdelt_bulk.py --universe data/universe/nifty100.csv data/universe/midcap150.csv \
         --start 2026-07-01 --end 2026-10-27 --out data/raw/news/events.csv
 
 Use this when the DOC API (`fetch_gdelt_news.py`) is rate limiting you, or for
@@ -40,7 +40,8 @@ def batches(day: date) -> list[datetime]:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--universe", default="data/universe/nifty100.csv")
+    p.add_argument("--universe", nargs="+", default=["data/universe/nifty100.csv", "data/universe/midcap150.csv"],
+                   help="symbol,name,aliases CSV(s); a symbol in two is read once")
     p.add_argument("--tickers", nargs="*", help="only these symbols from the universe")
     p.add_argument("--start", required=True, type=date.fromisoformat, help="first UTC day")
     p.add_argument("--end", required=True, type=date.fromisoformat, help="last UTC day")

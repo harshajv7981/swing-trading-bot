@@ -18,7 +18,7 @@ cache_prices = true
 
 [refresh]
 # swingbot-refresh: the daily update of saved prices and news (run on your own machine).
-universe = "data/universe/nifty100.csv"
+universe = ["data/universe/nifty100.csv", "data/universe/midcap150.csv"]  # one file or several
 state_file = "data/raw/refresh_state.json"  # last successful news/filings day per stock
 accept_nse_terms = false   # true also fetches NSE filings; read the terms note in swingbot.data.remote first
 news_source = "github"     # github: merge the nightly "Fetch data" Actions artifact (needs `gh`, signed in);

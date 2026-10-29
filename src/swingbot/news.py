@@ -18,6 +18,7 @@ import hashlib
 import html
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -63,17 +64,25 @@ class Company:
         return any(re.search(rf"(?<!\w){re.escape(t)}(?!\w)", text, re.IGNORECASE) for t in self.terms)
 
 
-def load_universe(path: str | Path) -> list[Company]:
-    """CSV with symbol,name,aliases. Aliases are `|`-separated and optional."""
-    with open(path, newline="") as f:
-        return [
-            Company(
-                r["symbol"].strip().upper(),
-                r["name"].strip(),
-                tuple(a.strip() for a in (r.get("aliases") or "").split("|") if a.strip()),
-            )
-            for r in csv.DictReader(f)
-        ]
+def load_universe(paths: str | Path | Iterable[str | Path]) -> list[Company]:
+    """CSVs with symbol,name,aliases (the Nifty 100 file, the Midcap 150 file, ...).
+
+    Aliases are `|`-separated and optional. A symbol in two files is kept once,
+    from the first file that lists it.
+    """
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
+    out: dict[str, Company] = {}
+    for path in paths:
+        with open(path, newline="") as f:
+            for r in csv.DictReader(f):
+                symbol = r["symbol"].strip().upper()
+                out.setdefault(symbol, Company(
+                    symbol,
+                    r["name"].strip(),
+                    tuple(a.strip() for a in (r.get("aliases") or "").split("|") if a.strip()),
+                ))
+    return list(out.values())
 
 
 def _event_id(prefix: str, key: str) -> str:
@@ -194,6 +203,9 @@ OTHER_COMPANIES = (
     "Motherson Sumi Wiring",
     "Sun Pharma Advanced Research", "Sun Pharmaceutical Advanced Research",
     "Coal India Open",
+    # Unlisted or outside the universe, but containing a universe name.
+    "Central Bank of India", "South Indian Bank", "LIC Mutual Fund", "LIC MF",
+    "CRISIL Ratings",  # CRISIL rating actions name another company; that company is the news
     "DLF Phase", "DLF-3", "DLF 3",
     # Not companies: exams, taxes and SBI products.
     "RRB NTPC", "SBI PO", "SBI Clerk", "TCS credit", "ITC fraud", "fake ITC", "ITC claims", "ITC claim",

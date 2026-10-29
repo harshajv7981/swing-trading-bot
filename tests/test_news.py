@@ -283,3 +283,30 @@ def test_matcher_drops_rivers_exams_taxes_and_etfs():
     for title, sym in [("Power Grid Q1 profit", "POWERGRID"), ("Trent Q1 revenue up", "TRENT"),
                        ("NTPC commissions plant", "NTPC"), ("TCS Q2 results", "TCS"), ("DLF sales", "DLF")]:
         assert [c.symbol for c in m.companies(title)] == [sym], title
+
+
+def test_load_universe_reads_several_files_and_keeps_a_symbol_once(tmp_path):
+    from swingbot.news import load_universe
+
+    a, b = tmp_path / "a.csv", tmp_path / "b.csv"
+    a.write_text("symbol,name,aliases\nLT,Larsen & Toubro,L&T\n")
+    b.write_text("symbol,name,aliases\nLT,Larsen,\nLTF,L&T Finance,\n")
+    companies = load_universe([a, b])
+    assert [c.symbol for c in companies] == ["LT", "LTF"]
+    assert companies[0].name == "Larsen & Toubro"  # the first file wins
+    assert [c.symbol for c in load_universe(a)] == ["LT"]
+
+
+def test_matcher_tells_midcaps_from_the_large_caps_they_start_with():
+    from swingbot.news import HeadlineMatcher, load_universe
+
+    m = HeadlineMatcher(load_universe(["data/universe/nifty100.csv", "data/universe/midcap150.csv"]))
+    for title, syms in [("State Bank of India Q2 profit rises", ["SBIN"]), ("Bank of India Q2 results", ["BANKINDIA"]),
+                        ("Union Bank of India Q2", ["UNIONBANK"]), ("L&T Finance Q2 profit", ["LTF"]),
+                        ("L&T Technology Services wins deal", ["LTTS"]), ("SBI Card Q2 profit", ["SBICARD"]),
+                        ("NTPC Green Energy IPO", ["NTPCGREEN"]), ("LIC Housing Finance Q2", ["LICHSGFIN"]),
+                        ("ITC Hotels Q2 profit", ["ITCHOTELS"]), ("Mahindra Finance Q2", ["M&MFIN"]),
+                        ("CRISIL Ratings upgrades Tata Steel", ["TATASTEEL"])]:
+        assert [c.symbol for c in m.companies(title)] == syms, title
+    for title in ["Central Bank of India shares jump", "South Indian Bank Q2 results", "Global Health stocks fall"]:
+        assert m.companies(title) == [], title

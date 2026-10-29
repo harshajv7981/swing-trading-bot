@@ -2,7 +2,7 @@ import csv
 
 from swingbot.news import load_universe
 from swingbot.risk.portfolio import load_sectors
-from swingbot.universe import SECTORS, UNIVERSE, Member, add_joined, compare, parse_nse_list
+from swingbot.universe import INDEXES, MIDCAP, SECTORS, UNIVERSE, Member, add_joined, compare, parse_nse_list
 
 NSE_CSV = """Company Name,Industry,Symbol,Series,ISIN Code
 Reliance Industries Ltd.,Oil Gas & Consumable Fuels,RELIANCE,EQ,INE002A01018
@@ -18,6 +18,16 @@ def test_the_repo_universe_is_the_nifty_100_with_a_sector_each():
     assert len(symbols) == len(set(symbols)) >= 100
     sectors = load_sectors(SECTORS)
     assert all(sectors.get(s) for s in symbols), [s for s in symbols if not sectors.get(s)]
+
+
+def test_the_midcap_file_adds_the_midcap_150_with_a_sector_each_and_no_repeats():
+    large = {c.symbol for c in load_universe(UNIVERSE)}
+    mid = [c.symbol for c in load_universe(MIDCAP)]
+    assert len(mid) == len(set(mid)) >= 140
+    assert not large & set(mid)  # a stock in both indices lives in nifty100.csv only
+    sectors = load_sectors(SECTORS)
+    assert all(sectors.get(s) for s in mid), [s for s in mid if not sectors.get(s)]
+    assert set(INDEXES) == {"nifty100", "midcap150"}
 
 
 def test_nse_industries_map_to_our_sectors():
