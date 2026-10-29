@@ -92,3 +92,47 @@ For A, B, C and B+C:
   the capital goes to this strategy), not a rule change.
 - **If A fails check 3:** the October 2027 review should also weigh simply
   holding the index fund.
+
+## Results (run 2026-10-29 on the Mac, eod2_data to 23 Oct 2026)
+
+`scripts/research/momentum_drawdown_study.py`, Jan 2010 – Sep 2026, 2,283 stocks.
+Excess is per month over the mid-bucket EW, after costs. The mid-bucket EW
+itself made +7.8% CAGR, with a worst drawdown of -62.6%.
+
+| Arm | CAGR | Worst drawdown | Discovery excess (t) | Holdout excess (t) | Turnover/month | Months in cash | After 20% STCG | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| A, monthly M6 | +14.9% | -61.7% | +0.40% (2.0) | +0.87% (2.1) | 51% | 0 | +12.3% | baseline |
+| **B, 8-month filter** | +13.0% | -41.2% | +0.10% (0.2) | +0.53% (0.8) | 48% | 72 | +10.7% | **fail** (drawdown misses the -41.2% bar by under 0.05 pt; discovery excess falls 0.30 pt) |
+| **C, quarterly** | +16.6% | -52.1% | +0.69% (2.7) | +0.70% (1.8) | 25% | 0 | +13.7% | **fail** (drawdown short of -41.2%; return and fund checks pass) |
+| B+C (info only) | +12.2% | -38.7% | +0.21% (0.4) | +0.17% (0.3) | 35% | 72 | +9.9% | not eligible |
+| B6 (sensitivity) | +16.1% | -24.6% | +0.31% (0.5) | +0.79% (1.2) | 46% | 74 | +13.2% | not eligible |
+| B10 (sensitivity) | +14.0% | -31.9% | +0.31% (0.5) | +0.40% (0.6) | 46% | 73 | +11.5% | not eligible |
+
+**Index fund check.** The index file only starts in Aug 2022, so this check
+covers just 49 months (Sep 2022 – Sep 2026). Over that window:
+- the Momentum 50 index made +16.0% a year at price, with a worst drawdown of -24.2%;
+- held as a fund, after the fee and long-term tax, that is +14.0%;
+- every arm beat it after short-term tax (A +24.6%).
+
+Four years is too short to settle the question.
+
+**What this says:**
+- **Neither change passes, so the paper trial stays as it is.**
+- **The trend filter cut drawdowns but cost too much return.** In the 2010s it
+  sat in cash through rebounds, and its discovery-period excess fell from
+  +0.40% to +0.10% a month.
+- **The filter's effect depends on the window length.** 6, 8 and 10 months give
+  worst drawdowns of -25%, -41% and -32%, with no pattern by length. That is
+  the sign of a result driven by a few dates, mainly 2011, not a stable rule.
+  The 6-month figure looks good only after the fact, and choosing it now would
+  be curve fitting.
+- **Quarterly rebalancing is the more promising change, but it did not pass.**
+  - It had higher returns than A in discovery (t 2.7), half the turnover, and
+    a shallower drawdown (-52% vs -62%).
+  - It missed only the drawdown bar, which was set at a third shallower.
+  - Since it passed the other two checks, it is the candidate for a second
+    forward test if Harsha wants one, judged as a new pre-registered trial
+    and not as a pass here.
+- **A ~60% drawdown stays part of this strategy.** Managing it is a sizing
+  decision: put in only money you could watch fall by more than half without
+  selling.
