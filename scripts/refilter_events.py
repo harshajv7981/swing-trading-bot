@@ -23,7 +23,8 @@ from swingbot.news import EVENT_COLUMNS, HeadlineMatcher, load_universe
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--events", default="data/raw/news/events.csv")
-    p.add_argument("--universe", default="data/universe/nifty100.csv")
+    p.add_argument("--universe", nargs="+", default=["data/universe/nifty100.csv", "data/universe/midcap150.csv"],
+                   help="symbol,name,aliases CSV(s); a symbol in two is read once")
     p.add_argument("--write", action="store_true", help="drop the rejected rows (keeps a backup)")
     args = p.parse_args()
 

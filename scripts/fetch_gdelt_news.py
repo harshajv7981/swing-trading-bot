@@ -1,6 +1,6 @@
 """Collect Indian business headlines from GDELT into a backtest events file.
 
-    python scripts/fetch_gdelt_news.py --universe data/universe/nifty100.csv \
+    python scripts/fetch_gdelt_news.py --universe data/universe/nifty100.csv data/universe/midcap150.csv \
         --start 2026-07-01 --end 2026-10-15 --out data/raw/news/events.csv
 
 No API key. Uses the GDELT DOC 2.0 API, which officially covers the last three
@@ -23,7 +23,8 @@ from swingbot.news import gdelt_query, gdelt_rows, load_universe, merge_into
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--universe", default="data/universe/nifty100.csv")
+    p.add_argument("--universe", nargs="+", default=["data/universe/nifty100.csv", "data/universe/midcap150.csv"],
+                   help="symbol,name,aliases CSV(s); a symbol in two is read once")
     p.add_argument("--tickers", nargs="*", help="only these symbols from the universe")
     p.add_argument("--start", required=True, type=date.fromisoformat)
     p.add_argument("--end", required=True, type=date.fromisoformat)

@@ -1,10 +1,11 @@
-"""The stocks the bot trades: the Nifty 100, kept in data/universe/.
+"""The stocks the bot trades: the Nifty 100 and the Nifty Midcap 150, kept in data/universe/.
 
-`nifty100.csv` (symbol, name, aliases) is what the news fetchers and the daily
-refresh read; `sectors.csv` (symbol, sector) is what R4's two-per-sector limit
-reads. NSE rebalances the index twice a year (March and September), so
-`scripts/update_universe.py` compares the files with NSE's own constituent list
-and adds what joined. It never deletes a stock that left: one may still be
+`nifty100.csv` and `midcap150.csv` (symbol, name, aliases) are what the news
+fetchers and the daily refresh read; a stock in both is read once, from
+nifty100.csv. `sectors.csv` (symbol, sector) covers both and is what R4's
+two-per-sector limit reads. NSE rebalances the indices twice a year (March and
+September), so `scripts/update_universe.py` compares each file with NSE's own
+constituent list and adds what joined. It never deletes a stock that left: one may still be
 held, and the gate needs its sector to count it. Drop those by hand once no
 position is open.
 
@@ -21,7 +22,11 @@ from pathlib import Path
 
 UNIVERSE = Path("data/universe/nifty100.csv")
 SECTORS = Path("data/universe/sectors.csv")
+MIDCAP = Path("data/universe/midcap150.csv")
 NSE_LIST_URL = "https://www.niftyindices.com/IndexConstituent/ind_nifty100list.csv"
+MIDCAP_LIST_URL = "https://www.niftyindices.com/IndexConstituent/ind_niftymidcap150list.csv"
+# index -> (NSE's list, our file, fewest rows a sane download has)
+INDEXES = {"nifty100": (NSE_LIST_URL, UNIVERSE, 90), "midcap150": (MIDCAP_LIST_URL, MIDCAP, 140)}
 
 # NSE's "Industry" column -> this repo's sector.
 INDUSTRY_SECTORS = {
@@ -32,6 +37,7 @@ INDUSTRY_SECTORS = {
     "construction materials": "Cement",
     "consumer durables": "Consumer Durables",
     "consumer services": "Retail",
+    "diversified": "Diversified",
     "fast moving consumer goods": "FMCG",
     "financial services": "Financial Services",
     "healthcare": "Pharma",
@@ -42,6 +48,7 @@ INDUSTRY_SECTORS = {
     "realty": "Realty",
     "services": "Services",
     "telecommunication": "Telecom",
+    "textiles": "Textiles",
 }
 
 
@@ -89,7 +96,7 @@ class Changes:
 
     def text(self) -> str:
         if not self.joined and not self.left:
-            return "data/universe matches NSE's Nifty 100 list."
+            return "data/universe matches NSE's list."
         lines = []
         lines += [f"joined: {m.symbol} ({m.name}, {m.industry} -> {m.sector or 'NO SECTOR'})" for m in self.joined]
         lines += [f"left:   {s} (kept: drop it by hand once no position is open)" for s in self.left]
