@@ -6,9 +6,9 @@ momentum paper trial. Paper trading only: nothing here places a real order.
 
 The LLM news swarm that this repo started with (personas, debate, briefs,
 backtest, scorecard, learning memory, daily loop, walk-forward, phone alerts)
-showed no edge in the Jul–Oct 2026 walk-forward and was removed. It is kept in
-the git tag `archive/news-swarm-2026-10-29`; bring a piece back with, for
-example, `git checkout archive/news-swarm-2026-10-29 -- src/swingbot/swarm`.
+showed no edge in the Jul–Oct 2026 walk-forward and was removed. It is still in
+git history at commit `c1eef8d` (main on 29 Oct 2026, before the removal);
+bring a piece back with, for example, `git checkout c1eef8d -- src/swingbot/swarm`.
 
 ## Quick start
 
