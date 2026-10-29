@@ -43,3 +43,29 @@ The portfolios:
   2026 being partial).
 - A portfolio must pass both periods. With 3 tried, one may pass by luck.
 - Also reported, not part of the bar: CAGR, the worst drawdown, and turnover.
+
+## Results (run 2026-10-29, after the plan above was committed)
+
+`scripts/research/momentum_study.py` covers month-ends from Jan 2010 to Sep 2026.
+Excess is the portfolio's monthly return minus EW's, after costs.
+
+| Portfolio | CAGR 2010–26 | Worst drawdown | Discovery 2010–19 excess (t) | Holdout 2020–26 excess (t) | Holdout years beating EW | Verdict |
+|---|---|---|---|---|---|---|
+| EW baseline | +19.0% | -29.5% | | | | |
+| M12 (12-1) | +27.8% | -32.1% | +0.58%/mo (t 1.9) | +0.75%/mo (t 1.6) | 5/7 | fail (discovery t under 2) |
+| **M6 (6-1)** | +26.7% | -31.9% | +0.72%/mo (t 2.6) | +0.47%/mo (t 0.9) | 5/7 | **pass** |
+| M12F (with market filter) | +22.6% | -17.4% | +0.10%/mo (t 0.2) | +0.37%/mo (t 0.6) | 5/7 | fail |
+
+M6's excess over EW year by year:
+- 2010–19: +5, +11, -1, +11, +17, +8, +6, +10, -4, +23%.
+- 2020–26: +19, +16, +15, +9, +12, -17, -17% (2026 to September).
+
+M6 turns over 39% a month, about 4 of the 10 names.
+
+**What the pass means, and what it doesn't:**
+- **M6 passes the plan as written.** It is the only one of the four tests in either study that does. It beat the same stocks held equally in 8 of 10 discovery years and 5 of 7 holdout years. M12 behaves almost the same and misses the discovery bar only narrowly (t 1.9). So this looks like one effect, not luck in one setting.
+- **The holdout evidence is weak on its own** (t 0.9), and **the last two years were bad**: -17% versus EW in both 2025 and 2026. Momentum is known for sharp losing stretches when market leadership flips.
+- **Survivorship bias flatters momentum more than it flatters EW.** Today's Nifty 100 holds the stocks that kept rising. Momentum buys the risers, and the risers that later crashed out of the index are missing from this data. Some of the excess is likely this bias, and these files can't measure how much. That needs historical index membership.
+- **The market filter (M12F) cut the worst drawdown from -32% to -17%,** but it also gave up most of the excess. It is reported, not chosen.
+
+**Next step:** a forward paper trial of M6 from November 2026. It rebalances once a month with no model calls, so it costs no tokens. It would run beside the risk rules, not through the swing ticket. Holdings and results get scored against EW each month, and real money only after at least 12 months of paper results.
