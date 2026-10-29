@@ -716,6 +716,28 @@ trades with R, the latest daily run's steps and the recent alerts. It only
 reads files: it never latches the kill switch or writes the ledger, and
 prices come from the saved CSVs. Re-run it to refresh.
 
+## Mid-cap momentum paper trial: `swingbot-momentum`
+
+A monthly paper portfolio of the one rule that passed the momentum research:
+the 20 mid caps (ranks 101–250 by traded value) with the best 6-1 month
+return, rebalanced at each month's last session. No model calls, no orders.
+Rules and how it is judged: [docs/research/momentum-paper-trial.md](docs/research/momentum-paper-trial.md).
+
+```bash
+# once: a shallow copy of eod2_data's daily folder (about 140 MB download), kept out of git
+git clone --depth 1 --filter=blob:none --sparse https://github.com/BennyThadikaran/eod2_data data/raw/eod2_data
+git -C data/raw/eod2_data sparse-checkout set daily
+
+swingbot-momentum update --data data/raw/eod2_data/daily --pull   # safe to run daily
+swingbot-momentum report
+```
+
+`update` books every finished month-end the ledger lacks, using only prices up
+to that day. It does nothing until the data covers a month-end, and eod2_data
+syncs about weekly. The ledger is `data/state/momentum_trial.json`. The report
+goes to `runs/momentum-trial/report.md`. Both are git-ignored. eod2_data is
+NSE-derived, so keep it, the ledger and the report off GitHub Actions.
+
 ## Persona scorecard: `swingbot-scorecard`
 
 Scores each persona's final stance, the judge and the final call as separate

@@ -28,6 +28,7 @@ swingbot-daily = "swingbot.daily.cli:main"
 swingbot-dhan = "swingbot.broker.dhan_cli:main"
 swingbot-walkforward = "swingbot.walkforward:main"
 swingbot-dashboard = "swingbot.dashboard:main"
+swingbot-momentum = "swingbot.momentum:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

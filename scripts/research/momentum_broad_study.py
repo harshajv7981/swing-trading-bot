@@ -6,7 +6,6 @@ Universe rebuilt each month-end from data known that day: 260+ sessions of
 history and a 60-session median traded value of at least Rs 5 crore, ranked by
 that value into large (1-100), mid (101-250) and small (251-500).
 """
-import re
 import sys
 from itertools import pairwise
 from pathlib import Path
@@ -14,49 +13,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from swingbot.momentum import (  # noqa: F401  (the paper trial runs the same code)
+    NOT_STOCK,
+    adjust_jumps,
+    load,
+)
+
 BUCKETS = {"large": (0, 100, 0.0025), "mid": (100, 250, 0.0040), "small": (250, 500, 0.0060)}
 TOP = 20
 MIN_VALUE = 5e7  # Rs 5 crore
-# Index series, ETFs and debt funds share the folder with the stocks.
-NOT_STOCK = re.compile(r"\s|etf|bees$|sensex|nifty|liquid|gilt|gsec")
-
-
-def adjust_jumps(c: pd.Series) -> pd.Series:
-    """Back-adjust one-day moves the files leave unadjusted (bonuses, splits, the ETF splits of Dec 2019).
-
-    NSE price bands cap most stocks at 20% a day, so a close-to-close fall of more
-    than 40% is taken as a corporate action (bonus, split or demerger): every
-    earlier price is scaled by that day's ratio. Big rises are left alone: they
-    are mostly gaps where the stock traded outside the EQ series.
-    """
-    ratio = c / c.shift()
-    jumps = ratio[ratio < 0.6]
-    if jumps.empty:
-        return c
-    factor = pd.Series(1.0, index=c.index)
-    for day, r in jumps.items():
-        factor[factor.index < day] *= r
-    return c * factor
-
-
-def load(data):
-    closes, values = {}, {}
-    for p in sorted(data.glob("*.csv")):
-        if NOT_STOCK.search(p.stem):
-            continue
-        try:
-            df = pd.read_csv(p, usecols=["Date", "Close", "Volume", "Series"], parse_dates=["Date"],
-                             index_col="Date")
-        except ValueError:
-            continue
-        df = df[df["Series"].fillna("EQ") == "EQ"]
-        df = df[~df.index.duplicated()].sort_index()
-        df = df[df.index >= "2008-01-01"]
-        if len(df) < 260:
-            continue
-        closes[p.stem.upper()] = adjust_jumps(df["Close"].astype(float))
-        values[p.stem.upper()] = df["Close"].astype(float) * df["Volume"].astype(float)
-    return pd.DataFrame(closes), pd.DataFrame(values)
 
 
 def main():
