@@ -43,3 +43,19 @@ calendar year, losses carried forward.
 - **Worth using instead of the monthly stock picks:** also a higher after-tax
   CAGR in the holdout than the monthly mid-cap M6 and than the Nifty 50.
 - Four rules tried; one may pass by luck.
+
+## Results (run 2026-10-30)
+
+`scripts/research/index_rotation_study.py`, Mar 2012 to Oct 2026, net of costs.
+
+| Rule | CAGR | After tax | Worst drawdown | Own EW CAGR | Discovery excess (t) | Holdout excess (t), years | Verdict |
+|---|---|---|---|---|---|---|---|
+| S1 Sector weekly momentum | +9.9% | +7.9% | -52% | +11.9% | -0.07%/wk (-0.9) | +0.02%/wk (+0.3), 4/7 | fail |
+| S2 Sector last-week winners | -1.0% | -1.2% | -64% | +10.9% | -0.24%/wk (-3.3) | -0.18%/wk (-2.4), 2/7 | fail |
+| S3 Sector monthly momentum | +8.9% | +7.2% | -50% | +11.9% | -0.02%/mo (-0.1) | -0.34%/mo (-1.0), 3/7 | fail |
+| Z1 Size monthly momentum | +13.3% | +10.6% | -40% | +14.2% | -0.00%/mo (0.0) | -0.08%/mo (-0.3), 4/7 | fail |
+
+Nifty 50 over the same span: +10.3% a year. **None passes.** Picking the
+recent best sectors or size group did worse than holding all of them equally;
+chasing last week's best sectors lost money. Momentum works across stocks in
+the mid-cap group, not across whole sectors or size groups.
