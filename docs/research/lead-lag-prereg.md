@@ -37,3 +37,24 @@ tax as in [weekly-rules-prereg.md](weekly-rules-prereg.md).
 - Thousands of stock pairs are scanned each year, so most links found will be
   chance. The walk-forward set-up (fit on the past, trade the next year) is
   what keeps that honest.
+
+## Results (run 2026-10-30)
+
+`scripts/research/lead_lag_study.py`, weeks Jan 2010 to Oct 2026.
+
+**L1, the market seesaw: fails.**
+
+| | Discovery 2010–19 | Holdout 2020–26 |
+|---|---|---|
+| Slope, next week's Mid on this week's Large | +0.06 (t 1.2) | -0.00 (t -0.1) |
+| Slope, next week's Small on this week's Large | -0.01 (t -0.5) | -0.03 (t -0.5) |
+| Mid the week after Large fell >2% | -0.09% (102 weeks) vs +0.07% all weeks, t -0.4 | +1.35% (55 weeks) vs +0.43%, t 1.7 |
+
+In both periods, a week's fall in big stocks says nothing reliable about other
+stocks the next week. The bounce after falls since 2020 (mostly the 2020 crash
+recovery and the dip-buying since) was absent in 2010–19.
+
+**L2, stock-to-stock lead-lag: fails.** -3.3% a year vs +5.5% for Mid equal
+weight; excess -0.06%/wk (t -0.6) in discovery and -0.35%/wk (t -5.2) in the
+holdout, behind in 7 of 7 holdout years. The links found in past data did not
+hold up the next year.
