@@ -37,6 +37,18 @@ have known.
 | **W4 Mid M6 weekly** | Mid | The 20 best by return from 126 to 21 sessions back: the paper trial's rule, rebalanced weekly instead of monthly. |
 | **W5 Breakout** | U | Stocks whose highest close this week is above every close of the 252 sessions before the week, with the signal-day close above its 200-day average and 5-day average volume at least 1.5× the 50-day average. Up to 20, ranked by that volume ratio; each gets 1/10 of the money at most (10%), the rest sits in cash at 6% a year. |
 
+### Added the same day, still before any run: two rules common in open-source screeners
+
+Harsha pointed to the many GitHub trading repos. The most used NSE screener
+there, [PKScreener](https://github.com/pkjmesra/PKScreener), and many
+swing-trading repos build on two ideas, so they join the test on the same terms
+(seven rules now, so the luck caveat is larger):
+
+| Rule | Universe | Picks |
+|---|---|---|
+| **W6 Trend template** (Minervini) | U | Close above the 50-day average, 50 above 150, 150 above 200, the 200-day average higher than 21 sessions ago, close at least 30% above its 252-session low and within 25% of its high. The 20 best of those by 6-month return; 10% each at most, rest in cash. |
+| **W7 RSI(2) pullback** (Connors) | U | Close above the 200-day average and 2-period RSI (Wilder) below 10. Up to 20, lowest RSI first; 10% each at most, rest in cash. Held the week, not exited on the first up-close as Connors does. |
+
 ## Costs and tax (India, delivery trades)
 
 - **Per side**, on the value traded: 0.15% statutory (STT 0.1% each side,
@@ -53,7 +65,7 @@ have known.
 ## Baselines
 
 - **EW:** equal weight in every stock of the rule's universe, reset weekly, same
-  costs and tax (W1, W2, W3, W5 against EW of U; W4 against EW of Mid).
+  costs and tax (W1, W2, W3, W5, W6, W7 against EW of U; W4 against EW of Mid).
 - **Nifty 50** buy and hold (price index, no costs, LTCG at the end).
 - **Monthly mid-cap M6** (the running paper trial's rule, close to close,
   0.20% a side), after STCG. This is the best-evidenced rule so far.
@@ -71,7 +83,7 @@ have known.
   monthly picks stay the recommendation.
 - If more than one rule passes, the one with the highest discovery t-stat is
   chosen (picking on holdout numbers would be hindsight).
-- Five rules are tried, so one may pass at t ≈ 2 by luck; that is said with any pass.
+- Seven rules are tried, so one may pass at t ≈ 2 by luck; that is said with any pass.
 - Also reported: CAGR before and after tax, worst drawdown, Sharpe (cash 6%),
   weekly turnover, and each year's excess.
 
