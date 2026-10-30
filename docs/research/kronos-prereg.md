@@ -23,7 +23,7 @@ failure or a promising sign worth a forward paper trial.
 | Universe | Liquid 250 (top 250 by 60-day median traded value, at least 260 days of history and Rs 5 crore a day) |
 | Signal | last trading day of each week, using data to that close only |
 | Input | the last 400 daily candles (open, high, low, close, volume, traded value) |
-| Forecast | next 5 trading days; T 1.0, top_p 0.9, 5 samples averaged (Kronos's own predictor), torch seed 0 |
+| Forecast | next 5 trading days; T 1.0, top_p 0.9, 1 sample (Kronos's own predictor and default), torch seed 0 |
 | Score | forecast close on day 5 / last close - 1 |
 | Holds | top 20 by score, equal weight |
 | Trades | next open, held to the open after the next signal, 0.25% a side |
@@ -37,6 +37,11 @@ failure or a promising sign worth a forward paper trial.
 3. **Beats the paper trial's rule:** K-W's net growth over the window is above
    monthly mid-cap M6 (top 20 by 6-1 month return in stocks 101-250, month-end
    close, 0.20% a side) over the same dates.
+
+Amended before any run: the first draft said 5 samples averaged. Timed on the
+4-core cloud machine with random weights, that costs about 5.5 s per stock-week
+(about 23 hours for the window), so it is 1 sample (0.75 s, about 3 hours).
+A single sample is noisier, which can only hide skill, not invent it.
 
 A pass means a forward paper shadow trial, not money: 60 weeks is too few to
 trust. A fail means Kronos is dropped. Nothing (lookback, samples, top-N) is
