@@ -42,12 +42,26 @@ have known.
 Harsha pointed to the many GitHub trading repos. The most used NSE screener
 there, [PKScreener](https://github.com/pkjmesra/PKScreener), and many
 swing-trading repos build on two ideas, so they join the test on the same terms
-(seven rules now, so the luck caveat is larger):
+(seven rules then):
 
 | Rule | Universe | Picks |
 |---|---|---|
 | **W6 Trend template** (Minervini) | U | Close above the 50-day average, 50 above 150, 150 above 200, the 200-day average higher than 21 sessions ago, close at least 30% above its 252-session low and within 25% of its high. The 20 best of those by 6-month return; 10% each at most, rest in cash. |
 | **W7 RSI(2) pullback** (Connors) | U | Close above the 200-day average and 2-period RSI (Wilder) below 10. Up to 20, lowest RSI first; 10% each at most, rest in cash. Held the week, not exited on the first up-close as Connors does. |
+
+### Added after a wider scan, still before any run: the two most used TradingView signals
+
+A wider look across GitHub (trading prompts and agent skills, stock-market MCP
+servers, TradingView script collections, "awesome systematic trading" lists)
+found mostly three kinds of thing: LLM agents and news/sentiment bots (already
+tested here in Jul–Oct 2026: no edge), data connectors (no strategy in them),
+and indicator rules. The two indicator rules most used on TradingView join the
+test, making nine:
+
+| Rule | Universe | Picks |
+|---|---|---|
+| **W8 Supertrend flip** | U | Supertrend (10-day ATR, multiplier 3, Wilder ATR) was down at the previous signal day and is up at this one. Up to 20, best 3-month return first; 10% each at most, rest in cash. |
+| **W9 Squeeze release** (LazyBear) | U | The 20-day Bollinger Bands (2 sd) sat inside the 20-day Keltner Channel (1.5 × average range) at some session in the last 10, are outside it at the signal day, and momentum (close minus the mean of the 20-day midrange and 20-day average) is above 0 and higher than 5 sessions ago. Up to 20, strongest momentum relative to price first; 10% each at most, rest in cash. |
 
 ## Costs and tax (India, delivery trades)
 
@@ -65,7 +79,7 @@ swing-trading repos build on two ideas, so they join the test on the same terms
 ## Baselines
 
 - **EW:** equal weight in every stock of the rule's universe, reset weekly, same
-  costs and tax (W1, W2, W3, W5, W6, W7 against EW of U; W4 against EW of Mid).
+  costs and tax (W1, W2, W3, W5–W9 against EW of U; W4 against EW of Mid).
 - **Nifty 50** buy and hold (price index, no costs, LTCG at the end).
 - **Monthly mid-cap M6** (the running paper trial's rule, close to close,
   0.20% a side), after STCG. This is the best-evidenced rule so far.
@@ -83,7 +97,7 @@ swing-trading repos build on two ideas, so they join the test on the same terms
   monthly picks stay the recommendation.
 - If more than one rule passes, the one with the highest discovery t-stat is
   chosen (picking on holdout numbers would be hindsight).
-- Seven rules are tried, so one may pass at t ≈ 2 by luck; that is said with any pass.
+- Nine rules are tried, so one may pass at t ≈ 2 by luck; that is said with any pass.
 - Also reported: CAGR before and after tax, worst drawdown, Sharpe (cash 6%),
   weekly turnover, and each year's excess.
 

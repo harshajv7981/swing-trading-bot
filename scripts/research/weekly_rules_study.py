@@ -30,6 +30,8 @@ RULES = {  # name: universe
     "W5 Breakout": "U",
     "W6 Trend template": "U",
     "W7 RSI(2) pullback": "U",
+    "W8 Supertrend flip": "U",
+    "W9 Squeeze release": "U",
 }
 START, SPLIT = "2010-01-01", 2020
 
@@ -102,15 +104,37 @@ def equal(names, cap=None):
     return pd.Series(w, index=names)
 
 
+def supertrend_up(H, L, C, n=10, mult=3.0):
+    """True where Supertrend (Wilder ATR n, multiplier mult) points up, every column at once."""
+    h, lo, c = H.to_numpy(np.float64), L.to_numpy(np.float64), C.to_numpy(np.float64)
+    pc = np.vstack([np.full((1, c.shape[1]), np.nan), c[:-1]])
+    tr = np.fmax(h - lo, np.fmax(np.abs(h - pc), np.abs(lo - pc)))
+    atr = pd.DataFrame(tr).ewm(alpha=1 / n, min_periods=n).mean().to_numpy()
+    mid = (h + lo) / 2
+    bu, bl = mid + mult * atr, mid - mult * atr
+    fu, fl = bu.copy(), bl.copy()
+    up = np.zeros(c.shape, dtype=bool)
+    for t in range(1, len(c)):
+        fu[t] = np.where(np.isnan(fu[t - 1]) | (bu[t] < fu[t - 1]) | (c[t - 1] > fu[t - 1]), bu[t], fu[t - 1])
+        fl[t] = np.where(np.isnan(fl[t - 1]) | (bl[t] > fl[t - 1]) | (c[t - 1] < fl[t - 1]), bl[t], fl[t - 1])
+        up[t] = np.where(up[t - 1], ~(c[t] < fl[t]), c[t] > fu[t])
+    out = pd.DataFrame(up, index=C.index, columns=C.columns)
+    return out.where(~np.isnan(atr) & ~np.isnan(c))
+
+
 def main():
     data = Path(sys.argv[1])
     d = load(data)
     O, H, L, C, V = (d[k] for k in "OHLCV")
     print(f"{C.shape[1]} stocks loaded, {C.index[0].date()} to {C.index[-1].date()}", file=sys.stderr)
     days = C.index
+    medval = (C * V).rolling(60, min_periods=40).median().astype("float32")
+    keep = medval.columns[(medval >= MIN_VALUE).any()]
+    O, H, L, C, V, medval = (f[keep] for f in (O, H, L, C, V, medval))
+    del d
+    print(f"{len(keep)} ever reach Rs 5 crore median traded value", file=sys.stderr)
     cf = C.ffill(limit=5)
     hist = C.notna().cumsum()
-    medval = (C * V).rolling(60, min_periods=40).median()
     tv20 = (C * V).rolling(20, min_periods=15).mean()
     week = pd.Series(days.to_period("W"), index=days)
     sig_pos = np.flatnonzero((week != week.shift(-1)).to_numpy())  # last session of each week
@@ -140,6 +164,14 @@ def main():
     up = delta.clip(lower=0).ewm(alpha=0.5, min_periods=2).mean()
     down = (-delta.clip(upper=0)).ewm(alpha=0.5, min_periods=2).mean()
     rsi2 = 100 - 100 / (1 + up / down)
+    st_up = supertrend_up(H, L, cf)
+    mom3 = cf / cf.shift(63) - 1
+    sma20 = cf.rolling(20, min_periods=20).mean()
+    sd20 = cf.rolling(20, min_periods=20).std()
+    rng20 = tr.rolling(20, min_periods=20).mean()
+    squeeze_on = ((sma20 + 2 * sd20) < (sma20 + 1.5 * rng20)) & ((sma20 - 2 * sd20) > (sma20 - 1.5 * rng20))
+    sq_mom = (cf - ((H.rolling(20, min_periods=20).max() + L.rolling(20, min_periods=20).min()) / 2 + sma20) / 2) / cf
+    sq_recent = squeeze_on.astype("float32").rolling(10, min_periods=1).max() > 0
 
     names_all = list(RULES) + ["EW U", "EW Mid"]
     rows = {k: [] for k in names_all}
@@ -183,6 +215,17 @@ def main():
         sc = rs[(rs < 10) & (cf.iloc[s].reindex(u) > sma200.iloc[s].reindex(u))].sort_values()
         ranks["W7 RSI(2) pullback"] = sc.index
         port["W7 RSI(2) pullback"] = equal(sc.index[:TOP], cap=0.10)
+        ps = sig_pos[j - 1] if j else s
+        flip = st_up.iloc[s].reindex(u).fillna(False).astype(bool) & ~st_up.iloc[ps].reindex(u).fillna(True).astype(bool)
+        sc = mom3.iloc[s].reindex(u)[flip].dropna().sort_values(ascending=False)
+        ranks["W8 Supertrend flip"] = sc.index
+        port["W8 Supertrend flip"] = equal(sc.index[:TOP], cap=0.10)
+        m = sq_mom.iloc[s].reindex(u)
+        fire = (sq_recent.iloc[s].reindex(u).fillna(False).astype(bool) & ~squeeze_on.iloc[s].reindex(u).fillna(True).astype(bool)
+                & (m > 0) & (m * cf.iloc[s].reindex(u) > (sq_mom.iloc[s - 5] * cf.iloc[s - 5]).reindex(u)))
+        sc = m[fire].dropna().sort_values(ascending=False)
+        ranks["W9 Squeeze release"] = sc.index
+        port["W9 Squeeze release"] = equal(sc.index[:TOP], cap=0.10)
 
         for k, w in port.items():
             c = COST["Mid" if k in ("EW Mid", "W4 Mid M6 weekly") else "U"]
