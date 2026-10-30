@@ -43,6 +43,27 @@ Amended before any run: the first draft said 5 samples averaged. Timed on the
 (about 23 hours for the window), so it is 1 sample (0.75 s, about 3 hours).
 A single sample is noisier, which can only hide skill, not invent it.
 
+## Results (run 2026-10-30)
+
+`scripts/research/kronos_study.py`, 58 weekly signals from 5 Sep 2025 to 9 Oct
+2026 (data ends 23 Oct 2026), net of costs.
+
+| | Growth | Worst drawdown |
+|---|---|---|
+| **Kronos top 20** (weekly) | **-16.9%** | -23.3% |
+| Liquid 250 equal weight (weekly) | +3.7% | -12.8% |
+| Monthly mid M6 (Sep 2025 to Sep 2026) | +22.9% | -13.2% |
+
+1. **Ranking skill: fail.** Rank correlation averaged -0.009 (t -0.6), and
+   was positive in 45% of weeks. Kronos's forecasts had no link to next week's
+   returns.
+2. **Beats equal weight: fail.** -0.37% a week after costs (t -2.7), ahead in
+   34% of weeks. Random picks lost about 0.5% a week on the same test, mostly
+   weekly trading costs, so Kronos did about as well as random picks.
+3. **Beats M6: fail.** -16.9% vs +22.9%.
+
+Kronos is dropped. The paper trial's rule stays.
+
 A pass means a forward paper shadow trial, not money: 60 weeks is too few to
 trust. A fail means Kronos is dropped. Nothing (lookback, samples, top-N) is
 tuned after seeing results; any extra look is labelled exploratory.
