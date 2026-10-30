@@ -46,7 +46,7 @@ def jump_factor(c):
 
 
 def load(data):
-    cols = {k: {} for k in "OHLCV"}
+    cols = {k: {} for k in ("O", "H", "L", "C", "V", "TV")}
     for p in sorted(data.glob("*.csv")):
         if NOT_STOCK.search(p.stem):
             continue
@@ -65,6 +65,7 @@ def load(data):
         for k, c in zip("OHLC", ("Open", "High", "Low", "Close")):
             cols[k][s] = (df[c].astype(float) * f).astype("float32")
         cols["V"][s] = df["Volume"].astype("float32")
+        cols["TV"][s] = (df["Close"].astype(float) * df["Volume"].astype(float)).astype("float32")  # unadjusted, as traded
     return {k: pd.DataFrame(v) for k, v in cols.items()}
 
 
@@ -125,17 +126,17 @@ def supertrend_up(H, L, C, n=10, mult=3.0):
 def main():
     data = Path(sys.argv[1])
     d = load(data)
-    O, H, L, C, V = (d[k] for k in "OHLCV")
+    O, H, L, C, V, TV = (d[k] for k in ("O", "H", "L", "C", "V", "TV"))
     print(f"{C.shape[1]} stocks loaded, {C.index[0].date()} to {C.index[-1].date()}", file=sys.stderr)
     days = C.index
-    medval = (C * V).rolling(60, min_periods=40).median().astype("float32")
+    medval = TV.rolling(60, min_periods=40).median().astype("float32")
     keep = medval.columns[(medval >= MIN_VALUE).any()]
-    O, H, L, C, V, medval = (f[keep] for f in (O, H, L, C, V, medval))
+    O, H, L, C, V, TV, medval = (f[keep] for f in (O, H, L, C, V, TV, medval))
     del d
     print(f"{len(keep)} ever reach Rs 5 crore median traded value", file=sys.stderr)
     cf = C.ffill(limit=5)
     hist = C.notna().cumsum()
-    tv20 = (C * V).rolling(20, min_periods=15).mean()
+    tv20 = TV.rolling(20, min_periods=15).mean()
     week = pd.Series(days.to_period("W"), index=days)
     sig_pos = np.flatnonzero((week != week.shift(-1)).to_numpy())  # last session of each week
     first_pos = np.flatnonzero((week != week.shift(1)).to_numpy())  # first session of each week

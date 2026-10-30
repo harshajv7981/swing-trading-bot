@@ -118,3 +118,72 @@ Same costs. Reported: CAGR, worst drawdown, hit rate, average R.
 - That list is booked as a one-week paper trade and its result reported. One
   week is reported as what it is, not as proof.
 - The running monthly paper trial is not touched.
+
+## Data fix found on the first run (before reading any verdict)
+
+The first run ranked stocks by traded value computed from split-adjusted
+closes, which understates the past traded value of any stock that later split
+or issued bonus shares, and shifts the universes. The study now uses the close
+as actually traded, as `swingbot.momentum` does. The monthly mid-cap M6 baseline
+then reproduces the earlier studies (+14.1% CAGR, -61.7% worst drawdown),
+which checks the code. Verdicts did not change.
+
+## Results (run 2026-10-30)
+
+`scripts/research/weekly_rules_study.py`, 877 weeks to 19 Oct 2026. Net of
+costs; "after tax" is after 20.8% STCG each year (Nifty: 13% LTCG at the end).
+
+| Portfolio | CAGR | After tax | Worst drawdown | Sharpe | Turnover/wk | 2020–26 after tax |
+|---|---|---|---|---|---|---|
+| W1 Reversal | -10.3% | -10.3% | -90% | -0.47 | 86% | -2.2% |
+| W2 Short momentum | +9.0% | +7.3% | -64% | 0.24 | 27% | +17.9% |
+| W3 52-week high | +0.3% | -0.1% | -48% | -0.19 | 47% | +2.6% |
+| W4 Mid M6 weekly | +10.1% | +8.3% | -69% | 0.28 | 23% | +23.4% |
+| W5 Breakout | +4.9% | +3.9% | -40% | 0.01 | 40% | +4.0% |
+| W6 Trend template | +10.2% | +8.2% | -52% | 0.28 | 26% | +17.8% |
+| W7 RSI(2) pullback | -0.9% | -0.9% | -51% | -0.29 | 59% | +1.7% |
+| W8 Supertrend flip | -11.3% | -11.3% | -87% | -1.04 | 67% | -16.9% |
+| W9 Squeeze release | -12.4% | -12.4% | -90% | -0.97 | 66% | -9.8% |
+| EW Liquid 250 | +9.0% | +7.3% | -52% | 0.24 | 4% | +14.2% |
+| EW Mid | +5.2% | +4.2% | -71% | 0.08 | 11% | +15.4% |
+| **Monthly mid M6 (paper trial rule)** | **+14.1%** | **+11.5%** | -62% | **0.41** | | **+25.9%** |
+| Nifty 50 buy and hold | +10.1% | +9.3% | -35% | | | +8.7% |
+
+Verdicts (weekly excess over own EW, after costs):
+
+| Rule | Discovery 2010–19 | Holdout 2020–26 | Verdict |
+|---|---|---|---|
+| W1 Reversal | -0.36%/wk (t -4.8) | -0.32%/wk, 0/7 years | fail |
+| W2 Short momentum | -0.03%/wk (t -0.4) | +0.11%/wk, 5/7 | fail (discovery) |
+| W3 52-week high | -0.12%/wk (t -1.7) | -0.23%/wk, 1/7 | fail |
+| W4 Mid M6 weekly | +0.06%/wk (t 1.1) | +0.19%/wk, 5/7 | fail (discovery) |
+| W5 Breakout | -0.00%/wk (t -0.0) | -0.23%/wk, 0/7 | fail |
+| W6 Trend template | -0.01%/wk (t -0.1) | +0.11%/wk, 5/7 | fail (discovery) |
+| W7 RSI(2) pullback | -0.14%/wk (t -1.6) | -0.27%/wk, 2/7 | fail |
+| W8 Supertrend flip | -0.23%/wk (t -2.5) | -0.68%/wk, 0/7 | fail |
+| W9 Squeeze release | -0.38%/wk (t -4.2) | -0.52%/wk, 0/7 | fail |
+
+**No weekly rule passes.** The ones that look good since 2020 (W2, W4, W6) are
+all momentum, did nothing in 2010–19, and still trail the monthly M6 after tax.
+The fast-trading rules (reversal, RSI(2), Supertrend, squeeze, breakout) lose
+mostly to costs: 60–86% of the portfolio changes each week at 0.5% a round
+trip. As pre-registered, the monthly mid-cap M6 stays the recommendation.
+
+Secondary (W4, the highest discovery t, flagged failed): top 5 each Monday
+under the risk rules, 2-ATR stop, 1% risk: +3.5% CAGR, -37% worst drawdown,
+51% of 3,741 trades won, average +0.06R.
+
+### Exploratory, after the verdict (not pre-registered, hindsight risk)
+
+Monthly mid M6 with fewer names or a stop, same costs:
+
+| Version | CAGR | After tax | Worst drawdown | 2010–19 | 2020–26 |
+|---|---|---|---|---|---|
+| Top 20, no stop (the trial) | +14.1% | +11.5% | -62% | +4.6% | +29.7% |
+| Top 20, 25% stop | +11.4% | +9.2% | -65% | +1.9% | +27.0% |
+| Top 20, 15% stop | +7.4% | +5.9% | -65% | -1.7% | +22.2% |
+| Top 10, no stop | +20.9% | +17.1% | -59% | +8.1% | +42.5% |
+| Top 5, no stop | +19.9% | +16.3% | -58% | +1.5% | +52.9% |
+
+Stops lowered the return at every size. Fewer names did better here, but this
+was looked at after the fact and rests mostly on 2020–26; it is not a tested rule.
