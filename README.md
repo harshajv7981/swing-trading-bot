@@ -467,6 +467,38 @@ as the stop leg (R1's read-back catches a swap and refuses it), and the trade
 history's field names. The daily loop still runs on the paper broker; the
 sandbox runs beside it by hand.
 
+### The momentum rebalance at Dhan: `swingbot-dhan rebalance`
+
+The paper trial's month-end picks, turned into Dhan orders. Sandbox only;
+in live mode the dry run reads the real account and quotes, and nothing is sent.
+The path from here to real money is in [docs/algo-trading-path.md](docs/algo-trading-path.md).
+
+```
+swingbot-dhan rebalance                  # dry run: orders for the newest booked month, from Dhan's quotes
+swingbot-dhan rebalance --send           # sandbox: the sells, wait for them, then the buys
+swingbot-dhan rebalance --status         # the bot's momentum book; reads any fills
+swingbot-dhan rebalance --halt "why"     # no momentum order goes in until data/state/momentum_halt is deleted
+```
+
+* **Its own book.** The bot trades only what `data/state/momentum_dhan_book.json`
+  says it owns, starting from `capital` under `[momentum]` in
+  `config/broker.toml`. Other shares in the account are never counted or sold.
+* **The trial's rule.** 20 equal slots in whole shares, after 0.20% for costs
+  and 0.5% for the limit band. Leavers are sold in full, held picks trimmed or
+  topped up. The sells go first; the buys go once the sells have finished,
+  sized from the cash the fills left.
+* **Orders:** CNC limit, DAY, 0.5% through the last price (after-market for the
+  open when sent outside hours). A gap past that leaves an order unfilled; the
+  next run plans what is left.
+* **Refused before anything is sent:** a month without exactly 20 picks, picks
+  more than `max_age_sessions` sessions old, a buy over one slot, a sell over
+  what the book (and, live, Dhan's holdings) show, an order still open from an
+  earlier run, or the halt file.
+
+The trial's picks come from eod2_data, which lags about a week, so in the
+sandbox raise `max_age_sessions` in `config/broker.toml` to try it on a booked
+month. Real trading needs the picks on the month-end itself.
+
 ## Dashboard: `swingbot-dashboard`
 
 ```
@@ -508,3 +540,5 @@ NSE-derived, so keep it, the ledger and the report off GitHub Actions.
 The mid-cap momentum paper trial runs from November 2026 and is judged in
 October 2027. The risk rules, paper broker and Dhan adapter stay for whichever
 strategy goes live; Dhan still needs the sandbox checks before real orders.
+[docs/algo-trading-path.md](docs/algo-trading-path.md) lists what automated
+real orders still need and the steps from paper to live.
