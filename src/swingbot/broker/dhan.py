@@ -215,7 +215,7 @@ class DhanAPI:
         self.transport = transport
         self.limit = limit or RateLimit(config.state_dir / "dhan_rate.json")
 
-    def call(self, method: str, path: str, payload: dict | None = None):
+    def call(self, method: str, path: str, payload: dict | None = None, with_client_id: bool = True):
         is_order = method != "GET" and path.startswith(("/orders", "/forever"))
         if is_order and self.config.live:
             raise DhanError("Live mode is read-only in this version: no order goes to Dhan with real money "
@@ -223,7 +223,7 @@ class DhanAPI:
         self.limit.take("order" if is_order else "data")
         body = None
         if payload is not None:
-            body = json.dumps({"dhanClientId": self.client_id, **payload}).encode()
+            body = json.dumps({"dhanClientId": self.client_id, **payload} if with_client_id else payload).encode()
         headers = {"access-token": self.token, "client-id": self.client_id,
                    "Content-Type": "application/json", "Accept": "application/json"}
         status, raw = self.transport(method, self.base + path, headers, body)
