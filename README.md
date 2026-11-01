@@ -495,6 +495,11 @@ swingbot-dhan rebalance --halt "why"     # no momentum order goes in until data/
   what the book (and, live, Dhan's holdings) show, an order still open from an
   earlier run, or the halt file.
 
+Dhan's sandbox has no market quote API (it answers 404), so there pass
+`--prices file.json` (`{"SYMBOL": price}`, say the last closes) with `--send`
+too; the sandbox fills at its own fixed price anyway. With real money a price
+file is refused and only Dhan's quotes count.
+
 The trial's picks come from eod2_data, which lags about a week, so in the
 sandbox raise `max_age_sessions` in `config/broker.toml` to try it on a booked
 month. Real trading needs the picks on the month-end itself.

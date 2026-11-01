@@ -69,7 +69,8 @@ def main(argv: list[str] | None = None) -> int:
     rb.add_argument("--status", action="store_true", help="show the bot's momentum book and read fills")
     rb.add_argument("--halt", metavar="WHY", help="write the halt file: no momentum order goes in until it is deleted")
     rb.add_argument("--month", help="YYYY-MM of the booked month to trade (default the newest)")
-    rb.add_argument("--prices", help="JSON {symbol: price} to plan with instead of Dhan's quotes (dry run only)")
+    rb.add_argument("--prices", help="JSON {symbol: price} to plan with instead of Dhan's quotes (dry runs, and "
+                    "--send in the sandbox, which has no quote API)")
     args = p.parse_args(argv)
 
     import pandas as pd
@@ -160,8 +161,9 @@ def _rebalance(args, api: DhanAPI, cfg: DhanConfig, as_of) -> int:
         for n in bot.notes:
             print(f"  note {n}")
         return 0
-    if args.send and args.prices:
-        print("error: --prices is for dry runs; orders are priced from Dhan's own quotes", file=sys.stderr)
+    if args.send and args.prices and cfg.live:
+        # Dhan's sandbox has no market quote API (404), so a sandbox --send may plan from a price file.
+        print("error: with real money, orders are priced from Dhan's own quotes, never a file", file=sys.stderr)
         return 2
     if not mcfg.ledger.exists():
         print(f"error: no paper trial ledger at {mcfg.ledger}; run `swingbot-momentum update` first", file=sys.stderr)

@@ -153,4 +153,22 @@ def test_cli_halt_and_dry_run(tmp_path, monkeypatch, capsys):
                       "--prices", "prices.json"]) == 0
     out = capsys.readouterr().out
     assert "dry run: nothing sent" in out and out.count("BUY") == 20
-    assert dhan_main(["--config", "broker.toml", "rebalance", "--send", "--prices", "prices.json"]) == 2
+    # The sandbox has no quote API, so a sandbox --send may plan from the price file.
+    import swingbot.broker.dhan_cli as cli
+    fake = FakeDhan()
+    monkeypatch.setattr(cli, "DhanAPI", lambda cfg: DhanAPI(cfg, transport=fake, limit=RateLimit(None)))
+    assert dhan_main(["--config", "broker.toml", "--as-of", "2026-12-01 10:00", "rebalance", "--send",
+                      "--prices", "prices.json"]) == 0
+    assert capsys.readouterr().out.count("sent M") == 20
+
+
+def test_cli_live_send_refuses_a_price_file(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "broker.toml").write_text('[dhan]\nmode = "live"\nstate_dir = "state"\nscrip_master = "s.csv"\n')
+    (tmp_path / "s.csv").write_text("symbol,security_id\n")
+    (tmp_path / "p.json").write_text("{}")
+    monkeypatch.setenv("SWINGBOT_DHAN_LIVE", "yes")
+    monkeypatch.setenv("SWINGBOT_DHAN_CLIENT_ID", "cid")
+    monkeypatch.setenv("SWINGBOT_DHAN_TOKEN", "tok")
+    assert dhan_main(["--config", "broker.toml", "rebalance", "--send", "--prices", "p.json"]) == 2
+    assert "never a file" in capsys.readouterr().err
