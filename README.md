@@ -412,7 +412,7 @@ swingbot-paper cancel P00003                                         # an entry 
 ```
 export SWINGBOT_DHAN_CLIENT_ID=...  SWINGBOT_DHAN_TOKEN=...   # DhanHQ DevPortal, Sandbox tab
 swingbot-dhan check                 # mode, URL and the sandbox account's funds
-swingbot-dhan scrips --refresh      # Dhan's scrip master -> data/state/dhan_scrips.csv
+swingbot-dhan scrips --refresh      # Dhan's scrip master (EQ and BE series) -> data/state/dhan_scrips.csv
 swingbot-dhan submit ticket.json    # a PASSed ticket from swingbot-risk ticket
 swingbot-dhan sync                  # after 09:15: fills, then the stop for yesterday's buys
 swingbot-dhan sync --at-open        # run it before the open and it waits for 09:16

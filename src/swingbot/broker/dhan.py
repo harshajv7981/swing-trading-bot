@@ -250,13 +250,19 @@ def _env(name: str) -> str:
 
 
 def parse_scrip_master(text: str) -> dict[str, str]:
-    """NSE equity trading symbol -> Dhan security id, from Dhan's compact scrip master CSV."""
-    out = {}
+    """NSE equity trading symbol -> Dhan security id, from Dhan's compact scrip master CSV.
+
+    EQ and BE (trade-for-trade) series both count: NSE moves a stock to BE for a
+    while, and a holder can still sell it, and buy it, for delivery only. The
+    momentum trial keeps such a stock and prices it from the BE series, so the
+    adapter must be able to trade it. EQ wins when a symbol is listed in both."""
+    out, be = {}, {}
     for r in csv.DictReader(io.StringIO(text)):
-        if (r.get("SEM_EXM_EXCH_ID") == "NSE" and r.get("SEM_SEGMENT") == "E"
-                and r.get("SEM_SERIES", "EQ") == "EQ" and r.get("SEM_INSTRUMENT_NAME", "EQUITY") == "EQUITY"):
-            out[r["SEM_TRADING_SYMBOL"].strip().upper()] = r["SEM_SMST_SECURITY_ID"].strip()
-    return out
+        series = r.get("SEM_SERIES", "EQ")
+        if (r.get("SEM_EXM_EXCH_ID") == "NSE" and r.get("SEM_SEGMENT") == "E" and series in ("EQ", "BE")
+                and r.get("SEM_INSTRUMENT_NAME", "EQUITY") == "EQUITY"):
+            (out if series == "EQ" else be)[r["SEM_TRADING_SYMBOL"].strip().upper()] = r["SEM_SMST_SECURITY_ID"].strip()
+    return {**be, **out}
 
 
 def load_scrips(path: Path) -> dict[str, str]:
