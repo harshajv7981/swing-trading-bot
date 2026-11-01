@@ -238,17 +238,17 @@ def test_dhan_errors_are_plain_sentences(tmp_path):
         api.call("GET", "/nowhere")
 
 
-def test_scrip_master_keeps_nse_equities_only(tmp_path, capsys):
+def test_scrip_master_keeps_nse_eq_and_be_equities_only(tmp_path, capsys):
     text = ("SEM_EXM_EXCH_ID,SEM_SEGMENT,SEM_SMST_SECURITY_ID,SEM_INSTRUMENT_NAME,SEM_TRADING_SYMBOL,SEM_SERIES\n"
             "NSE,E,2885,EQUITY,RELIANCE,EQ\nBSE,E,500325,EQUITY,RELIANCE,A\nNSE,D,35001,FUTSTK,RELIANCE-NOV,\n"
-            "NSE,E,9999,EQUITY,SOMEBOND,N1\n")
-    assert parse_scrip_master(text) == {"RELIANCE": "2885"}
+            "NSE,E,9999,EQUITY,SOMEBOND,N1\nNSE,E,4444,EQUITY,MOREPENLAB,BE\nNSE,E,5555,EQUITY,RELIANCE,BE\n")
+    assert parse_scrip_master(text) == {"RELIANCE": "2885", "MOREPENLAB": "4444"}   # BE counts; EQ wins
     f = tmp_path / "master.csv"
     f.write_text(text)
     cfg = tmp_path / "broker.toml"
     cfg.write_text(f'[dhan]\nstate_dir = "{tmp_path}"\nscrip_master = "{tmp_path / "s.csv"}"\n')
     assert dhan_main(["--config", str(cfg), "scrips", "--file", str(f)]) == 2   # too few rows to be real
-    assert "only 1 NSE equities" in capsys.readouterr().err
+    assert "only 2 NSE equities" in capsys.readouterr().err
 
 
 def test_time_exit_drops_the_oco_and_sells_at_market_from_1515(tmp_path):
