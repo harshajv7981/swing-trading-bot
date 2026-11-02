@@ -28,7 +28,9 @@ How it trades:
   are stale; no buy bigger than one slot plus one share; a sell never exceeds
   what both the book and Dhan's holdings show (in the sandbox, whose
   holdings don't follow its fills, a shortfall is only noted); any order still open from an
-  earlier run must finish first; and `<state_dir>/momentum_halt` stops
+  earlier run must finish first; a fill more than 20% from its limit (the
+  sandbox's placeholder 100, or a data glitch live) is booked as reported
+  but writes the halt file; and `<state_dir>/momentum_halt` stops
   everything until Harsha deletes it (`swingbot-dhan rebalance --halt "why"`).
 * **R10**: every call goes through the adapter's rate limit. A rebalance is
   about 20 to 40 orders a month, far under SEBI's 10 orders a second, above
@@ -61,6 +63,7 @@ from .dhan import DEFAULT_CONFIG, DONE_STATUSES, DhanAPI, DhanError, _rows, _ts
 
 BOOK = "momentum_dhan_book.json"
 HALT = "momentum_halt"
+ODD_FILL = 0.20   # a fill this far from its limit halts the bot until someone checks it
 OPEN_STATUSES = {"TRANSIT", "PENDING", "PART_TRADED", "CONFIRM"}
 
 
@@ -217,6 +220,14 @@ class MomentumDhan:
                 continue
             filled = int(r.get("filledQty") or (o["qty"] if status == "TRADED" else 0))
             avg = float(r.get("averageTradedPrice") or 0) or o["limit"]
+            if filled and abs(avg / o["limit"] - 1) > ODD_FILL:
+                # Booked as Dhan reports it (the shares are what they are), but nothing more is
+                # traded until someone has looked: the sandbox fills at a placeholder 100, and live
+                # this would be a data glitch or a fill far from the market.
+                why = (f"{o['side'].lower()} {o['symbol']} filled at {avg:,.2f}, {abs(avg / o['limit'] - 1):.0%} "
+                       f"from its limit {o['limit']:,.2f}; check it at Dhan")
+                self.notes.append(why + "; halted")
+                self.halt(why)
             self._apply(o, filled, avg)
             o.update(status=status.lower(), filled=filled, avg_price=avg)
             if status in DONE_STATUSES and status != "TRADED":

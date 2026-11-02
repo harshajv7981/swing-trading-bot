@@ -177,3 +177,22 @@ def test_cli_live_send_refuses_a_price_file(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("SWINGBOT_DHAN_TOKEN", "tok")
     assert dhan_main(["--config", "broker.toml", "rebalance", "--send", "--prices", "p.json"]) == 2
     assert "never a file" in capsys.readouterr().err
+
+
+def test_a_fill_far_from_its_limit_is_booked_but_halts(tmp_path):
+    bot, fake = make(tmp_path)
+    inner = fake.__call__
+
+    def placeholder(method, url, headers, body):   # a fill far below its ~102.5 limit
+        if method == "GET" and "/orders/O3" in url:
+            return 200, json.dumps({"orderId": "O3", "orderStatus": "TRADED", "filledQty": 1,
+                                    "averageTradedPrice": 10.0}).encode()
+        return inner(method, url, headers, body)
+
+    bot.api.transport = placeholder
+    bot.rebalance(ledger(NOV), "2026-12-01 10:00", send=True)
+    bot.sync()
+    assert bot.book["holdings"]["S02"] == 1                          # booked as Dhan reports it
+    assert bot.halt_path.exists() and any("from its limit" in n for n in bot.notes)
+    with pytest.raises(OrderRefused, match="halted"):
+        bot.rebalance(ledger(NOV), "2026-12-01 11:00")
