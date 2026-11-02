@@ -40,6 +40,7 @@ import pandas as pd
 from .risk.calendar import NSECalendar
 
 LEDGER = Path("data/state/momentum_trial.json")
+PICKS = Path("data/state/momentum_picks.json")   # same-day picks from the bhavcopy (`picks`)
 REPORT = Path("runs/momentum-trial/report.md")
 START = "2026-10-30"  # first booking: the portfolio held through November 2026
 CAPITAL = 1_000_000.0
@@ -78,8 +79,14 @@ def adjust_jumps(c: pd.Series) -> pd.Series:
     return c * factor
 
 
-def load(data: Path, since: str = "2008-01-01") -> tuple[pd.DataFrame, pd.DataFrame]:
-    """EQ-series closes (jump-adjusted) and traded values for every stock file in `data`."""
+def load(data: Path, since: str = "2008-01-01",
+         extra: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """EQ-series closes (jump-adjusted) and traded values for every stock file in `data`.
+
+    `extra` (bhavcopy rows: Date, Symbol, Series, Close, Volume) fills the days
+    after each file's last one, so a month-end can be ranked before eod2_data
+    has synced it. Days the file already has are never overwritten."""
+    by_sym = dict(tuple(extra.groupby("Symbol"))) if extra is not None and len(extra) else {}
     closes, values = {}, {}
     for p in sorted(data.glob("*.csv")):
         if NOT_STOCK.search(p.stem):
@@ -89,6 +96,10 @@ def load(data: Path, since: str = "2008-01-01") -> tuple[pd.DataFrame, pd.DataFr
                              index_col="Date")
         except ValueError:
             continue
+        add = by_sym.get(p.stem.upper())
+        if add is not None and len(df):
+            add = add[add["Date"] > df.index.max()].set_index("Date")[["Close", "Volume", "Series"]]
+            df = pd.concat([df, add]) if len(add) else df
         df = df[df["Series"].fillna("EQ") == "EQ"]
         df = df[~df.index.duplicated()].sort_index()
         df = df[df.index >= since]
@@ -369,6 +380,57 @@ def report(ledger: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def same_day_picks(data: Path, bhav_dir: Path, calendar: NSECalendar, month: str | None = None,
+                   picks_path: Path = PICKS, ledger_path: Path = LEDGER) -> dict:
+    """The month-end's 20 picks from eod2_data plus NSE bhavcopies for the days it lacks.
+
+    The trial's own rule (`select`), on the trial's own data where it has the
+    days. Written into `picks_path` in the ledger's shape ({"months": [...]}),
+    which `swingbot-dhan rebalance --picks` reads. The paper ledger is not
+    touched: when eod2_data catches up, `update` books the month as before,
+    and the picks here are compared with it."""
+    from .bhavcopy import read_dir
+
+    extra = read_dir(bhav_dir)
+    eod2_last = last_date(data)
+    newest = max([eod2_last] + ([extra["Date"].max().date()] if len(extra) else []))
+    if month:
+        y, m = (int(x) for x in month.split("-"))
+        asof = month_end_session(y, m, calendar)
+    else:
+        asof = month_end_session(newest.year, newest.month, calendar)
+        if asof > newest:
+            prev = date(newest.year, newest.month, 1) - timedelta(days=1)
+            asof = month_end_session(prev.year, prev.month, calendar)
+    have = set(extra["Date"].dt.date) if len(extra) else set()
+    if asof > eod2_last and asof not in have:
+        raise ValueError(f"no bhavcopy for the month-end {asof} in {bhav_dir}, and eod2_data stops at {eod2_last}")
+    missing, day = [], eod2_last
+    while day < asof:
+        day += timedelta(days=1)
+        if calendar.is_session(day) and day not in have:
+            missing.append(str(day))
+    px, val = load(data, since=str(asof - timedelta(days=800)), extra=extra)
+    bucket, picks = select(px, val, pd.Timestamp(asof))
+    entry = {"date": str(asof), "picks": picks, "bucket_size": len(bucket), "source": "eod2_data + bhavcopy",
+             "eod2_last": str(eod2_last), "missing_sessions": missing,
+             "made_at": pd.Timestamp.now(tz="Asia/Kolkata").strftime("%Y-%m-%d %H:%M")}
+    book = json.loads(picks_path.read_text()) if picks_path.exists() else {"months": []}
+    book["months"] = sorted([m for m in book["months"] if m["date"] != entry["date"]] + [entry],
+                            key=lambda m: m["date"])
+    picks_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = picks_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(book, indent=1))
+    tmp.replace(picks_path)
+    if ledger_path.exists():
+        booked = next((m for m in json.loads(ledger_path.read_text())["months"] if m["date"] == entry["date"]), None)
+        if booked:
+            entry["trial_match"] = sorted(booked["picks"]) == sorted(picks)
+            entry["trial_only"] = sorted(set(booked["picks"]) - set(picks))
+            entry["here_only"] = sorted(set(picks) - set(booked["picks"]))
+    return entry
+
+
 def pull(data: Path) -> None:
     """Bring a shallow eod2_data clone up to date (the folder holding `daily/`)."""
     repo = data.parent
@@ -383,9 +445,23 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--data", required=True, type=Path, help="eod2_data's daily/ folder")
     u.add_argument("--pull", action="store_true", help="git-update the eod2_data clone first")
     u.add_argument("--holidays", help="NSE holiday TOML (default config/nse_holidays.toml)")
-    for p in (u, sub.add_parser("report", help="print the trial so far")):
+    pk = sub.add_parser("picks", help="the month-end picks on the day, from eod2_data plus NSE bhavcopies")
+    pk.add_argument("--data", required=True, type=Path, help="eod2_data's daily/ folder")
+    pk.add_argument("--bhavcopy", type=Path, default=Path("data/raw/bhavcopy"),
+                    help="folder of NSE bhavcopy files (.csv or .zip) for the days eod2_data lacks")
+    pk.add_argument("--month", help="YYYY-MM (default: the newest month-end the data reaches)")
+    pk.add_argument("--fetch", action="store_true",
+                    help="download the missing sessions' bhavcopies from NSE first (needs --accept-nse-terms)")
+    pk.add_argument("--accept-nse-terms", action="store_true",
+                    help="NSE's terms forbid automated collection; confirm you accept that for a private, "
+                         "one-file-a-day download")
+    pk.add_argument("--out", type=Path, default=PICKS)
+    pk.add_argument("--holidays", help="NSE holiday TOML (default config/nse_holidays.toml)")
+    for p in (u, sub.add_parser("report", help="print the trial so far"), pk):
         p.add_argument("--ledger", type=Path, default=LEDGER)
     args = ap.parse_args(argv)
+    if args.cmd == "picks":
+        return _picks(args)
     if args.cmd == "update":
         if args.pull:
             pull(args.data)
@@ -404,6 +480,42 @@ def main(argv: list[str] | None = None) -> int:
         print(f"report: {REPORT}")
     else:
         sys.stdout.write(text)
+    return 0
+
+
+def _picks(args) -> int:
+    calendar = NSECalendar.load(args.holidays)
+    if args.fetch:
+        if not args.accept_nse_terms:
+            print("error: --fetch downloads from NSE, whose terms forbid automated collection; download the "
+                  "bhavcopy by hand, or pass --accept-nse-terms", file=sys.stderr)
+            return 2
+        from .bhavcopy import fetch
+        day, until = last_date(args.data), date.today()
+        if args.month:
+            y, m = (int(x) for x in args.month.split("-"))
+            until = min(until, month_end_session(y, m, calendar))
+        while day < until:
+            day += timedelta(days=1)
+            if calendar.is_session(day):
+                try:
+                    print(f"fetched {fetch(day, args.bhavcopy)}")
+                except Exception as e:   # a holiday the list lacks, or NSE not ready yet
+                    print(f"no bhavcopy for {day}: {e}", file=sys.stderr)
+    try:
+        e = same_day_picks(args.data, args.bhavcopy, calendar, args.month, args.out, args.ledger)
+    except ValueError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
+    print(f"picks for the month-end {e['date']} (eod2_data to {e['eod2_last']}, bucket {e['bucket_size']}):")
+    print("  " + ", ".join(e["picks"]))
+    if e["missing_sessions"]:
+        print(f"  warning: no data for {', '.join(e['missing_sessions'])}; the 60-day traded value that "
+              "picks the mid-cap bucket skips those days, so a stock near rank 100 or 250 could differ")
+    if "trial_match" in e:
+        print("  the paper trial booked the same 20" if e["trial_match"] else
+              f"  differs from the paper trial: trial only {e['trial_only']}, here only {e['here_only']}")
+    print(f"saved to {args.out}; trade them with `swingbot-dhan rebalance --picks {args.out}`")
     return 0
 
 

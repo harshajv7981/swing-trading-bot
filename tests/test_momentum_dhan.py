@@ -153,6 +153,11 @@ def test_cli_halt_and_dry_run(tmp_path, monkeypatch, capsys):
                       "--prices", "prices.json"]) == 0
     out = capsys.readouterr().out
     assert "dry run: nothing sent" in out and out.count("BUY") == 20
+    (tmp_path / "picks.json").write_text(json.dumps(ledger(NOV)))       # same-day picks, same shape
+    assert dhan_main(["--config", "broker.toml", "--as-of", "2026-12-01 10:00", "rebalance",
+                      "--picks", "picks.json", "--prices", "prices.json"]) == 0
+    assert capsys.readouterr().out.count("BUY") == 20
+    assert dhan_main(["--config", "broker.toml", "rebalance", "--picks", "nope.json"]) == 2
     # The sandbox has no quote API, so a sandbox --send may plan from the price file.
     import swingbot.broker.dhan_cli as cli
     fake = FakeDhan()
