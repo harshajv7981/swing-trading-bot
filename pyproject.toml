@@ -13,6 +13,8 @@ dependencies = ["pandas>=2.0", "numpy>=1.24"]
 [project.optional-dependencies]
 data = ["yfinance>=0.2"]
 dev = ["pytest>=8"]
+# TradingAgents paper test (docs/research/tradingagents-paper-test.md); needs ANTHROPIC_API_KEY.
+agents = ["tradingagents @ git+https://github.com/TauricResearch/TradingAgents@v0.7.1"]
 
 [project.scripts]
 swingbot-data = "swingbot.data.cli:main"
@@ -22,6 +24,7 @@ swingbot-paper = "swingbot.paper.cli:main"
 swingbot-dhan = "swingbot.broker.dhan_cli:main"
 swingbot-dashboard = "swingbot.dashboard:main"
 swingbot-momentum = "swingbot.momentum:main"
+swingbot-agents = "swingbot.agents_trial:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
