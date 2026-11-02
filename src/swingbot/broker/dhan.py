@@ -70,12 +70,16 @@ DhanHQ DevPortal; a live token lasts one day and needs Dhan's static IP).
 from __future__ import annotations
 
 import csv
+import http.client
 import io
 import json
 import os
+import socket
+import ssl
 import time
 import tomllib
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -194,13 +198,42 @@ class RateLimit:
 Transport = Callable[[str, str, dict, bytes | None], tuple[int, bytes]]
 
 
+CONNECT_TIMEOUT = 10   # seconds to open a connection; a reply may take up to 30
+
+
+class _IPv4HTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS over IPv4 only.
+
+    Dhan whitelists one static IPv4 address for live orders, and on a network
+    whose IPv6 route to Dhan is broken (seen on Harsha's Mac, Nov 2026) Python
+    tries IPv6 first and every call hangs for minutes before falling back."""
+
+    def connect(self):
+        infos = socket.getaddrinfo(self.host, self.port, socket.AF_INET, socket.SOCK_STREAM)
+        if not infos:
+            raise OSError(f"no IPv4 address for {self.host}")
+        sock = socket.create_connection(infos[0][4], timeout=CONNECT_TIMEOUT)
+        sock.settimeout(self.timeout)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
 def urllib_transport(method: str, url: str, headers: dict, body: bytes | None) -> tuple[int, bytes]:
-    req = urllib.request.Request(url, data=body, headers=headers, method=method)
+    """One HTTPS call to Dhan over IPv4. Through a proxy (HTTPS_PROXY set) urllib's own route is used."""
+    if urllib.request.getproxies().get("https"):
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.status, resp.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+    u = urllib.parse.urlsplit(url)
+    conn = _IPv4HTTPSConnection(u.hostname, u.port or 443, timeout=30, context=ssl.create_default_context())
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.status, resp.read()
-    except urllib.error.HTTPError as e:
-        return e.code, e.read()
+        conn.request(method, u.path + (f"?{u.query}" if u.query else ""), body=body, headers=headers)
+        resp = conn.getresponse()
+        return resp.status, resp.read()
+    finally:
+        conn.close()
 
 
 class DhanAPI:

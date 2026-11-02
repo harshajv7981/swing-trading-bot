@@ -51,12 +51,27 @@ where SEBI's retail-algo rules need exchange registration.
 8. **Tax.** About 45% turnover a month makes almost every gain short-term
    (20%), against 12.5% long-term on an index fund held a year.
 
+## What the real sandbox showed (1-2 Nov 2026)
+
+- `swingbot-dhan check` and the scrip master work; the sandbox account starts with ₹10L.
+- No market quote API (`/marketfeed/ltp` is 404), so a sandbox `--send` plans from a price file.
+- No orders outside market hours (DH-906), not even after-market ones.
+- Its prices are its own: the circuit bands it enforces sat far from the real
+  market (SHILPAMED allowed 238 to 357 while the real close was 864), so orders
+  at real prices are rejected there. The sandbox tests that orders reach Dhan
+  and that rejections come back into the book, which they did, not fills.
+- A BE-series stock (MOREPENLAB, id 4949) was "not active" there. Whether Dhan
+  takes BE orders live is checked at the shadow step, before any money.
+- The Mac's IPv6 route to Dhan hangs, so the adapter now connects over IPv4
+  only, with a 10-second connect timeout. Dhan whitelists an IPv4 static IP
+  for live orders anyway.
+
 ## The path, step by step
 
 | Step | When | What | Gate to the next |
 |---|---|---|---|
 | 0. Paper trial | Nov 2026 to Oct 2027 | `swingbot-momentum update` books each month on paper. | Runs all year, as pre-registered. |
-| 1. Sandbox plumbing | Nov 2026 | Sandbox token from DhanHQ DevPortal; `swingbot-dhan check`, `scrips --refresh`, then `rebalance` and `rebalance --send` on a booked month (raise `max_age_sessions` for the test). | Orders accepted, fills read back, book matches. Fix anything the real sandbox does differently from the fake. |
+| 1. Sandbox plumbing | Nov 2026 (done, see above) | Sandbox token from DhanHQ DevPortal; `swingbot-dhan check`, `scrips --refresh`, then `rebalance` and `rebalance --send` on a booked month (raise `max_age_sessions` for the test). | Orders accepted, fills read back, book matches. Fix anything the real sandbox does differently from the fake. |
 | 2. Same-day picks | Dec 2026 | Build picks from month-end closes on the day (Dhan data or bhavcopy) and check they match the trial's picks for the same month. | Matches the trial's picks for 2 or 3 months. |
 | 3. Shadow on the real account | From Jan 2027 | Live mode, dry run only, on each month-end with real quotes and holdings. Needs the Dhan account, static IP and daily login. | The planned orders match the paper ledger's orders each month, with no hand fixes. |
 | 4. Small real money | Only if the Oct 2027 review passes | Harsha approves a code change that unlocks live orders for the rebalance only, with `capital` set small (say ₹1 to 2L). Each month the bot prints the orders and Harsha types `--send` after reading them. | 3 clean months: fills close to the plan, no rejected or stuck orders. |

@@ -429,3 +429,26 @@ def test_entry_day_stop_can_be_turned_off(tmp_path):
     fake.trade("O1", "BUY", 100, 99.9, "2026-01-05 09:15:03")
     b.sync("2026-01-05 09:20")
     assert day_stops(fake) == []
+
+
+def test_transport_connects_over_ipv4_only(monkeypatch):
+    import socket
+
+    from swingbot.broker import dhan
+
+    asked = {}
+
+    def fake_getaddrinfo(host, port, family=0, type=0, *a):
+        asked["family"] = family
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("203.0.113.5", port))]
+
+    def fake_create_connection(addr, timeout=None):
+        asked["addr"], asked["timeout"] = addr, timeout
+        raise OSError("stop here")
+
+    monkeypatch.setattr(dhan.urllib.request, "getproxies", lambda: {})
+    monkeypatch.setattr(dhan.socket, "getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr(dhan.socket, "create_connection", fake_create_connection)
+    with pytest.raises(OSError, match="stop here"):
+        dhan.urllib_transport("GET", "https://sandbox.dhan.co/v2/fundlimit", {}, None)
+    assert asked == {"family": socket.AF_INET, "addr": ("203.0.113.5", 443), "timeout": dhan.CONNECT_TIMEOUT}
