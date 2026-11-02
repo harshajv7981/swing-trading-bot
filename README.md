@@ -534,6 +534,26 @@ swingbot-momentum update --data data/raw/eod2_data/daily --pull   # safe to run 
 swingbot-momentum report
 ```
 
+### Picks on the month-end itself: `swingbot-momentum picks`
+
+eod2_data syncs about a week late, so `update` books a month days after it
+ends. For trading on the day, `picks` fills the days eod2_data lacks from NSE's
+daily bhavcopy (the one file per session with every stock's close and volume)
+and ranks with the trial's own rule:
+
+```bash
+# Download each missing session's bhavcopy by hand from nseindia.com (All Reports > Equities)
+# into data/raw/bhavcopy/, or let it fetch them, one file per day, slowly:
+swingbot-momentum picks --data data/raw/eod2_data/daily --fetch --accept-nse-terms
+swingbot-dhan rebalance --picks data/state/momentum_picks.json      # dry run on those picks
+```
+
+The picks go to `data/state/momentum_picks.json` (git-ignored), never into the
+paper ledger. It warns about any session it had no data for, and once the
+trial books the same month it says whether the 20 match. NSE's terms forbid
+automated collection, so `--fetch` needs `--accept-nse-terms`; the files are
+NSE data and stay in the git-ignored `data/raw/`.
+
 `update` books every finished month-end the ledger lacks, using only prices up
 to that day. It does nothing until the data covers a month-end, and eod2_data
 syncs about weekly. The ledger is `data/state/momentum_trial.json`. The report

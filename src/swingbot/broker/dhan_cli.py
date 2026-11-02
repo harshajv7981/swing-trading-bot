@@ -9,6 +9,7 @@
     swingbot-dhan book                   # what the adapter holds
     swingbot-dhan rebalance              # M6 month-end orders from the paper trial's picks: dry run
     swingbot-dhan rebalance --send       # sandbox: send them (sells, then buys)
+    swingbot-dhan rebalance --picks data/state/momentum_picks.json   # same-day picks instead of the ledger
     swingbot-dhan rebalance --status     # the bot's momentum book
     swingbot-dhan rebalance --halt "why" # stop every momentum order until the halt file is deleted
 
@@ -69,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
     rb.add_argument("--status", action="store_true", help="show the bot's momentum book and read fills")
     rb.add_argument("--halt", metavar="WHY", help="write the halt file: no momentum order goes in until it is deleted")
     rb.add_argument("--month", help="YYYY-MM of the booked month to trade (default the newest)")
+    rb.add_argument("--picks", help="same-day picks from `swingbot-momentum picks` (data/state/momentum_picks.json) "
+                    "instead of the paper trial's ledger")
     rb.add_argument("--prices", help="JSON {symbol: price} to plan with instead of Dhan's quotes (dry runs, and "
                     "--send in the sandbox, which has no quote API)")
     args = p.parse_args(argv)
@@ -165,10 +168,12 @@ def _rebalance(args, api: DhanAPI, cfg: DhanConfig, as_of) -> int:
         # Dhan's sandbox has no market quote API (404), so a sandbox --send may plan from a price file.
         print("error: with real money, orders are priced from Dhan's own quotes, never a file", file=sys.stderr)
         return 2
-    if not mcfg.ledger.exists():
-        print(f"error: no paper trial ledger at {mcfg.ledger}; run `swingbot-momentum update` first", file=sys.stderr)
+    source = Path(args.picks) if args.picks else mcfg.ledger
+    if not source.exists():
+        hint = "swingbot-momentum picks" if args.picks else "swingbot-momentum update"
+        print(f"error: no picks at {source}; run `{hint}` first", file=sys.stderr)
         return 2
-    ledger = json.loads(mcfg.ledger.read_text())
+    ledger = json.loads(source.read_text())
     prices = {k.upper(): float(v) for k, v in json.loads(Path(args.prices).read_text()).items()} if args.prices else None
     out = bot.rebalance(ledger, as_of, send=args.send, month=args.month, prices=prices)
     mode = "LIVE account, read-only" if cfg.live else "sandbox"
