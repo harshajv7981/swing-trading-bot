@@ -26,7 +26,8 @@ once per session and do not change it.
 4. **Keep it short.** Each role gets 2–5 sentences. The whole run should fit
    in one session; use as little of the plan as possible.
 5. **Never edit `data/state/agents_trial/decisions.jsonl` by hand.** Only
-   `swingbot-agents record` writes it. A recorded decision is never changed.
+   `swingbot-agents record` writes it. A recorded decision is never changed,
+   and `record` refuses a date more than 3 days old.
 
 ## Steps
 
