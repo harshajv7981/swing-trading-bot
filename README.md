@@ -560,6 +560,21 @@ syncs about weekly. The ledger is `data/state/momentum_trial.json`. The report
 goes to `runs/momentum-trial/report.md`. Both are git-ignored. eod2_data is
 NSE-derived, so keep it, the ledger and the report off GitHub Actions.
 
+## TradingAgents paper test: `swingbot-agents`
+
+A weekly forward test of [TradingAgents](https://github.com/TauricResearch/TradingAgents)
+on 20 fixed mid caps, on Claude Haiku 5.5 (about $4–5 a month). Paper only, no orders.
+Rules and pass bar: [docs/research/tradingagents-paper-test.md](docs/research/tradingagents-paper-test.md).
+
+```bash
+pip install -e '.[agents]'
+export ANTHROPIC_API_KEY=...                      # or keep it in an env file you source
+swingbot-agents run --limit 1                     # one stock first, to measure the cost
+swingbot-agents run                               # the 20 stocks, each Friday evening or weekend
+swingbot-agents score --data data/raw/eod2_data/daily
+swingbot-agents cost
+```
+
 ## Roadmap
 
 The mid-cap momentum paper trial runs from November 2026 and is judged in
