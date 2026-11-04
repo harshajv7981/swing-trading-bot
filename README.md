@@ -567,6 +567,26 @@ syncs about weekly. The ledger is `data/state/momentum_trial.json`. The report
 goes to `runs/momentum-trial/report.md`. Both are git-ignored. eod2_data is
 NSE-derived, so keep it, the ledger and the report off GitHub Actions.
 
+## TradingAgents as a skill: `swingbot-agents`
+
+[TradingAgents](https://github.com/TauricResearch/TradingAgents)' roles (four
+analysts, Bull/Bear debate, Research Manager, Trader, three risk analysts,
+Portfolio Manager) played by Claude Code with `swingbot-data`, so a call costs
+no API money: ask Claude Code to "run trading agents on INFY" or "run the
+watchlist" and the `trading-agents` skill (`.claude/skills/trading-agents/`)
+does the rest. It is a forward paper test, fixed in
+[docs/research/trading-agents-prereg.md](docs/research/trading-agents-prereg.md):
+ten Nifty 50 stocks every Friday after the close, scored on the next 5
+sessions against the Nifty 50. No orders.
+
+```bash
+swingbot-agents record runs/trading-agents/2026-11-06/INFY.json   # the skill does this; refuses past dates
+swingbot-agents score                  # every call, settled or pending, and the summary
+swingbot-agents score --ticker INFY    # one stock's past calls
+```
+
+The log is `runs/trading-agents/decisions.jsonl` (git-ignored).
+
 ## Roadmap
 
 The mid-cap momentum paper trial runs from November 2026 and is judged in

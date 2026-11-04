@@ -22,6 +22,7 @@ swingbot-paper = "swingbot.paper.cli:main"
 swingbot-dhan = "swingbot.broker.dhan_cli:main"
 swingbot-dashboard = "swingbot.dashboard:main"
 swingbot-momentum = "swingbot.momentum:main"
+swingbot-agents = "swingbot.agent_calls:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
