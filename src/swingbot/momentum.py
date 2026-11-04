@@ -11,6 +11,7 @@ forward on paper with no model calls:
 
     swingbot-momentum update --data data/raw/eod2_data/daily [--pull]
     swingbot-momentum report
+    swingbot-momentum scorecard [--open]   # HTML scorecard (src/swingbot/scorecard.py)
 
 `update` catches up: every month-end since the trial's start that the data
 already covers and the ledger lacks is booked at that day's closes, using only
@@ -31,6 +32,7 @@ import json
 import re
 import subprocess
 import sys
+import webbrowser
 from datetime import date, timedelta
 from fractions import Fraction
 from pathlib import Path
@@ -439,6 +441,7 @@ def pull(data: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from . import scorecard  # imported here: it imports this module
     ap = argparse.ArgumentParser(prog="swingbot-momentum", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     u = sub.add_parser("update", help="book every completed month-end the ledger lacks")
@@ -457,11 +460,20 @@ def main(argv: list[str] | None = None) -> int:
                          "one-file-a-day download")
     pk.add_argument("--out", type=Path, default=PICKS)
     pk.add_argument("--holidays", help="NSE holiday TOML (default config/nse_holidays.toml)")
-    for p in (u, sub.add_parser("report", help="print the trial so far"), pk):
+    sc = sub.add_parser("scorecard", help="write the HTML scorecard: measures, charts, review checks")
+    sc.add_argument("--out", type=Path, default=Path(scorecard.OUT))
+    sc.add_argument("--open", action="store_true", help="open the page in the browser")
+    for p in (u, sub.add_parser("report", help="print the trial so far"), pk, sc):
         p.add_argument("--ledger", type=Path, default=LEDGER)
     args = ap.parse_args(argv)
     if args.cmd == "picks":
         return _picks(args)
+    if args.cmd == "scorecard":
+        out = _scorecard(args.ledger, args.out)
+        print(f"wrote {out}")
+        if args.open:
+            webbrowser.open(out.resolve().as_uri())
+        return 0
     if args.cmd == "update":
         if args.pull:
             pull(args.data)
@@ -477,10 +489,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "update":
         REPORT.parent.mkdir(parents=True, exist_ok=True)
         REPORT.write_text(text)
-        print(f"report: {REPORT}")
+        print(f"report: {REPORT}, scorecard: {_scorecard(args.ledger, Path(scorecard.OUT))}")
     else:
         sys.stdout.write(text)
     return 0
+
+
+def _scorecard(ledger_path: Path, out: Path) -> Path:
+    from . import scorecard
+    ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else new_ledger()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(scorecard.render(ledger))
+    return out
 
 
 def _picks(args) -> int:

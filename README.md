@@ -532,7 +532,14 @@ git -C data/raw/eod2_data sparse-checkout set daily
 
 swingbot-momentum update --data data/raw/eod2_data/daily --pull   # safe to run daily
 swingbot-momentum report
+swingbot-momentum scorecard --open   # HTML: measures, charts, the Oct 2027 review checks
 ```
+
+`update` also rewrites `runs/momentum-trial/scorecard.html` after each booking.
+It sets the paper account against mid-cap EW, the three indexes and the 70/30
+gold mix: CAGR (from 12 months), volatility, Sharpe and Sortino (risk-free 0%),
+worst fall, worst month, months beaten, tracking error, and the review checks
+the ledger can answer.
 
 ### Picks on the month-end itself: `swingbot-momentum picks`
 
