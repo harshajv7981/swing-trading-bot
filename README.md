@@ -586,6 +586,26 @@ swingbot-agents score --data data/raw/eod2_data/daily
 the Anthropic API (needs `ANTHROPIC_API_KEY`, about $4–5 a month on Haiku).
 It isn't used for now.
 
+## TradingAgents large-cap test: `swingbot-agent-calls`
+
+[TradingAgents](https://github.com/TauricResearch/TradingAgents)' roles (four
+analysts, Bull/Bear debate, Research Manager, Trader, three risk analysts,
+Portfolio Manager) played by Claude Code with `swingbot-data`, so a call costs
+no API money: ask Claude Code to "run trading agents on INFY" or "run the
+watchlist" and the `trading-agents` skill (`.claude/skills/trading-agents/`)
+does the rest. It runs next to the mid-cap test above, on Fridays, by Harsha's choice (2026-11-04). It is a forward paper test, fixed in
+[docs/research/trading-agents-prereg.md](docs/research/trading-agents-prereg.md):
+ten Nifty 50 stocks every Friday after the close, scored on the next 5
+sessions against the Nifty 50. No orders.
+
+```bash
+swingbot-agent-calls record runs/trading-agents/2026-11-06/INFY.json   # the skill does this; refuses past dates
+swingbot-agent-calls score                  # every call, settled or pending, and the summary
+swingbot-agent-calls score --ticker INFY    # one stock's past calls
+```
+
+The log is `runs/trading-agents/decisions.jsonl` (git-ignored).
+
 ## Roadmap
 
 The mid-cap momentum paper trial runs from November 2026 and is judged in

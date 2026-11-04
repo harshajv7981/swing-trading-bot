@@ -67,14 +67,20 @@ def test_stocks_are_the_preregistered_sample():
 
 def test_record_validates_and_refuses_duplicates(tmp_path):
     log = tmp_path / "d.jsonl"
-    row = at.record(date(2026, 11, 6), "AUBANK", "overweight", "steady deposits", model="m", path=log)
+    today = date(2026, 11, 8)
+    row = at.record(date(2026, 11, 6), "AUBANK", "overweight", "steady deposits", model="m", path=log,
+                    today=today)
     assert row["rating"] == "Overweight" and row["engine"] == "skill"
     with pytest.raises(ValueError, match="already"):
-        at.record(date(2026, 11, 6), "AUBANK", "Buy", path=log)
+        at.record(date(2026, 11, 6), "AUBANK", "Buy", path=log, today=today)
     with pytest.raises(ValueError, match="one of"):
-        at.record(date(2026, 11, 6), "SRF", "Strong buy", path=log)
+        at.record(date(2026, 11, 6), "SRF", "Strong buy", path=log, today=today)
     with pytest.raises(ValueError, match="20 stocks"):
-        at.record(date(2026, 11, 6), "TCS", "Buy", path=log)
+        at.record(date(2026, 11, 6), "TCS", "Buy", path=log, today=today)
+    with pytest.raises(ValueError, match="days ago"):
+        at.record(date(2026, 11, 6), "SRF", "Buy", path=log, today=date(2026, 11, 10))
+    with pytest.raises(ValueError, match="future"):
+        at.record(date(2026, 11, 9), "SRF", "Buy", path=log, today=today)
     assert at.pending(date(2026, 11, 6), ["AUBANK", "SRF"], at.read_decisions(log)) == ["SRF"]
 
 
@@ -93,3 +99,8 @@ def test_past_calls_show_outcomes(tmp_path):
     text = at.past_calls("SRF", date(2026, 11, 13), ds, tmp_path)
     assert "2026-11-06: Buy (5-day return +10.0%)" in text
     assert at.past_calls("SRF", date(2026, 11, 6), ds, tmp_path) == "No earlier calls on this stock."
+
+
+def test_cli_record_refusal_exits_2(capsys):
+    assert at.main(["record", "--date", "2020-01-03", "--symbol", "SRF", "--rating", "Buy"]) == 2
+    assert "not recorded" in capsys.readouterr().err

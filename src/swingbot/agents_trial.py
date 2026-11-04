@@ -272,8 +272,17 @@ def pending(day: date, stocks: list[str], decisions: list[dict]) -> list[str]:
     return [s for s in stocks if s not in done]
 
 
+RECORD_GRACE_DAYS = 3  # a Friday's calls may be recorded over the weekend, not later
+
+
 def record(day: date, symbol: str, rating: str, summary: str = "", engine: str = "skill",
-           model: str = "", path: Path = DECISIONS) -> dict:
+           model: str = "", path: Path = DECISIONS, today: date | None = None) -> dict:
+    today = today or date.today()
+    if day > today:
+        raise ValueError(f"{day} is in the future")
+    if (today - day).days > RECORD_GRACE_DAYS:
+        raise ValueError(f"{day} is more than {RECORD_GRACE_DAYS} days ago; a model may know what "
+                         "happened since, so late calls are not logged")
     rating = rating.strip().capitalize()
     if rating not in RATINGS:
         raise ValueError(f"rating must be one of {', '.join(RATINGS)}, got {rating!r}")

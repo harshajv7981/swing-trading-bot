@@ -25,6 +25,7 @@ swingbot-dhan = "swingbot.broker.dhan_cli:main"
 swingbot-dashboard = "swingbot.dashboard:main"
 swingbot-momentum = "swingbot.momentum:main"
 swingbot-agents = "swingbot.agents_trial:main"
+swingbot-agent-calls = "swingbot.agent_calls:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,6 +1,6 @@
 ---
 name: tradingagents-weekly
-description: Run the weekly TradingAgents paper test inside Claude Code with no API key. Claude plays TradingAgents' roles (analysts, bull/bear debate, research manager, trader, risk debate, portfolio manager) on 20 fixed mid-caps and logs one rating per stock. Use when asked to "run tradingagents", "do this week's agents run", "weekly agents decisions", or to score the agents trial. Never places an order.
+description: The MID-CAP TradingAgents test (20 fixed mid-caps, judged after 13 weeks). Run it inside Claude Code with no API key. Claude plays TradingAgents' roles (analysts, bull/bear debate, research manager, trader, risk debate, portfolio manager) on 20 fixed mid-caps and logs one rating per stock. Use when asked to "run tradingagents", "do this week's agents run", "run both agents tests", or to score the mid-cap agents trial. On Fridays Harsha runs both this and the large-cap trading-agents test. Never places an order.
 ---
 
 # TradingAgents weekly paper test, run by Claude Code
@@ -26,7 +26,8 @@ once per session and do not change it.
 4. **Keep it short.** Each role gets 2–5 sentences. The whole run should fit
    in one session; use as little of the plan as possible.
 5. **Never edit `data/state/agents_trial/decisions.jsonl` by hand.** Only
-   `swingbot-agents record` writes it. A recorded decision is never changed.
+   `swingbot-agents record` writes it. A recorded decision is never changed,
+   and `record` refuses a date more than 3 days old.
 
 ## Steps
 
