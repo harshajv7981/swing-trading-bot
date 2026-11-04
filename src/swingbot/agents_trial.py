@@ -3,9 +3,28 @@
 Runs TauricResearch/TradingAgents on 20 fixed mid-cap stocks once a week and
 scores its ratings on paper. Nothing here places an order.
 
-    swingbot-agents run [--date YYYY-MM-DD] [--limit N]     # on the Mac, Friday evening or weekend
+Two ways to make the weekly decisions:
+
+* Skill (no API key, Harsha's default): Claude Code plays TradingAgents' roles
+  using the `tradingagents-weekly` skill (.claude/skills/tradingagents-weekly).
+
+      swingbot-agents brief [--date YYYY-MM-DD] [--data data/raw/eod2_data/daily]
+      swingbot-agents pending [--date ...]
+      swingbot-agents record --date D --symbol S --rating Buy --summary "..."
+
+  `brief` fetches each stock's data with TradingAgents' own data tools (no
+  model calls) into runs/agents-trial/briefs/<date>/. Claude reads a brief,
+  writes the analyst, debate, trader, risk and portfolio-manager notes, and
+  `record` logs the rating.
+
+* API (needs ANTHROPIC_API_KEY): the full TradingAgents graph on Haiku.
+
+      swingbot-agents run [--date YYYY-MM-DD] [--limit N]
+
+Either way:
+
     swingbot-agents score --data data/raw/eod2_data/daily     # once eod2_data has the week's closes
-    swingbot-agents cost                                       # tokens and dollars so far
+    swingbot-agents cost                                       # tokens and dollars so far (API runs)
 
 `run` asks TradingAgents for one decision per stock for the given Friday
 (default: the latest Friday on or before today) and appends it to the decision
@@ -117,6 +136,8 @@ def make_config(model: str = MODEL) -> dict:
         "results_dir": str(RUNS / "logs"),
         # The trial keeps its own decision memory, so lessons come only from its own past calls.
         "memory_log_path": str(STATE / "trading_memory.md"),
+        # SEC EDGAR only covers US filers; Indian fundamentals come from Yahoo.
+        "data_vendors": {**cfg["data_vendors"], "fundamental_data": "yfinance"},
         "global_news_queries": [
             "India stock market Nifty Sensex",
             "Reserve Bank of India interest rates inflation",
@@ -159,6 +180,115 @@ def run(day: date, stocks: list[str], model: str = MODEL, path: Path = DECISIONS
         log(f"{sym}: {row['rating'] or row['error']}  ({meter.calls} calls, "
             f"{meter.tokens_in:,} in / {meter.tokens_out:,} out, ${meter.usd:.3f}, {row['seconds']}s)")
     return errors
+
+
+# ---------------------------------------------------------------- skill: brief / record
+
+RATINGS = ("Buy", "Overweight", "Hold", "Underweight", "Sell")
+BRIEFS = RUNS / "briefs"
+NEWS_DAYS = 7
+
+
+def _safe(fn, *args) -> str:
+    try:
+        out = fn(*args)
+    except Exception as exc:  # a missing source is reported in the brief, never fatal
+        return f"(unavailable: {type(exc).__name__}: {str(exc)[:200]})"
+    return str(out).strip() or "(no data)"
+
+
+def past_calls(symbol: str, day: date, decisions: list[dict], data: Path | None) -> str:
+    """This stock's earlier ratings and, when prices are at hand, how each turned out.
+
+    TradingAgents' memory log feeds past decisions and outcomes back to the
+    Portfolio Manager; this is the same idea from the trial's own log."""
+    rows = sorted((d for d in decisions if d.get("symbol") == symbol and d.get("rating")
+                   and d["date"] < day.isoformat()), key=lambda d: d["date"])[-6:]
+    if not rows:
+        return "No earlier calls on this stock."
+    s = closes(data, symbol) if data else None
+    out = []
+    for d in rows:
+        w = window(s, date.fromisoformat(d["date"]))
+        res = f"5-day return {w[2]:+.1%}" if w else "outcome not in the data yet"
+        out.append(f"- {d['date']}: {d['rating']} ({res})")
+    return "\n".join(out)
+
+
+def brief(day: date, stocks: list[str], data: Path | None = None, out_dir: Path | None = None,
+          log=print) -> Path:
+    """Write one data pack per stock, as TradingAgents' analysts would fetch it, cut at `day`."""
+    from tradingagents.dataflows.config import set_config
+    from tradingagents.dataflows.router import route_to_vendor
+    from tradingagents.dataflows.vendors.yahoo.snapshot import build_verified_market_snapshot
+
+    gap = too_soon(day, read_decisions())
+    if gap:
+        raise SystemExit(gap)
+    set_config(make_config())
+    out = (out_dir or BRIEFS) / day.isoformat()
+    out.mkdir(parents=True, exist_ok=True)
+    d, start = day.isoformat(), (day - timedelta(days=NEWS_DAYS)).isoformat()
+    (out / "_market.md").write_text(
+        f"# India market news, week to {d}\n\n" + _safe(route_to_vendor, "get_global_news", d, NEWS_DAYS, 10) + "\n")
+    decisions = read_decisions()
+    for sym in stocks:
+        t = yahoo(sym)
+        parts = [
+            f"# {sym} ({t}), decision date {d}",
+            "Data is cut at the decision date. Prices are in rupees.",
+            "## Market data (verified snapshot: latest bar, indicators, last 30 sessions)",
+            _safe(build_verified_market_snapshot, t, d, 30),
+            "## Fundamentals",
+            _safe(route_to_vendor, "get_fundamentals", t, d),
+            f"## Company news, {start} to {d}",
+            _safe(route_to_vendor, "get_news", t, start, d),
+            "## This stock's earlier calls in the trial",
+            past_calls(sym, day, decisions, data),
+        ]
+        (out / f"{sym}.md").write_text("\n\n".join(parts) + "\n")
+        log(f"{sym}: brief written")
+    return out
+
+
+def latest_decision_date(decisions: list[dict]) -> date | None:
+    days = [d["date"] for d in decisions if d.get("rating")]
+    return date.fromisoformat(max(days)) if days else None
+
+
+def too_soon(day: date, decisions: list[dict], today: date | None = None) -> str | None:
+    """Hold windows must not overlap: a new decision date needs 7+ days after the last one."""
+    last = latest_decision_date(decisions)
+    if last and last != day and (day - last).days < 7:
+        return (f"last decisions were for {last}; the next can be made from {last + timedelta(days=7)} "
+                "so the 5-session hold windows don't overlap")
+    if day > (today or date.today()):
+        return f"{day} is in the future"
+    return None
+
+
+def pending(day: date, stocks: list[str], decisions: list[dict]) -> list[str]:
+    done = {d["symbol"] for d in decisions if d["date"] == day.isoformat() and d.get("rating")}
+    return [s for s in stocks if s not in done]
+
+
+def record(day: date, symbol: str, rating: str, summary: str = "", engine: str = "skill",
+           model: str = "", path: Path = DECISIONS) -> dict:
+    rating = rating.strip().capitalize()
+    if rating not in RATINGS:
+        raise ValueError(f"rating must be one of {', '.join(RATINGS)}, got {rating!r}")
+    if symbol not in STOCKS:
+        raise ValueError(f"{symbol} is not one of the trial's 20 stocks")
+    if any(d["date"] == day.isoformat() and d["symbol"] == symbol and d.get("rating")
+           for d in read_decisions(path)):
+        raise ValueError(f"{symbol} already has a decision for {day}")
+    row = {"date": day.isoformat(), "symbol": symbol, "ticker": yahoo(symbol), "rating": rating,
+           "engine": engine, "model": model, "summary": summary[:1000],
+           "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(json.dumps(row) + "\n")
+    return row
 
 
 # ---------------------------------------------------------------- score
@@ -238,8 +368,9 @@ def compound(xs) -> float:
 def report(result: dict, decisions: list[dict]) -> str:
     weeks, calls = result["weeks"], result["calls"]
     lines = ["# TradingAgents paper test", "",
-             f"Rules: docs/research/tradingagents-paper-test.md. Model {MODEL}, 20 fixed mid-caps, "
-             f"weekly from {START}.", ""]
+             f"Rules: docs/research/tradingagents-paper-test.md. 20 fixed mid-caps, weekly from {START}. "
+             "Engines: " + (", ".join(sorted({f"{d.get('engine', 'api')} ({d.get('model') or '?'})"
+                                             for d in decisions})) or "none yet") + ".", ""]
     usd = sum(d.get("usd", 0) for d in decisions)
     lines += [f"Decisions logged: {len(decisions)} ({sum(1 for d in decisions if not d.get('rating'))} failed). "
               f"Model cost so far: ${usd:.2f}.", ""]
@@ -278,8 +409,9 @@ def report(result: dict, decisions: list[dict]) -> str:
 
 
 def cost_summary(decisions: list[dict]) -> str:
+    decisions = [d for d in decisions if d.get("engine", "api") == "api"]
     if not decisions:
-        return "No decisions logged yet."
+        return "No API-run decisions logged (skill runs use the Claude plan and cost nothing extra)."
     by_week: dict[str, list[dict]] = {}
     for d in decisions:
         by_week.setdefault(d["date"], []).append(d)
@@ -306,6 +438,18 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("score", help="score the logged decisions and write the report")
     s.add_argument("--data", type=Path, required=True, help="eod2_data daily folder")
     sub.add_parser("cost", help="tokens and dollars spent so far")
+    b = sub.add_parser("brief", help="fetch each stock's data for the skill (no model calls)")
+    b.add_argument("--date", help="decision date (default: today; run after the 15:30 close)")
+    b.add_argument("--data", type=Path, help="eod2_data daily folder, to show past calls' outcomes")
+    b.add_argument("--limit", type=int)
+    pe = sub.add_parser("pending", help="stocks still without a decision for the date")
+    pe.add_argument("--date")
+    rc = sub.add_parser("record", help="log one decision made by the skill")
+    rc.add_argument("--date", required=True)
+    rc.add_argument("--symbol", required=True)
+    rc.add_argument("--rating", required=True, choices=RATINGS)
+    rc.add_argument("--summary", default="")
+    rc.add_argument("--model", default="", help="the Claude model Claude Code ran on")
     args = ap.parse_args(argv)
 
     decisions = read_decisions()
@@ -317,6 +461,24 @@ def main(argv: list[str] | None = None) -> int:
         errors = run(day, stocks)
         print(cost_summary(read_decisions()))
         return 1 if errors else 0
+    if args.cmd in ("brief", "pending"):
+        day = date.fromisoformat(args.date) if args.date else (
+            date.today() if args.cmd == "brief" else latest_decision_date(decisions) or date.today())
+        if args.cmd == "pending":
+            print("\n".join(pending(day, STOCKS, decisions)) or "none: all 20 decided")
+            return 0
+        stocks = STOCKS[: args.limit] if args.limit else STOCKS
+        print(f"briefs in {brief(day, stocks, args.data)}")
+        return 0
+    if args.cmd == "record":
+        try:
+            row = record(date.fromisoformat(args.date), args.symbol, args.rating, args.summary,
+                         model=args.model)
+        except ValueError as exc:
+            print(f"not recorded: {exc}", file=sys.stderr)
+            return 2
+        print(f"recorded {row['symbol']} {row['date']}: {row['rating']}")
+        return 0
     if args.cmd == "score":
         text = report(score(decisions, args.data), decisions)
         RUNS.mkdir(parents=True, exist_ok=True)

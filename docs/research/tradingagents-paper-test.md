@@ -1,5 +1,12 @@
 # TradingAgents paper test: rules fixed before the first run
 
+**Change on 2026-11-04, before any decision was made:** Harsha has no budget
+for an API key, so the decisions are made inside Claude Code on his plan by the
+`tradingagents-weekly` skill, not by the TradingAgents graph on the Haiku API.
+The data tools, roles, rating scale and scoring stay the same. The
+differences are listed under "Engine" below. The API runner
+(`swingbot-agents run`) is kept but is not used for this test.
+
 Written 2026-11-02, before any decision was made. Harsha asked to test
 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)
 with paper money and chose a forward weekly test on Claude Haiku 5.5. Nothing
@@ -16,8 +23,19 @@ trained, so that can't occur. The price is time: about 13 weeks to collect
 ## The setup (fixed)
 
 - **Framework:** TradingAgents v0.7.1, pinned in `pyproject.toml` (`pip install -e '.[agents]'`).
-- **Model:** `claude-haiku-5-5` for both the quick and the deep tier. One round
-  of bull/bear debate and one round of risk debate (the framework's defaults).
+- **Engine:** Claude Code running the `tradingagents-weekly` skill
+  (`.claude/skills/tradingagents-weekly/SKILL.md`), on whatever model the plan
+  serves, recorded with each decision. `swingbot-agents brief` fetches each
+  stock's data with TradingAgents' own tools (verified market snapshot,
+  fundamentals, a week of company news and India market news), cut at the
+  decision date, with no model calls. Claude then writes every role in order:
+  the market, news and fundamentals analysts, the bull and the bear, the
+  research manager, the trader, the three risk analysts and the portfolio
+  manager. It follows TradingAgents' rating scale and its rule to commit rather
+  than default to Hold. Differences from the graph: one model writes every
+  role in one pass, so the roles are less independent; the analysts read a
+  fixed data pack instead of choosing their own tool calls; and the memory is
+  the stock's own earlier ratings and 5-day outcomes, shown in its brief.
 - **Analysts:** market, news, fundamentals. The social analyst is left out: it
   reads StockTwits and Reddit, which barely cover NSE stocks. Global news
   queries are switched from US topics to India ones (Nifty, RBI, FPI flows,
@@ -27,12 +45,12 @@ trained, so that can't occur. The price is time: about 13 weeks to collect
   ASTERDM, AUBANK, BAJAJHFL, CRISIL, FEDERALBNK, GODFRYPHLP, GODREJPROP, GVT&D,
   LICHSGFIN, MFSL, NH, NHPC, NMDC, PATANJALI, PIRAMALFIN, SRF, SWIGGY,
   UNOMINDA, WAAREEENER, YESBANK. A test checks the draw.
-- **When:** one decision per stock for every Friday from 6 Nov 2026, run on the
-  Mac on Friday evening or the weekend (`swingbot-agents run`). Data comes from
-  Yahoo, as TradingAgents ships it; the cloud machine can't reach Yahoo.
-- **Memory:** TradingAgents keeps a log of its past calls and their outcomes and
-  reads it on later runs. The trial gets its own log
-  (`data/state/agents_trial/trading_memory.md`), so it learns only from its own calls.
+- **When:** one decision per stock each week from the week of 6 Nov 2026,
+  made on the Mac after the NSE close on the decision day, normally Friday.
+  The decision date is the day the brief is made. Decision dates must be at
+  least 7 days apart, so the 5-session holds never overlap; `brief` enforces
+  this. Data comes from Yahoo, as TradingAgents ships it; the cloud machine
+  can't reach Yahoo.
 
 ## How a call is scored
 
@@ -59,9 +77,8 @@ If either fails, the recommendation is to stop TradingAgents and spend nothing
 more on it. If both pass, the next step is a longer run before any real money,
 since 13 weeks is a short sample.
 
-## Cost limit
+## Cost
 
-Estimated before the first run at about $0.05 per stock, roughly $4–5 a month.
-`swingbot-agents run` logs the tokens and dollars of every call. The first run
-is a single stock (`--limit 1`) to measure it. If the measured monthly cost is
-above $10, the test pauses until Harsha agrees to the new figure.
+No API spend: the skill runs on Harsha's Claude plan and uses its usage
+allowance. If a weekly run of 20 stocks uses too much of the plan, the fix is
+shorter notes per role, not fewer stocks, so the sample stays as drawn.
