@@ -570,17 +570,21 @@ NSE-derived, so keep it, the ledger and the report off GitHub Actions.
 ## TradingAgents paper test: `swingbot-agents`
 
 A weekly forward test of [TradingAgents](https://github.com/TauricResearch/TradingAgents)
-on 20 fixed mid caps, on Claude Haiku 5.5 (about $4–5 a month). Paper only, no orders.
+on 20 fixed mid caps. Paper only, no orders, no API key: Claude Code plays
+TradingAgents' roles through the `tradingagents-weekly` skill on your Claude plan.
 Rules and pass bar: [docs/research/tradingagents-paper-test.md](docs/research/tradingagents-paper-test.md).
 
 ```bash
-pip install -e '.[agents]'
-export ANTHROPIC_API_KEY=...                      # or keep it in an env file you source
-swingbot-agents run --limit 1                     # one stock first, to measure the cost
-swingbot-agents run                               # the 20 stocks, each Friday evening or weekend
+pip install -e '.[agents]'                         # TradingAgents' data tools (no model calls)
+# Friday after 15:30 IST, in Claude Code in this folder:
+#   "run this week's tradingagents decisions"  -> the skill runs brief, plays the roles, records 20 ratings
+swingbot-agents pending                            # stocks still to decide
 swingbot-agents score --data data/raw/eod2_data/daily
-swingbot-agents cost
 ```
+
+`swingbot-agents run` is the same test on the full TradingAgents graph through
+the Anthropic API (needs `ANTHROPIC_API_KEY`, about $4–5 a month on Haiku).
+It isn't used for now.
 
 ## Roadmap
 

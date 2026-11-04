@@ -63,3 +63,33 @@ def test_stocks_are_the_preregistered_sample():
     rows = csv.DictReader(open(Path(__file__).parents[1] / "data/universe/midcap150.csv"))
     sample = random.Random(20261102).sample(sorted(r["symbol"] for r in rows), 20)
     assert sorted(sample) == at.STOCKS
+
+
+def test_record_validates_and_refuses_duplicates(tmp_path):
+    log = tmp_path / "d.jsonl"
+    row = at.record(date(2026, 11, 6), "AUBANK", "overweight", "steady deposits", model="m", path=log)
+    assert row["rating"] == "Overweight" and row["engine"] == "skill"
+    with pytest.raises(ValueError, match="already"):
+        at.record(date(2026, 11, 6), "AUBANK", "Buy", path=log)
+    with pytest.raises(ValueError, match="one of"):
+        at.record(date(2026, 11, 6), "SRF", "Strong buy", path=log)
+    with pytest.raises(ValueError, match="20 stocks"):
+        at.record(date(2026, 11, 6), "TCS", "Buy", path=log)
+    assert at.pending(date(2026, 11, 6), ["AUBANK", "SRF"], at.read_decisions(log)) == ["SRF"]
+
+
+def test_too_soon_keeps_hold_windows_apart():
+    ds = [{"date": "2026-11-06", "symbol": "SRF", "rating": "Hold"}]
+    today = date(2026, 12, 1)
+    assert at.too_soon(date(2026, 11, 6), ds, today) is None          # same week, finishing it
+    assert "2026-11-13" in at.too_soon(date(2026, 11, 10), ds, today)
+    assert at.too_soon(date(2026, 11, 13), ds, today) is None
+    assert "future" in at.too_soon(date(2026, 12, 5), ds, today)
+
+
+def test_past_calls_show_outcomes(tmp_path):
+    write(tmp_path, "SRF", [100, 100, 101, 102, 103, 104, 110.0], start="2026-11-06")
+    ds = [{"date": "2026-11-06", "symbol": "SRF", "rating": "Buy"}]
+    text = at.past_calls("SRF", date(2026, 11, 13), ds, tmp_path)
+    assert "2026-11-06: Buy (5-day return +10.0%)" in text
+    assert at.past_calls("SRF", date(2026, 11, 6), ds, tmp_path) == "No earlier calls on this stock."
