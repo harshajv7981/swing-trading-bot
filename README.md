@@ -478,6 +478,7 @@ swingbot-dhan rebalance                  # dry run: orders for the newest booked
 swingbot-dhan rebalance --send           # sandbox: the sells, wait for them, then the buys
 swingbot-dhan rebalance --status         # the bot's momentum book; reads any fills
 swingbot-dhan rebalance --halt "why"     # no momentum order goes in until data/state/momentum_halt is deleted
+swingbot-dhan rebalance --journal        # runs/momentum-trial/journal.md: fills vs quote and vs month-end close
 ```
 
 * **Its own book.** The bot trades only what `data/state/momentum_dhan_book.json`

@@ -12,6 +12,7 @@
     swingbot-dhan rebalance --picks data/state/momentum_picks.json   # same-day picks instead of the ledger
     swingbot-dhan rebalance --status     # the bot's momentum book
     swingbot-dhan rebalance --halt "why" # stop every momentum order until the halt file is deleted
+    swingbot-dhan rebalance --journal    # fills against the quote and the month-end close (broker/journal.py)
 
 Sandbox unless config/broker.toml and SWINGBOT_DHAN_LIVE=yes both say live
 (R11), and live is read-only. Fills go to the sandbox ledger
@@ -69,6 +70,9 @@ def main(argv: list[str] | None = None) -> int:
     rb.add_argument("--send", action="store_true", help="place the orders (sandbox only); default is a dry run")
     rb.add_argument("--status", action="store_true", help="show the bot's momentum book and read fills")
     rb.add_argument("--halt", metavar="WHY", help="write the halt file: no momentum order goes in until it is deleted")
+    rb.add_argument("--journal", action="store_true",
+                    help="write runs/momentum-trial/journal.md: each order's fill against its quote and the "
+                         "month-end close; reads the book only, calls nothing")
     rb.add_argument("--month", help="YYYY-MM of the booked month to trade (default the newest)")
     rb.add_argument("--picks", help="same-day picks from `swingbot-momentum picks` (data/state/momentum_picks.json) "
                     "instead of the paper trial's ledger")
@@ -107,6 +111,17 @@ def main(argv: list[str] | None = None) -> int:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"{as_of:%Y-%m-%d %H:%M} {args.halt}\n")
             print(f"halted: no momentum order goes in until {path} is deleted")
+            return 0
+        if args.cmd == "rebalance" and args.journal:
+            from .journal import write
+            from .momentum_dhan import MomentumConfig
+            out, ms = write(cfg.state_dir, MomentumConfig.load(args.config).ledger, cfg.live)
+            for m in ms:
+                q, c = m["vs_quote_bps"], m["vs_close_bps"]
+                print(f"  {m['month']}: {m['orders']} orders, {m['full']} full, {m['part']} part, {m['none']} none; "
+                      f"slippage {'-' if q is None else f'{q:+.0f}'} bps vs quote, "
+                      f"{'-' if c is None else f'{c:+.0f}'} bps vs close")
+            print(f"journal: {out}")
             return 0
         api = DhanAPI(cfg)
         if args.cmd == "rebalance":
