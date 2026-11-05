@@ -71,6 +71,11 @@ holdout already covered:
      month, almost every gain is short-term (taxed at 20%), while an index fund
      held over a year is taxed at 12.5% on gains.
 
+  An overfit check ([momentum-overfit-prereg.md](momentum-overfit-prereg.md),
+  2026-11-05) found the edge broad but its size overstated: all 72 neighbouring
+  rules beat EW, but the deflated Sharpe ratio was 0.78, short of 0.95. A year
+  behind EW would not by itself mean the rule broke.
+
   Twelve months cannot prove an edge: the backtest needed years to reach a
   t-stat of 2. The year is a check that the rule still behaves as tested, not
   proof that it works.
