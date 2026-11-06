@@ -104,3 +104,27 @@ def test_past_calls_show_outcomes(tmp_path):
 def test_cli_record_refusal_exits_2(capsys):
     assert at.main(["record", "--date", "2020-01-03", "--symbol", "SRF", "--rating", "Buy"]) == 2
     assert "not recorded" in capsys.readouterr().err
+
+
+def test_company_news_falls_back_when_yahoo_has_nothing(monkeypatch):
+    class FakeRouter:
+        def text(self, category, symbol, as_of, days):
+            return f"{category} for {symbol}: headline"
+
+    import swingbot.data.router as r
+    monkeypatch.setattr(r, "Router", FakeRouter)
+    ok = at.company_news("SRF.NS", "SRF", "2026-10-30", "2026-11-06", lambda *a: "Yahoo: big order win")
+    assert ok == "Yahoo: big order win"
+    gone = at.company_news("SRF.NS", "SRF", "2026-10-30", "2026-11-06",
+                           lambda *a: "DATA_UNAVAILABLE: no configured vendor")
+    assert "DATA_UNAVAILABLE" in gone and "news for SRF: headline" in gone
+
+
+def test_ampersand_ticker_gets_a_safe_cache_name():
+    pytest.importorskip("tradingagents")
+    from tradingagents.dataflows.vendors.yahoo import ohlcv
+
+    at._allow_ampersand_tickers()
+    assert ohlcv.safe_ticker_component("GVT&D.NS") == "GVT_AND_D.NS"
+    with pytest.raises(ValueError):
+        ohlcv.safe_ticker_component("../etc")

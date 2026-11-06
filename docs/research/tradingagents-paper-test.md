@@ -52,6 +52,13 @@ trained, so that can't occur. The price is time: about 13 weeks to collect
   this. Data comes from Yahoo, as TradingAgents ships it; the cloud machine
   can't reach Yahoo.
 
+**Data fixes on 2026-11-06, after the first week's calls were recorded:**
+in the 6 Nov briefs, Yahoo's company news failed for all 20 stocks, and
+GVT&D had no prices at all (TradingAgents' price cache refuses a ticker with
+"&"). From 13 Nov, the brief falls back to the repo's own news file (GDELT
+headlines) when Yahoo serves nothing, and GVT&D's prices load. The stocks,
+roles, ratings and scoring are unchanged; the 6 Nov calls stand as recorded.
+
 ## How a call is scored
 
 - **Hold window:** from the first NSE close after the Friday to the fifth close
