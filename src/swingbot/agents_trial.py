@@ -226,6 +226,7 @@ def brief(day: date, stocks: list[str], data: Path | None = None, out_dir: Path 
     if gap:
         raise SystemExit(gap)
     set_config(make_config())
+    _allow_ampersand_tickers()
     out = (out_dir or BRIEFS) / day.isoformat()
     out.mkdir(parents=True, exist_ok=True)
     d, start = day.isoformat(), (day - timedelta(days=NEWS_DAYS)).isoformat()
@@ -242,7 +243,7 @@ def brief(day: date, stocks: list[str], data: Path | None = None, out_dir: Path 
             "## Fundamentals",
             _safe(route_to_vendor, "get_fundamentals", t, d),
             f"## Company news, {start} to {d}",
-            _safe(route_to_vendor, "get_news", t, start, d),
+            company_news(t, sym, start, d, route_to_vendor),
             "## This stock's earlier calls in the trial",
             past_calls(sym, day, decisions, data),
         ]
@@ -265,6 +266,44 @@ def too_soon(day: date, decisions: list[dict], today: date | None = None) -> str
     if day > (today or date.today()):
         return f"{day} is in the future"
     return None
+
+
+def _allow_ampersand_tickers() -> None:
+    """Let TradingAgents' price cache take tickers like GVT&D.NS.
+
+    Its cache file name must match a path-safe pattern that has no '&', so the
+    whole price download was refused. Only the cache file's name changes; the
+    symbol sent to Yahoo is still GVT&D.NS."""
+    from tradingagents.dataflows.vendors.yahoo import ohlcv
+
+    if getattr(ohlcv.safe_ticker_component, "_swingbot", False):
+        return
+    original = ohlcv.safe_ticker_component
+
+    def safe(value: str, **kw) -> str:
+        return original(value.replace("&", "_AND_"), **kw)
+
+    safe._swingbot = True
+    ohlcv.safe_ticker_component = safe
+
+
+def _missing(text: str) -> bool:
+    head = text.lstrip()[:40].upper()
+    return head.startswith(("DATA_UNAVAILABLE", "NO_DATA", "(UNAVAILABLE", "(NO DATA"))
+
+
+def company_news(ticker: str, symbol: str, start: str, d: str, route) -> str:
+    """TradingAgents' Yahoo news; if Yahoo serves nothing, the repo's own news file (GDELT)."""
+    text = _safe(route, "get_news", ticker, start, d)
+    if not _missing(text):
+        return text
+    try:
+        from .data.router import Router, parse_as_of
+
+        alt = Router().text("news", symbol, parse_as_of(d), days=NEWS_DAYS)
+    except Exception as exc:
+        alt = f"(unavailable: {type(exc).__name__}: {str(exc)[:200]})"
+    return f"{text}\n\nFallback, this repo's news file (GDELT headlines):\n{alt}"
 
 
 def pending(day: date, stocks: list[str], decisions: list[dict]) -> list[str]:

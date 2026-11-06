@@ -34,10 +34,13 @@ once per session and do not change it.
 1. **When:** on the decision day after the NSE close (after 15:30 IST),
    normally Friday. TradingAgents withholds fundamentals when a brief is made
    for a past date, so make the brief on the day itself.
-2. Make the briefs (no model calls):
+2. Make the briefs (no model calls). First update the repo's own news file,
+   which `brief` falls back to when Yahoo's news serves nothing:
    ```bash
+   swingbot-refresh --only news --tickers ASTERDM AUBANK BAJAJHFL CRISIL FEDERALBNK GODFRYPHLP GODREJPROP "GVT&D" LICHSGFIN MFSL NH NHPC NMDC PATANJALI PIRAMALFIN SRF SWIGGY UNOMINDA WAAREEENER YESBANK
    swingbot-agents brief --data data/raw/eod2_data/daily
    ```
+   If the refresh fails, go on: the brief says what is missing.
    If it refuses because the last decisions were under 7 days ago, stop and
    tell the user the next date it allows.
 3. `swingbot-agents pending --date <date>` lists the stocks still to do. If a
