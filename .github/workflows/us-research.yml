@@ -9,6 +9,11 @@ name: US history study (phase 1)
 on:
   workflow_dispatch:
     inputs:
+      task:
+        description: "study: the phase 1 report; skills: step 8 candidates and replays"
+        type: choice
+        default: study
+        options: [study, skills]
       rebuild:
         description: "Fetch a new panel even if this month's is cached"
         type: boolean
@@ -60,9 +65,16 @@ jobs:
             git worktree add -q --orphan -b us-trial-state data/state
           fi
       - name: Run the study
+        if: inputs.task != 'skills'
         run: |
           set -o pipefail
           swingbot-us-research study --out data/state/markets/us/research | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Generate and replay skill candidates
+        if: inputs.task == 'skills'
+        run: |
+          set -o pipefail
+          swingbot-markets skills generate --market us
+          swingbot-markets skills replay --market us | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Save the report
         run: |
           cd data/state
