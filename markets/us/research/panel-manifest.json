@@ -1,0 +1,19 @@
+{
+ "adjustment": "all",
+ "end": "2026-10-31",
+ "feed": "sip",
+ "fetched_utc": "2026-11-07T14:05:04Z",
+ "first": "2016-01-04",
+ "last": "2026-10-30",
+ "missing": [
+  "UA.C",
+  "WLTW"
+ ],
+ "notes": [],
+ "requested": 733,
+ "rows": 2723,
+ "sha256": "16fe39391763701d7492cc03cbb2c3f223f592fcc1f58240654ea68f11d7f552",
+ "source": "alpaca",
+ "start": "2016-01-01",
+ "symbols": 731
+}
