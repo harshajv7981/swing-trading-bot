@@ -118,6 +118,24 @@ DATA_LIMITS = ((1, 5),)
 class DhanError(RuntimeError):
     """Dhan said no, or could not be reached. The message is one plain sentence."""
 
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status   # the HTTP status of Dhan's answer, when there was one
+
+
+def refused(e: Exception) -> bool:
+    """True when Dhan read the order and said no (a 4xx answer), so it holds nothing to look up later.
+
+    A timeout, a 5xx or an answer with no order id may mean Dhan took it: those are not refusals."""
+    status = getattr(e, "status", None)
+    return isinstance(e, DhanError) and status is not None and 400 <= status < 500 and status != 408
+
+
+def listed(row: dict | None, security_id: str, qty: int, side: str) -> bool:
+    """Whether an order-book row is this order and not an older one that reused its correlation id."""
+    return bool(row and row.get("orderId") and str(row.get("securityId")) == str(security_id)
+                and int(row.get("quantity") or 0) == qty and str(row.get("transactionType", "")).upper() == side)
+
 
 # --- config -------------------------------------------------------------------
 
@@ -268,7 +286,7 @@ class DhanAPI:
             data = data if isinstance(data, dict) else {}
             code = data.get("errorCode", "")
             hint = " (Dhan wants this machine's static IP whitelisted)" if code == "DH-905" else ""
-            raise DhanError(f"Dhan {method} {path}: {status} {code} {data.get('errorMessage', '')}{hint}".strip())
+            raise DhanError(f"Dhan {method} {path}: {status} {code} {data.get('errorMessage', '')}{hint}".strip(), status)
         return data
 
 
@@ -433,7 +451,13 @@ class DhanBroker:
             "modifications": 0, "exit_by": (ticket.get("hold") or {}).get("exit_by"),
         })
         self.save()   # before the send: a lost reply leaves it "sending", and sync finds it by correlationId
-        resp = self.api.call("POST", "/orders", payload)
+        try:
+            resp = self.api.call("POST", "/orders", payload)
+        except DhanError as e:
+            if refused(e):   # Dhan did not take it: leave no record, so the ticker is free to try again
+                self.orders.pop()
+                self.save()
+            raise
         if not resp.get("orderId"):
             raise DhanError(f"Dhan answered the {ticker} entry ({oid}) without an order id; "
                             "the next sync looks it up by its correlation id")
@@ -639,7 +663,7 @@ class DhanBroker:
         by_corr = {str(r.get("correlationId")): r for r in _rows(self.api.call("GET", "/orders"))}
         for o in sending:
             r = by_corr.get(o["id"])
-            if r and r.get("orderId"):
+            if listed(r, o["security_id"], o["qty"], "BUY"):
                 o.update(dhan_id=str(r["orderId"]), status="open")
             else:
                 self.notes.append(f"{o['id']} {o['ticker']}: sent {o['submitted_at']} with no reply, and Dhan's order "

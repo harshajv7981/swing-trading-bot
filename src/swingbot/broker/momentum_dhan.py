@@ -59,7 +59,7 @@ from ..momentum import COST_SIDE, TOP
 from ..risk.calendar import NSECalendar
 from ..risk.exits import nse_tick, round_down, round_up
 from .base import OrderRefused
-from .dhan import DEFAULT_CONFIG, DONE_STATUSES, DhanAPI, DhanError, _rows, _ts
+from .dhan import DEFAULT_CONFIG, DONE_STATUSES, DhanAPI, DhanError, _rows, _ts, listed, refused
 
 BOOK = "momentum_dhan_book.json"
 HALT = "momentum_halt"
@@ -216,7 +216,7 @@ class MomentumDhan:
         by_corr = {str(r.get("correlationId")): r for r in _rows(self.api.call("GET", "/orders"))}
         for o in sending:
             r = by_corr.get(o["id"])
-            if r and r.get("orderId"):
+            if listed(r, self.scrips.get(o["symbol"]), o["qty"], o["side"]):
                 o.update(dhan_id=str(r["orderId"]), status="open")
             elif o["sent_at"][:10] == f"{now:%Y-%m-%d}":
                 o["status"] = "unsent"        # the day's order book lists every order sent today; it never arrived
@@ -291,7 +291,13 @@ class MomentumDhan:
                "sent_at": f"{at:%Y-%m-%d %H:%M}", "status": "sending", "filled": 0}
         self.book["orders"].append(rec)
         self.save()   # before the send: a lost reply leaves it "sending", and the next sync finds it by correlationId
-        resp = self.api.call("POST", "/orders", payload)
+        try:
+            resp = self.api.call("POST", "/orders", payload)
+        except DhanError as e:
+            if refused(e):   # Dhan did not take it: leave no record, so a rerun plans it again and nothing halts
+                self.book["orders"].remove(rec)
+                self.save()
+            raise
         if not resp.get("orderId"):
             raise DhanError(f"Dhan answered the {o['symbol']} order ({oid}) without an order id; "
                             "the next run looks it up by its correlation id")

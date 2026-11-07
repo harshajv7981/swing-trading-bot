@@ -211,8 +211,9 @@ class LossyDhan(FeedDhan):
             lose, self.lose = self.lose, None
             if lose == "after":
                 status, raw = super().__call__(method, url, headers, body)
-                self.day_book.append({"orderId": json.loads(raw)["orderId"],
-                                      "correlationId": json.loads(body)["correlationId"]})
+                self.day_book.append({"orderId": json.loads(raw)["orderId"], "correlationId": json.loads(body)["correlationId"],
+                                      "securityId": json.loads(body)["securityId"], "quantity": json.loads(body)["quantity"],
+                                      "transactionType": json.loads(body)["transactionType"]})
             raise TimeoutError("read timed out")
         if method == "GET" and url.endswith("/v2/orders"):
             self.calls.append((method, "/orders", None))
@@ -293,3 +294,28 @@ def test_an_odd_sell_fill_stops_the_buys_of_the_same_run(tmp_path):
     assert new and {o["side"] for o in new} == {"SELL"}                 # no buy went out
     assert bot.halt_path.exists() and any("halted while the sells settled" in x for x in bot.notes)
     assert bot.book["last_month"] != "2026-12-31"
+
+
+def test_an_order_dhan_refuses_leaves_no_record_so_the_next_day_does_not_halt(tmp_path):
+    bot, fake = lossy(tmp_path)
+    inner = fake.__call__
+    refuse = json.dumps({"errorCode": "DH-906", "errorMessage": "Markets are Offline"}).encode()
+    bot.api.transport = lambda m, u, h, b: (400, refuse) if m == "POST" and u.endswith("/v2/orders") \
+        else inner(m, u, h, b)
+    with pytest.raises(DhanError, match="DH-906"):
+        bot.rebalance(ledger(NOV), "2026-12-01 10:00", send=True)
+    assert bot.book["orders"] == []
+    bot.api.transport = inner
+    bot.rebalance(ledger(NOV), "2026-12-02 10:00", send=True)             # the next day: no halt, orders go in
+    assert not bot.halt_path.exists() and len(posts(fake)) == 20
+
+
+def test_an_older_order_that_reused_the_correlation_id_is_not_adopted_by_a_rerun(tmp_path):
+    bot, fake = lossy(tmp_path)
+    fake.lose = "before"
+    with pytest.raises(TimeoutError):
+        bot.rebalance(ledger(NOV), "2026-12-01 10:00", send=True)
+    fake.day_book.append({"orderId": "OLD1", "correlationId": "M00001", "securityId": "9999", "quantity": 1,
+                          "transactionType": "BUY"})
+    bot.rebalance(ledger(NOV), "2026-12-01 10:05", send=True)
+    assert bot.book["orders"][0]["status"] == "unsent" and bot.book["orders"][0]["dhan_id"] == ""
