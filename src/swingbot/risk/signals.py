@@ -43,7 +43,7 @@ from ..technicals import bars_known_at, indicators
 from .calendar import NSECalendar
 from .config import RiskConfig
 from .exits import PlanRefused, plan_exit
-from .gate import KillSwitch, check_order
+from .gate import KillSwitch, check_order, week_of
 from .portfolio import Order, Portfolio, Position, load_sectors
 from .sizing import SizingRefused, size_position
 from .ticket import TicketRefused, make_ticket
@@ -393,7 +393,7 @@ def decide(calls: list[Call], *, as_of: pd.Timestamp, portfolio: Portfolio,
                 with verdict_log.open("a") as fh:
                     fh.write(json.dumps(record) + "\n")
                 if verdict.trip_kill_switch and kill_switch:
-                    kill_switch.latch(verdict.trip_kill_switch)
+                    kill_switch.latch(verdict.trip_kill_switch, week_of(as_of.date()))
             if not verdict.passed:
                 d.stop("blocked", "gate", *(f"{c.rule}: {c.detail}" for c in verdict.checks if not c.ok))
                 continue

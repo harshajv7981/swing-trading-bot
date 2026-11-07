@@ -7,6 +7,7 @@ import pytest
 from swingbot.models import IST, Sentiment, Signal
 from swingbot.risk import KillSwitch, NSECalendar, Portfolio, Position, RiskConfig, SignalRules
 from swingbot.risk.cli import main as risk_main
+from swingbot.risk.gate import week_of
 from swingbot.risk.signals import Call, decide, entry_session, fresh_since, hold_plan, read_calls, technical_overlay
 
 from test_risk import book, trend
@@ -182,6 +183,16 @@ def test_a_weekly_breach_found_on_the_first_call_latches_and_blocks_the_rest(tmp
     ds = run([call("RELIANCE", confidence=0.9), call("TCS")], portfolio=down_week, kill_switch=switch,
              verdict_log=tmp_path / "v.jsonl")
     assert switch.latched and {d.status for d in ds} == {"blocked"}
+
+
+def test_a_reset_for_this_week_is_not_latched_again_by_a_signal_run(tmp_path):
+    switch = KillSwitch(tmp_path)           # Harsha has reset it: not latched, this week's breach cleared
+    (tmp_path / "kill_switch.json").write_text(json.dumps({"latched": False, "cleared_week": week_of(AS_OF.date())}))
+    down_week = book(equity=470_000, week=500_000, day=470_000)
+    [d] = run([call("RELIANCE", confidence=0.9)], portfolio=down_week, kill_switch=switch,
+              verdict_log=tmp_path / "v.jsonl")
+    assert d.status == "blocked" and any("R5" in r for r in d.reasons)   # the gate still blocks while down
+    assert not switch.latched and switch.state()["cleared_week"] == week_of(AS_OF.date())
 
 
 def test_without_a_verdict_log_nothing_is_written_or_latched(tmp_path):
