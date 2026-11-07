@@ -509,3 +509,62 @@ def test_an_entry_answer_without_an_order_id_is_not_booked_as_open(tmp_path):
     with pytest.raises(DhanError, match="without an order id"):
         b.submit(ticket(), "2026-01-02 18:00")
     assert b.orders[0]["status"] == "sending" and b.orders[0]["dhan_id"] == ""
+
+
+def fail_once(b, fake, method, ending):
+    """Make the next `method` call whose url ends with `ending` time out (it never reaches the fake)."""
+    inner, left = fake.__call__, [1]
+
+    def flaky(m, url, headers, body):
+        if m == method and url.endswith(ending) and left[0]:
+            left[0] -= 1
+            raise TimeoutError("read timed out")
+        return inner(m, url, headers, body)
+    b.api.transport = flaky
+
+
+def test_a_failed_stop_for_one_position_does_not_make_sync_forget_the_other(tmp_path):
+    b, fake, _ = make(tmp_path)
+    b.submit(ticket("ABC"), "2026-01-02 18:00")
+    b.submit(ticket("DEF"), "2026-01-02 18:00")
+    fake.trade("O1", "BUY", 100, 100.0, "2026-01-05 09:15:03", "1111")
+    fake.trade("O2", "BUY", 100, 100.0, "2026-01-05 09:15:04", "2222")
+    b.sync("2026-01-05 18:00")
+    inner, posts = fake.__call__, [0]
+
+    def second_stop_fails(m, url, headers, body):
+        if m == "POST" and url.endswith("/forever/orders"):
+            posts[0] += 1
+            if posts[0] == 2:
+                raise TimeoutError("read timed out")
+        return inner(m, url, headers, body)
+    b.api.transport = second_stop_fails
+
+    b.sync("2026-01-06 09:20")                          # DEF's stop fails; sync still finishes
+    assert b.orders[0]["forever_id"] == "F3" and b.orders[1]["forever_id"] == ""
+    assert any("DEF: the stop did not go through" in n for n in b.notes)
+    b.sync("2026-01-07 09:20")
+    assert b.orders[1]["forever_id"] and len(placed(fake)) == 2     # ABC's stop was not placed a second time
+
+
+def test_a_failed_status_read_after_the_entry_day_stop_does_not_place_a_second_one(tmp_path):
+    b, fake, _ = make(tmp_path)
+    b.submit(ticket(), "2026-01-02 18:00")
+    fake.trade("O1", "BUY", 100, 99.9, "2026-01-05 09:15:03")
+    fail_once(b, fake, "GET", "/orders/O2")
+    b.sync("2026-01-05 09:20")
+    assert b.orders[0]["day_stop_id"] == "O2" and "entry-day stop not confirmed" in b.notes[-1]
+    b.sync("2026-01-05 10:00")
+    assert len(day_stops(fake)) == 1
+
+
+def test_a_failed_read_back_after_the_forever_stop_does_not_place_a_second_one(tmp_path):
+    b, fake, _ = make(tmp_path)
+    b.submit(ticket(), "2026-01-02 18:00")
+    fake.trade("O1", "BUY", 100, 100.0, "2026-01-05 09:15:03")
+    b.sync("2026-01-05 18:00")
+    fail_once(b, fake, "GET", "/forever/orders")
+    b.sync("2026-01-06 09:20")                          # placed, but R1's read-back timed out
+    assert b.orders[0]["forever_id"] == "F2" and any("the stop did not go through" in n for n in b.notes)
+    b.sync("2026-01-07 09:20")
+    assert len(placed(fake)) == 1

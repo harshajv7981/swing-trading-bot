@@ -540,7 +540,7 @@ class DhanBroker:
                               "stop can go in yet; check the account by hand (R1)")
             return
         for attempt in (1, 2):
-            fid = self._place_oco(o, qty)
+            fid = o["forever_id"] = self._place_oco(o, qty)   # kept at once: if the read-back fails, it is not placed twice
             problem = self._confirmed(o, fid)
             if not problem:
                 o.update(forever_id=fid, covered=qty,
@@ -554,6 +554,7 @@ class DhanBroker:
                 self.api.call("DELETE", f"/forever/orders/{fid}")
             except DhanError:
                 pass
+            o["forever_id"] = ""
             self.notes.append(f"{o['ticker']}: try {attempt} at the stop failed: {problem}")
         if self.config.flatten_unprotected:
             self._sell(o, "unprotected")
@@ -622,7 +623,7 @@ class DhanBroker:
             due = (o["status"] == "held" and not o["forever_id"] and not o.get("exit_id")
                    and as_of.date().isoformat() > o["session"])
             if due and session_open:
-                self._protect(o)
+                self._each(o, "stop", self._protect)
             elif due:
                 self.notes.append(f"{o['ticker']} has no stop at Dhan yet; sync again after 09:15 to place it")
         return events
@@ -644,6 +645,16 @@ class DhanBroker:
                 self.notes.append(f"{o['id']} {o['ticker']}: sent {o['submitted_at']} with no reply, and Dhan's order "
                                   f"book does not list it; check Dhan, and if it is not there delete it from {self.path}")
 
+    def _each(self, o: dict, what: str, fn) -> bool:
+        """Run one position's order step. A failed call becomes a note, so the other positions still run
+        and `sync` still returns, and the ids of orders Dhan already took get saved with the book."""
+        try:
+            fn(o)
+            return True
+        except (DhanError, OSError) as e:
+            self.notes.append(f"{o['ticker']}: the {what} did not go through ({e}); the next sync tries again")
+            return False
+
     def _day_stops(self, as_of: pd.Timestamp) -> None:
         """Entry day: a DAY stop-loss market sell for what has filled, since no Forever Order goes in until tomorrow."""
         today, minute = as_of.date().isoformat(), as_of.hour * 60 + as_of.minute
@@ -658,13 +669,18 @@ class DhanBroker:
                                       f"stop covers {o['day_stop_qty']} of {self._left(o)} until tomorrow's OCO")
                 continue
             qty = self._left(o)
-            resp = self.api.call("POST", "/orders", {
-                "correlationId": f"{o['id']}S", "transactionType": "SELL", "exchangeSegment": "NSE_EQ",
-                "productType": "CNC", "orderType": "STOP_LOSS_MARKET", "validity": "DAY",
-                "securityId": o["security_id"], "quantity": qty, "disclosedQuantity": 0, "price": 0.0,
-                "triggerPrice": o["stop"], "afterMarketOrder": False})
-            sid = str(resp.get("orderId", ""))
-            data = self.api.call("GET", f"/orders/{sid}")
+            try:
+                resp = self.api.call("POST", "/orders", {
+                    "correlationId": f"{o['id']}S", "transactionType": "SELL", "exchangeSegment": "NSE_EQ",
+                    "productType": "CNC", "orderType": "STOP_LOSS_MARKET", "validity": "DAY",
+                    "securityId": o["security_id"], "quantity": qty, "disclosedQuantity": 0, "price": 0.0,
+                    "triggerPrice": o["stop"], "afterMarketOrder": False})
+                sid = str(resp.get("orderId", ""))
+                o.update(day_stop_id=sid, day_stop_qty=qty)   # kept even if the status read below fails
+                data = self.api.call("GET", f"/orders/{sid}")
+            except (DhanError, OSError) as e:
+                self.notes.append(f"{o['ticker']}: entry-day stop not confirmed ({e}); the next sync checks it")
+                continue
             rows = [data] if isinstance(data, dict) and "orderStatus" in data else _rows(data)
             status = str((rows[0] if rows else {}).get("orderStatus", "")).upper()
             if status in DONE_STATUSES:
@@ -673,7 +689,6 @@ class DhanBroker:
                 self.notes.append(f"{o['ticker']}: Dhan {status.lower()} the entry-day stop ({why}); the shares "
                                   "have no stop until tomorrow's Forever OCO (check this in the sandbox)")
                 continue
-            o.update(day_stop_id=sid, day_stop_qty=qty)
             self.notes.append(f"{o['ticker']}: entry-day stop {o['stop']:,.2f} for {qty} shares placed at Dhan")
 
     def _time_exits(self, as_of: pd.Timestamp) -> None:
@@ -684,8 +699,8 @@ class DhanBroker:
             if o["status"] != "held" or o.get("exit_id") or not o.get("exit_by") or today < o["exit_by"]:
                 continue
             if trading and (today > o["exit_by"] or minute >= TIME_EXIT_MINUTE):
-                self._close(o["ticker"], "time")
-                self.notes.append(f"{o['ticker']}: time exit ({o['exit_by']}), sold at market")
+                if self._each(o, "time exit", lambda o: self._close(o["ticker"], "time")):
+                    self.notes.append(f"{o['ticker']}: time exit ({o['exit_by']}), sold at market")
             elif today > o["exit_by"] or minute >= 15 * 60 + 30:
                 self.notes.append(f"{o['ticker']} is past its time exit {o['exit_by']}; sync during market "
                                   "hours to sell it")
