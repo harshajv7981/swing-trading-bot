@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "swingbot"
 version = "0.1.0"
-description = "NSE swing trading toolkit: risk rules, paper broker, Dhan sandbox adapter and the mid-cap momentum paper trial."
+description = "NSE swing trading toolkit: risk rules, paper broker, Dhan sandbox adapter, the mid-cap momentum paper trial, and the US/Alpaca paper adapter."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["pandas>=2.0", "numpy>=1.24"]
@@ -26,6 +26,7 @@ swingbot-dashboard = "swingbot.dashboard:main"
 swingbot-momentum = "swingbot.momentum:main"
 swingbot-agents = "swingbot.agents_trial:main"
 swingbot-agent-calls = "swingbot.agent_calls:main"
+swingbot-markets = "swingbot.markets.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

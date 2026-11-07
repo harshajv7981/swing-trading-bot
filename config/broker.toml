@@ -20,3 +20,16 @@ limit_band_pct = 0.5                      # buy limit this % over the last price
 max_age_sessions = 3                      # refuse picks from a month-end more sessions back than this
 wait_seconds = 120                        # how long --send waits for the sells before placing the buys
 ledger = "data/state/momentum_trial.json" # the paper trial's ledger, where the picks come from
+
+# The Alpaca adapter for US equities (src/swingbot/broker/alpaca.py), part of
+# docs/parallel-markets-learning-plan.md. Paper account only: live is refused in code.
+#
+# Credentials go in the environment, never here:
+#   SWINGBOT_ALPACA_KEY_ID and SWINGBOT_ALPACA_SECRET_KEY  (Alpaca dashboard, Paper account)
+#
+# Keys alone send nothing: `enabled` must be true too. A halt file
+# (`swingbot-markets halt us --reason ...`) stops every send.
+[alpaca]
+enabled = false                           # the feature flag
+mode = "paper"                            # paper | shadow (reads, never sends); live is refused
+state_root = "data/state"                 # book and raw journal under data/state/markets/us/
