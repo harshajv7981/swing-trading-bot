@@ -1,0 +1,29 @@
+{
+ "fills": [],
+ "fills_seen": [],
+ "orders": {
+  "us-smoke-20261107T141453-q1": {
+   "broker_order_id": "73b1f0e5-cc1a-44f7-8104-d84035c00998",
+   "filled_qty": 0,
+   "intent": {
+    "client_order_id": "us-smoke-20261107T141453-q1",
+    "created_utc": "2026-11-07T14:14:53.557336Z",
+    "kind": "order_intent",
+    "limit_price": 1.0,
+    "market": "us",
+    "order_type": "limit",
+    "qty": 1,
+    "side": "buy",
+    "stop_price": null,
+    "strategy": "smoke",
+    "strategy_version": "",
+    "symbol": "SPY",
+    "time_in_force": "day"
+   },
+   "reason": "",
+   "reported": "cancelled",
+   "status": "cancelled",
+   "updated_utc": "2026-11-07T14:14:54.476129Z"
+  }
+ }
+}
