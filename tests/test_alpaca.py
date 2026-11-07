@@ -13,6 +13,7 @@ from swingbot.broker.alpaca import (
     AlpacaBroker,
     AlpacaConfig,
     AlpacaError,
+    AlpacaUnreachable,
 )
 from swingbot.markets import (
     ExecutionMode,
@@ -124,6 +125,36 @@ def test_a_lost_request_that_never_arrived_is_sent_once_more(tmp_path):
     up = b.submit(buy())
     assert up.status is OrderStatus.ACCEPTED and len(fake.orders) == 1
     assert [c[:2] for c in fake.calls].count(("POST", "/v2/orders")) == 2
+
+
+def _lose_both_sends(b, fake):
+    """Every POST is lost before it arrives: the order is saved as new, with no Alpaca id."""
+    real = fake._post
+
+    def lost(p):
+        fake.lose_next_post = "before"
+        return real(p)
+    fake._post = lost
+    with pytest.raises(AlpacaUnreachable):
+        b.submit(buy())
+    fake._post = real
+    assert fake.orders == {}
+
+
+def test_an_order_whose_sends_were_all_lost_is_sent_on_the_next_run(tmp_path):
+    b, fake = make(tmp_path)
+    _lose_both_sends(b, fake)
+    up = AlpacaBroker(b.api, b.state_dir).submit(buy())       # the next run reads the saved book
+    assert up.status is OrderStatus.ACCEPTED and up.broker_order_id == "a0001" and len(fake.orders) == 1
+
+
+def test_a_retried_order_that_alpaca_already_has_is_adopted_not_rejected(tmp_path):
+    b, fake = make(tmp_path)
+    _lose_both_sends(b, fake)
+    fake._post({"symbol": "AAPL", "qty": "10", "side": "buy", "type": "limit", "time_in_force": "day",
+                "client_order_id": "us-r1-0001", "limit_price": "190.25"})   # it did arrive after all
+    up = AlpacaBroker(b.api, b.state_dir).submit(buy())
+    assert up.status is OrderStatus.ACCEPTED and up.broker_order_id == "a0001" and len(fake.orders) == 1
 
 
 def test_a_refused_order_comes_back_rejected_with_alpacas_reason(tmp_path):

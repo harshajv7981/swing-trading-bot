@@ -303,7 +303,8 @@ class AlpacaBroker:
         if intent.market != MARKET:
             raise AdapterRefused(f"the Alpaca adapter trades us only; {intent.market} orders go to its own adapter.")
         cid = intent.client_order_id
-        if cid in self._book["orders"]:
+        old = self._book["orders"].get(cid)
+        if old and (old["broker_order_id"] or old["status"] != OrderStatus.NEW.value):
             return self._update(cid)
         may_send(MARKET, self.api.config.mode, self.api.config.state_root)
         self._book["orders"][cid] = {"intent": intent.to_record(), "broker_order_id": "", "status": "new",
@@ -317,12 +318,15 @@ class AlpacaBroker:
         if intent.stop_price is not None:
             payload["stop_price"] = f"{intent.stop_price:g}"
         try:
-            try:
-                body = self.api.call("POST", "/v2/orders", payload)
-            except AlpacaUnreachable:
-                body = self._lookup(cid)
-                if body is None:                           # it never arrived: send it once more
+            # A retry of an order whose sends were lost: Alpaca may have it already (a resend would be refused).
+            body = self._lookup(cid) if old else None
+            if body is None:
+                try:
                     body = self.api.call("POST", "/v2/orders", payload)
+                except AlpacaUnreachable:
+                    body = self._lookup(cid)
+                    if body is None:                       # it never arrived: send it once more
+                        body = self.api.call("POST", "/v2/orders", payload)
         except AlpacaRejected as e:
             o = self._book["orders"][cid]
             o.update(status=OrderStatus.REJECTED.value, reported=OrderStatus.REJECTED.value, reason=e.message,
