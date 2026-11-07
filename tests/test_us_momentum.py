@@ -148,3 +148,32 @@ def test_book_sends_the_months_orders_once_and_records_them(tmp_path):
     assert again["skipped"] == "already booked"
     assert len([c for c in fake.calls if c[:2] == ("POST", "/v2/orders")]) == 2
     assert us_momentum.book(broker, Data(), ["A"], datetime(2026, 11, 27, 21, 30, tzinfo=UTC), out)["skipped"]
+
+
+def test_bookings_track_skills_in_shadow_month_by_month(tmp_path):
+    from swingbot.markets.skills import Skills
+
+    fake = FakeAlpaca()
+    cfg = AlpacaConfig(enabled=True, state_root=tmp_path)
+    broker = AlpacaBroker(AlpacaAPI(cfg, "kid", "sec", transport=fake), cfg.state_dir)
+    skills = Skills(tmp_path)
+    key = skills.propose("us", "us-momentum", {"lookback": 6, "n": 1}, "test", ["study"], owner="claude")
+    skills._append("us", {"kind": "skill_replayed", "skill": key, "verdict": "pass", "panel": "p", "why": []})
+    skills.decide("us", key, "shadow", by="harsha", why="passed")
+    daily = closes({"A": 0.02, "B": 0.01, "C": 0.03, "SPY": 0.01, "RSP": 0.01, "SPMO": 0.01}, months=16,
+                   start="2025-09-30")
+
+    class Data:
+        def daily_closes(self, symbols, start, end):
+            return daily.loc[:pd.Timestamp(end), [s for s in symbols if s in daily]]
+
+    out = tmp_path / "bookings"
+    nov = us_momentum.book(broker, Data(), ["A", "B", "C"], datetime(2026, 11, 30, 21, 30, tzinfo=UTC), out,
+                           n=2, equity=100_000.0, skills=skills)
+    assert nov["shadow"] == {key: ["C"]}
+    assert skills.all("us")[key]["shadow"] == {}
+    us_momentum.book(broker, Data(), ["A", "B", "C"], datetime(2026, 12, 31, 21, 30, tzinfo=UTC), out,
+                     n=2, equity=100_000.0, skills=skills)
+    month = skills.all("us")[key]["shadow"]["2026-11"]
+    assert month["ret"] == pytest.approx(0.03)                       # C, close to close
+    assert month["current"] == pytest.approx((0.03 + 0.02) / 2)      # the trial's picks C and A
