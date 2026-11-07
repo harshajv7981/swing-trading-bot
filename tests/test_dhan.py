@@ -452,3 +452,60 @@ def test_transport_connects_over_ipv4_only(monkeypatch):
     with pytest.raises(OSError, match="stop here"):
         dhan.urllib_transport("GET", "https://sandbox.dhan.co/v2/fundlimit", {}, None)
     assert asked == {"family": socket.AF_INET, "addr": ("203.0.113.5", 443), "timeout": dhan.CONNECT_TIMEOUT}
+
+
+def lose_entry_reply(b, fake, mode):
+    """The next entry POST times out: after Dhan took it ("after", it is in the day's order book) or before."""
+    inner, left, day_book = fake.__call__, [1], []
+
+    def transport(m, url, headers, body):
+        if m == "POST" and url.endswith("/v2/orders") and left[0]:
+            left[0] -= 1
+            if mode == "after":
+                _, raw = inner(m, url, headers, body)
+                day_book.append({"orderId": json.loads(raw)["orderId"],
+                                 "correlationId": json.loads(body)["correlationId"]})
+            raise TimeoutError("read timed out")
+        if m == "GET" and url.endswith("/v2/orders"):
+            return 200, json.dumps(day_book).encode()
+        return inner(m, url, headers, body)
+    b.api.transport = transport
+
+
+def entry_posts(fake):
+    return [c for c in fake.calls if c[:2] == ("POST", "/orders")]
+
+
+def test_a_lost_reply_after_dhan_took_the_entry_is_adopted_not_bought_twice(tmp_path):
+    b, fake, _ = make(tmp_path)
+    lose_entry_reply(b, fake, "after")
+    with pytest.raises(TimeoutError):
+        b.submit(ticket(), "2026-01-02 18:00")
+    assert json.loads((tmp_path / "dhan_book.json").read_text())["orders"][0]["status"] == "sending"
+    with pytest.raises(OrderRefused, match="already has a live order"):
+        b.submit(ticket(), "2026-01-02 18:05")
+    fake.trade("O1", "BUY", 100, 99.9, "2026-01-05 09:15:03")
+    [buy] = b.sync("2026-01-05 18:00")
+    assert buy.qty == 100 and b.orders[0]["dhan_id"] == "O1" and b.orders[0]["status"] == "open"
+    assert len(entry_posts(fake)) == 1
+
+
+def test_a_lost_entry_that_dhan_does_not_list_stays_blocked_with_a_note(tmp_path):
+    b, fake, _ = make(tmp_path)
+    lose_entry_reply(b, fake, "before")
+    with pytest.raises(TimeoutError):
+        b.submit(ticket(), "2026-01-02 18:00")
+    assert b.sync("2026-01-05 18:00") == [] and "does not list it" in b.notes[-1]
+    assert b.orders[0]["status"] == "sending"
+    with pytest.raises(OrderRefused, match="already has a live order"):
+        b.submit(ticket(), "2026-01-05 18:05")
+
+
+def test_an_entry_answer_without_an_order_id_is_not_booked_as_open(tmp_path):
+    b, fake, _ = make(tmp_path)
+    inner = fake.__call__
+    b.api.transport = lambda m, u, h, body: (200, b"{}") if m == "POST" and u.endswith("/v2/orders") \
+        else inner(m, u, h, body)
+    with pytest.raises(DhanError, match="without an order id"):
+        b.submit(ticket(), "2026-01-02 18:00")
+    assert b.orders[0]["status"] == "sending" and b.orders[0]["dhan_id"] == ""
