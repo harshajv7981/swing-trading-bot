@@ -273,3 +273,23 @@ def test_an_answer_without_an_order_id_is_not_booked_as_open(tmp_path):
     with pytest.raises(DhanError, match="without an order id"):
         bot.rebalance(ledger(NOV), "2026-12-01 10:00", send=True)
     assert bot.book["orders"][0]["status"] == "sending" and bot.pending() == []
+
+
+def test_an_odd_sell_fill_stops_the_buys_of_the_same_run(tmp_path):
+    bot, fake = make(tmp_path)
+    bot.rebalance(ledger(NOV), "2026-12-01 10:00", send=True)
+    bot.sync()
+    fake.holdings = {SCRIPS[s]: q for s, q in bot.book["holdings"].items()}
+    n, inner = len(bot.book["orders"]), fake.__call__
+
+    def odd_sell(method, url, headers, body):   # the first sell (S00) fills at 10, far under its ~99.5 limit
+        if method == "GET" and url.endswith("/orders/O21"):
+            return 200, json.dumps({"orderId": "O21", "orderStatus": "TRADED", "averageTradedPrice": 10.0}).encode()
+        return inner(method, url, headers, body)
+
+    bot.api.transport = odd_sell
+    bot.rebalance(ledger(NOV, DEC), "2026-12-02 10:00", send=True)
+    new = bot.book["orders"][n:]
+    assert new and {o["side"] for o in new} == {"SELL"}                 # no buy went out
+    assert bot.halt_path.exists() and any("halted while the sells settled" in x for x in bot.notes)
+    assert bot.book["last_month"] != "2026-12-31"

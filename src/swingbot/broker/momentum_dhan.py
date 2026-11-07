@@ -352,6 +352,10 @@ class MomentumDhan:
             self.save()
             self.notes.append("the sells have not all finished; the buys wait for the next run")
             return out
+        if self.halt_path.exists():   # a sell filled far from its limit while we waited for the sells
+            self.save()
+            self.notes.append("halted while the sells settled; the buys wait until someone clears the halt")
+            return out
         # Size the buys from what the sells really left in cash.
         held = {s: q for s, q in self.book["holdings"].items() if q}
         buys, slot = plan(picks, held, self.book["cash"], prices, band=band)
