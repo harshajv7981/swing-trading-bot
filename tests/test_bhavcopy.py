@@ -1,4 +1,6 @@
+import io
 import zipfile
+from datetime import date
 
 import pandas as pd
 import pytest
@@ -82,3 +84,42 @@ def test_fetch_needs_the_terms_flag(tmp_path, capsys):
     assert momentum.main(["picks", "--data", str(tmp_path / "d"), "--fetch", "--bhavcopy",
                           str(tmp_path / "b")]) == 2
     assert "terms" in capsys.readouterr().err
+
+
+class _Reply:
+    def __init__(self, data):
+        self.data = data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self.data
+
+
+def _zip_bytes():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("BhavCopy.csv", "a,b\n1,2\n")
+    return buf.getvalue()
+
+
+def test_fetch_saves_the_zip_whole_and_leaves_nothing_else(tmp_path, monkeypatch):
+    monkeypatch.setattr(bhavcopy.urllib.request, "urlopen", lambda req, timeout: _Reply(_zip_bytes()))
+    out = bhavcopy.fetch(date(2026, 11, 6), tmp_path, pause=0)
+    assert out.read_bytes() == _zip_bytes() and [p.name for p in tmp_path.iterdir()] == [out.name]
+
+
+def test_a_fetch_cut_off_before_the_swap_leaves_no_file_to_trust_next_time(tmp_path, monkeypatch):
+    monkeypatch.setattr(bhavcopy.urllib.request, "urlopen", lambda req, timeout: _Reply(_zip_bytes()))
+
+    def killed(src, dst):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(bhavcopy.os, "replace", killed)
+    with pytest.raises(KeyboardInterrupt):
+        bhavcopy.fetch(date(2026, 11, 6), tmp_path, pause=0)
+    assert not (tmp_path / "BhavCopy_NSE_CM_20261106.csv.zip").exists()
