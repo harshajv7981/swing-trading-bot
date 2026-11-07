@@ -647,6 +647,12 @@ replay`, `book` (only at a month-end) and `report`. It needs the
 `SWINGBOT_ALPACA_KEY_ID` and `SWINGBOT_ALPACA_SECRET_KEY` repository secrets, and
 keeps its state on the `us-trial-state` branch.
 
+The phase 1 US history study ([docs/research/us-research-prereg.md](docs/research/us-research-prereg.md))
+runs in GitHub Actions too (`.github/workflows/us-research.yml`, run by hand):
+`swingbot-us-research panel` freezes Alpaca's adjusted closes since 2016 for
+every past and present S&P 500 member (kept in the Actions cache, never
+committed), and `study` writes the report to the state branch.
+
 ## Roadmap
 
 The mid-cap momentum paper trial runs from November 2026 and is judged in

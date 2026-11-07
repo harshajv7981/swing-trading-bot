@@ -23,6 +23,7 @@ import argparse
 import json
 import os
 import sys
+import time as time_module
 import urllib.parse
 import urllib.request
 from datetime import UTC, date, datetime, time, timedelta
@@ -99,8 +100,9 @@ def fetch_sp500() -> list[str]:
 class AlpacaData:
     """Daily adjusted closes from Alpaca's market data API (read-only)."""
 
-    def __init__(self, key_id: str, secret: str, transport=urllib_transport, feed: str = "sip"):
-        self.transport, self.feed = transport, feed
+    def __init__(self, key_id: str, secret: str, transport=urllib_transport, feed: str = "sip",
+                 sleep=time_module.sleep):
+        self.transport, self.feed, self.sleep = transport, feed, sleep
         self.headers = {"APCA-API-KEY-ID": key_id, "APCA-API-SECRET-KEY": secret, "Accept": "application/json"}
         self.notes: list[str] = []
 
@@ -112,7 +114,12 @@ class AlpacaData:
         return cls(*creds, feed=os.environ.get("SWINGBOT_ALPACA_FEED", "sip"))
 
     def _get(self, query: dict) -> dict:
-        status, raw = self.transport("GET", DATA_URL + "?" + urllib.parse.urlencode(query), dict(self.headers), None)
+        for attempt in range(6):
+            status, raw = self.transport("GET", DATA_URL + "?" + urllib.parse.urlencode(query),
+                                         dict(self.headers), None)
+            if status != 429:
+                break
+            self.sleep(5 * (attempt + 1))           # 200 calls a minute on the free plan
         if status == 403 and query.get("feed") == "sip":
             self.notes.append("the SIP feed was refused (subscription); fell back to IEX closes")
             self.feed = "iex"
@@ -149,11 +156,12 @@ def month_ends(daily: pd.DataFrame) -> pd.DataFrame:
 # --- the rule ---------------------------------------------------------------------------
 
 
-def rank(m: pd.DataFrame, asof: pd.Timestamp, members: list[str], n: int = N) -> tuple[list[str], dict]:
+def rank(m: pd.DataFrame, asof: pd.Timestamp, members: list[str], n: int = N, lookback: int = LOOKBACK,
+         skip: int = SKIP) -> tuple[list[str], dict]:
     i = m.index.get_loc(asof)
-    if i < LOOKBACK:
+    if i < lookback:
         return [], {}
-    now, recent, past = m.iloc[i], m.iloc[i - SKIP], m.iloc[i - LOOKBACK]
+    now, recent, past = m.iloc[i], m.iloc[i - skip], m.iloc[i - lookback]
     signal = {}
     for s in members:
         if s in m.columns and pd.notna(now[s]) and pd.notna(recent[s]) and pd.notna(past[s]) and past[s] > 0:
@@ -169,14 +177,19 @@ def _targets(drifted: dict, picks: list[str], n: int, band: float) -> dict:
     return {s: w / total for s, w in t.items()} if total else {}
 
 
-def replay(m: pd.DataFrame, members: list[str], first, last, n: int = N, cost: float = COST,
-           band: float = BAND) -> list[dict]:
-    """Book each month-end from `first` to `last` on month-end closes, held to the next month-end."""
+def replay(m: pd.DataFrame, members, first, last, n: int = N, cost: float = COST, band: float = BAND,
+           lookback: int = LOOKBACK, skip: int = SKIP, gate=None) -> list[dict]:
+    """Book each month-end from `first` to `last` on month-end closes, held to the next month-end.
+
+    `members` is a list, or a function of the month-end date (point-in-time
+    membership). `gate(date)` False means hold cash that month.
+    """
     rows, drifted = [], {}
     start, stop = m.index.get_loc(pd.Timestamp(first)), m.index.get_loc(pd.Timestamp(last))
     for i in range(start, min(stop, len(m) - 2) + 1):
         asof = m.index[i]
-        picks, _ = rank(m, asof, members, n)
+        names = members(asof) if callable(members) else members
+        picks = rank(m, asof, names, n, lookback, skip)[0] if gate is None or gate(asof) else []
         target = _targets(drifted, picks, n, band)
         turnover = sum(abs(target.get(s, 0) - drifted.get(s, 0)) for s in set(target) | set(drifted))
         growth, flat = {}, []
