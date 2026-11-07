@@ -12,7 +12,7 @@ Written 2026-11-07.
 | 2. Market profiles and run namespaces | Built: `swingbot.markets` (profiles, `config/us_holidays.toml`, `RunSpace`, paper/shadow/live modes, global and per-market halt files). NSE behaviour unchanged. |
 | 3. Normalized contracts and conformance tests | Built: `OrderIntent`, `OrderStatus`, `OrderUpdate`, `Fill`, `Position`; `tests/test_adapter_conformance.py` runs against the in-memory reference adapter and Alpaca. |
 | 4. US historical research | Built: `swingbot-us-research` (frozen Alpaca panel with hash and manifest, S&P 500 members rebuilt for each month-end, four fixed strategies against equal weight, SPY, RSP and SPMO, by year with costs, turnover and worst fall). Pre-registered in [research/us-research-prereg.md](research/us-research-prereg.md). Runs in GitHub Actions (`us-research.yml`). |
-| 5. Alpaca paper adapter behind a flag | Built and tested against a fake Alpaca only. Not run against the real paper account. No bracket orders, no cancel-replace, no regulatory-fee activities. |
+| 5. Alpaca paper adapter behind a flag | Built. Phase 2 check on the real paper account: `swingbot-markets alpaca-smoke` (quiet: accept, duplicate id refused, lookup, cancel, no phantom fills; fill: buy and sell 1 SPY, one fill recorded once, position reconciled). Runs in Actions (`smoke-quiet` by hand; `smoke-fill` each weekday at 15:45 UTC until it passes once). Not built: bracket orders, cancel-replace, regulatory-fee activities (the trial uses none of them). |
 | 6-11 | Not started. They need forward paper data or approval. |
 
 Phase 0 acceptance: existing NSE tests pass unchanged; an NSE run and an empty

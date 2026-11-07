@@ -6,8 +6,9 @@
     swingbot-markets resume us
     swingbot-markets status
     swingbot-markets alpaca-check                     # GET account and positions; sends nothing
+    swingbot-markets alpaca-smoke --phase quiet       # phase 2 checks on the paper account (1 SPY share)
 
-No command here places an order.
+Only alpaca-smoke places orders: paper only, 1 SPY share, cancelled or sold back.
 """
 
 from __future__ import annotations
@@ -47,6 +48,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("market", help="nse, us or all")
     sub.add_parser("status", parents=[roots, broker])
     sub.add_parser("alpaca-check", parents=[broker])
+    p = sub.add_parser("alpaca-smoke", parents=[broker])
+    p.add_argument("--phase", choices=["quiet", "fill"], required=True)
+    p.add_argument("--out", type=Path, default=None, help="default: <state>/markets/us/smoke")
     args = ap.parse_args(argv)
 
     try:
@@ -86,6 +90,18 @@ def _run(args) -> int:
         b = AlpacaBroker(api)
         for line in b.reconcile() or ["positions match the book"]:
             print(line)
+    elif args.cmd == "alpaca-smoke":
+        from datetime import UTC, datetime
+
+        from ..broker.alpaca_smoke import run_smoke
+        cfg = AlpacaConfig.load(args.broker_config, required=False)
+        res = run_smoke(AlpacaAPI.from_env(cfg), args.phase, datetime.now(UTC),
+                        args.out or cfg.state_dir / "smoke")
+        if res.get("skipped"):
+            print(f"{args.phase}: skipped ({res['skipped']})")
+            return 0
+        print((args.out or cfg.state_dir / "smoke").joinpath(f"{args.phase}.md").read_text())
+        return 0 if res["ok"] else 1
     return 0
 
 
