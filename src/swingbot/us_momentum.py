@@ -283,12 +283,16 @@ def book(broker: AlpacaBroker, data, members: list[str], now: datetime, out_dir:
     picks, signal = rank(m, m.index[-1], members, n)
     if not picks:
         raise RuntimeError("no stock has 13 month-ends of history; nothing was sent")
+    long_value = None
     if equity is None:
-        equity = float(broker.api.call("GET", "/v2/account")["equity"])
+        acct = broker.api.call("GET", "/v2/account")
+        equity = float(acct["equity"])
+        long_value = float(acct["long_market_value"]) if acct.get("long_market_value") is not None else None
     prices = {s: float(v) for s, v in m.iloc[-1].items() if pd.notna(v)}
     intents = plan_orders(picks, held, prices, equity, n, band, month, now)
     rec = {"month": month, "asof": str(m.index[-1].date()), "booked_utc": utc_stamp(now), "picks": picks,
-           "signal": signal, "equity": equity, "held_before": held,
+           "signal": signal, "equity": equity, "held_before": held, "universe_size": len(members),
+           "long_market_value": long_value,
            "bench": {b: prices.get(b) for b in BENCH}, "reconcile": broker.reconcile(),
            "notes": list(getattr(data, "notes", [])), "dry_run": dry_run, "orders": []}
     for o in intents:

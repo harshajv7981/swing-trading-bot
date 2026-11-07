@@ -140,6 +140,7 @@ def test_book_sends_the_months_orders_once_and_records_them(tmp_path):
     out = tmp_path / "bookings"
     rec = us_momentum.book(broker, Data(), ["A", "B", "C"], at, out, n=2, equity=100_000.0)
     assert rec["month"] == "2026-11" and rec["picks"] == ["C", "A"]
+    assert rec["universe_size"] == 3 and rec["long_market_value"] is None   # equity given: no account read
     assert sorted(o["symbol"] for o in rec["orders"]) == ["A", "C"]
     assert len([c for c in fake.calls if c[:2] == ("POST", "/v2/orders")]) == 2
     assert json.loads((out / "2026-11.json").read_text())["picks"] == ["C", "A"]
