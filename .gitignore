@@ -6,3 +6,4 @@ runs/
 data/raw/
 .env
 data/state/
+.DS_Store
