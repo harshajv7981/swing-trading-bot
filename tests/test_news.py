@@ -64,6 +64,13 @@ def test_dedupe_keeps_earliest_syndicated_copy():
     assert [r["event_id"] for r in dedupe([a, b, dict(a)])] == ["b"]
 
 
+def test_dedupe_keeps_every_quarters_nse_filing_with_the_same_headline():
+    raw = [{"symbol": "TCS", "sm_name": "Tata Consultancy Services", "desc": "Outcome of Board Meeting",
+            "exchdisstime": f"10-{m}-2026 17:00:00", "seq_id": m} for m in ("Jan", "Apr", "Jul")]
+    rows = nse_rows(raw)
+    assert [r["published_at"][:10] for r in dedupe(rows + rows)] == ["2026-01-10", "2026-04-10", "2026-07-10"]
+
+
 def test_merge_writes_a_file_the_backtest_loads(tmp_path):
     out = tmp_path / "events.csv"
     rows = gdelt_rows([{"url": "https://a.in/1", "title": "Reliance Industries Q1 profit rises",

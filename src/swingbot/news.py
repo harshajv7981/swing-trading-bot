@@ -408,11 +408,12 @@ def _norm(headline: str) -> str:
 
 def dedupe(rows: list[dict]) -> list[dict]:
     """One row per event_id, and per (ticker, headline): the same story syndicated
-    across outlets keeps only its earliest sighting."""
+    across outlets keeps only its earliest sighting. NSE filings are exempt from the
+    headline rule: "X: Financial Results" is the headline of every quarter's filing."""
     best: dict[tuple[str, str], dict] = {}
     seen_ids: set[str] = set()
     for r in sorted(rows, key=lambda r: pd.Timestamp(r["published_at"])):
-        key = (r["ticker"], _norm(r["headline"]))
+        key = (r["ticker"], r["event_id"] if str(r.get("source", "")).startswith("nse") else _norm(r["headline"]))
         if r["event_id"] in seen_ids or key in best:
             continue
         seen_ids.add(r["event_id"])
