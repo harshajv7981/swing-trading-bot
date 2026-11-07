@@ -35,9 +35,9 @@ beats simple index funds after costs.
   ranked on that day's closes. The orders go to Alpaca paper as market orders
   at the next session's open. The first booking is the first month-end after
   the replay check below passes, and not before 30 Nov 2026.
-- **Universe:** the S&P 500 members on the ranking day, from a dated snapshot
-  kept in `data/universe/sp500.csv` and refreshed after each quarterly
-  rebalance. A stock needs 13 month-ends of price history.
+- **Universe:** the S&P 500 members on the ranking day, from Wikipedia's
+  constituents list, read at each booking and saved as a dated snapshot
+  (`us-m12/universe/sp500-<date>.csv` on the state branch). A stock needs 13 month-ends of price history.
 - **Signal:** the total return from 12 month-ends back to 1 month-end back
   (12-1 momentum, skipping the latest month), on split- and dividend-adjusted
   closes.
@@ -48,8 +48,11 @@ beats simple index funds after costs.
   only, no stops and no leverage. Costs are what Alpaca paper fills give, plus
   0.05% a side booked for slippage (Alpaca charges no commission). Cash left
   over from whole-share rounding stays in cash.
-- **Code:** not written yet. It runs through `swingbot.markets` and the Alpaca
-  adapter (`swingbot.broker.alpaca`), in run namespace `runs/markets/us/`.
+- **Code:** `swingbot-us-momentum` (`src/swingbot/us_momentum.py`), through
+  `swingbot.markets` and the Alpaca adapter. It runs in GitHub Actions
+  (`.github/workflows/us-momentum.yml`), and its state is kept on the
+  `us-trial-state` branch. Added 2026-11-07, before the replay, the universe
+  snapshot moved there from `data/universe/`; no rule changed.
 
 ## What it is compared with
 

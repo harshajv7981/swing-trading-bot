@@ -641,6 +641,12 @@ swingbot-markets status
 swingbot-markets alpaca-check      # read-only: account, positions vs the book
 ```
 
+The US momentum paper trial ([docs/research/us-momentum-prereg.md](docs/research/us-momentum-prereg.md))
+runs in GitHub Actions (`.github/workflows/us-momentum.yml`): `swingbot-us-momentum
+replay`, `book` (only at a month-end) and `report`. It needs the
+`SWINGBOT_ALPACA_KEY_ID` and `SWINGBOT_ALPACA_SECRET_KEY` repository secrets, and
+keeps its state on the `us-trial-state` branch.
+
 ## Roadmap
 
 The mid-cap momentum paper trial runs from November 2026 and is judged in
