@@ -137,3 +137,25 @@ def test_gold_shadow_holds_30_percent_gold_and_rebalances_in_december():
     assert out[3] == pytest.approx(out[2])
     ledger["months"][1]["indexes"] = {}
     assert momentum.gold_mix(ledger)[1:] == [None, None, None]
+
+
+def test_booking_also_records_nse_memory_and_never_fails_because_of_it(tmp_path, monkeypatch, capsys):
+    write_stocks(tmp_path / "d")
+    ledger = tmp_path / "state" / "momentum_trial.json"
+    momentum.update(tmp_path / "d", ledger, KNOWN_2025, start="2025-07-01")
+    assert "3 new episode records" in momentum.record_memory(ledger)       # July opened and settled, Aug opened
+    episodes = tmp_path / "state" / "markets" / "nse" / "memory" / "episodes.jsonl"
+    assert episodes.exists()
+    assert "0 new" in momentum.record_memory(ledger)                        # once only
+    ledger.write_text("not json")
+    assert momentum.record_memory(ledger).startswith("memory not updated:")  # reported, not raised
+
+    calls = []
+    monkeypatch.setattr(momentum, "update", lambda *a, **k: [{"date": "2025-08-29", "value": 1.0, "orders": [],
+                                                              "costs": 0.0}])
+    monkeypatch.setattr(momentum, "record_memory", lambda path: calls.append(path) or "memory: ok")
+    monkeypatch.setattr(momentum, "REPORT", tmp_path / "report.md")
+    monkeypatch.setattr(momentum, "_scorecard", lambda *a: tmp_path / "card.html")
+    ledger.write_text(json.dumps(momentum.new_ledger()))
+    assert momentum.main(["update", "--data", str(tmp_path / "d"), "--ledger", str(ledger)]) == 0
+    assert calls == [ledger]

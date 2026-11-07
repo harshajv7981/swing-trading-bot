@@ -317,6 +317,21 @@ def update(data: Path, ledger_path: Path = LEDGER, calendar: NSECalendar | None 
     return done
 
 
+def record_memory(ledger_path: Path) -> str:
+    """Step 7: turn the booked months into NSE episodes, in the same state folder as the ledger.
+
+    Runs after a booking and never fails it: any problem is reported as one line.
+    """
+    try:
+        from .markets.memory import Memory
+        from .markets.trials import from_nse_ledger
+        rows = from_nse_ledger(json.loads(Path(ledger_path).read_text()))
+        n = Memory(Path(ledger_path).parent).update("nse", rows)
+        return f"memory: {n} new episode records from {len(rows)} booked months"
+    except Exception as e:      # noqa: BLE001 - memory must never stop the trial's booking
+        return f"memory not updated: {e}"
+
+
 def gold_mix(ledger: dict) -> list[float | None]:
     """Value of the 70/30 gold shadow at each booked month, as a multiple of the starting capital.
 
@@ -484,6 +499,7 @@ def main(argv: list[str] | None = None) -> int:
         for m in done:
             print(f"booked {m['date']}: value Rs {m['value']:,.0f}, {len(m['orders'])} orders, "
                   f"costs Rs {m['costs']:,.0f}")
+        print(record_memory(args.ledger))
     ledger = json.loads(args.ledger.read_text()) if args.ledger.exists() else new_ledger()
     text = report(ledger)
     if args.cmd == "update":
