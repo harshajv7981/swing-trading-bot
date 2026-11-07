@@ -75,7 +75,8 @@ def gather(src: Sources, as_of=None) -> dict:
     config = RiskConfig.load(src.risk_config)
     records = corporate.adjust_records(Ledger(src.ledger).records(), corporate.load(src.state_dir))
     out: dict = {"as_of": f"{as_of:%Y-%m-%d %H:%M}", "has_account": any(r["kind"] == "open" for r in records),
-                 "kill_pct": config.weekly_kill_pct, "risk_pct": config.risk_pct}
+                 "kill_pct": config.weekly_kill_pct, "risk_pct": config.risk_pct,
+                 "open_risk_limit_pct": config.max_open_risk_pct}
     switch = _read_json(Path(src.state_dir) / "kill_switch.json", {"latched": False})
     out["kill_switch"] = switch
     out["orders"] = [o for o in _read_json(Path(src.state_dir) / "paper_broker.json", {}).get("orders", [])
@@ -257,7 +258,7 @@ def render(d: dict, title: str = "Swing bot") -> str:
             _tile("Week drawdown", f"{dd:.2f}%", f"kill switch at {d['kill_pct']:g}%",
                   bar=dd / d["kill_pct"] if d["kill_pct"] else 0, hot=dd >= d["kill_pct"] * 0.6),
             _tile("Open risk", _m(d["open_risk"]),
-                  f"{d['open_risk'] / s['equity'] * 100:.2f}% of equity (limit 5%)" if s["equity"] else ""),
+                  f"{d['open_risk'] / s['equity'] * 100:.2f}% of equity (limit {d['open_risk_limit_pct']:g}%)" if s["equity"] else ""),
             _tile("Max drawdown", f"{s['max_drawdown_pct']:.2f}%", s.get("drawdown_trough") or ""),
             _tile("Closed trades", str(s["closed_trades"]),
                   (f"win {s['win_rate'] * 100:.0f}%, avg {s['avg_r']:+.2f}R" if s["closed_trades"] and s["avg_r"]
