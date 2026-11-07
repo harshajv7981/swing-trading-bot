@@ -13,11 +13,12 @@ From docs/parallel-markets-learning-plan.md ("Memory and learning design"):
   violation, or a loss with a clean process). The judgement categories (forecast,
   regime, calibration, cutoff, universe, a reused market assumption) are added
   only by a reviewer, with evidence.
-- **Memory**: lessons in three stores, `nse`, `us` and `shared`. A market lesson
-  cites only its own market's episodes. A shared lesson needs evidence from both
-  markets, or a stated reason why it is market-neutral. Anyone (or the auto rule:
-  the same process mistake in two episodes) may propose. Only a named person may
-  approve, reject or retire.
+- **Memory**: kept separate per market, by Harsha's decision (2026-11-07): an
+  `nse` store for Indian stocks and a `us` store for US stocks, with no shared or
+  combined store. A lesson cites only its own market's episodes, and each
+  market's view shows only its own lessons. Anyone (or the auto rule: the same
+  process mistake in two episodes) may propose. Only a named person may approve,
+  reject or retire.
 
 Everything is append-only JSON lines under `<state>/markets/<scope>/memory/`;
 reading folds the events. Re-running an update appends nothing new.
@@ -34,8 +35,8 @@ from pathlib import Path
 from .control import STATE_ROOT
 from .trials import NSE_MAIN, US_MAIN, TrialMonth
 
-SCOPES = ("nse", "us", "shared")
-LEVELS = ("market", "strategy", "shared")
+SCOPES = ("nse", "us")              # separate per market; no shared store
+LEVELS = ("market", "strategy")
 CONFIDENCE = ("low", "medium", "high")
 NOT_A_PERSON = {"", "auto", "agent", "claude", "bot", "system"}
 MAIN = {"nse": NSE_MAIN, "us": US_MAIN}
@@ -96,7 +97,7 @@ class Memory:
 
     def _path(self, scope: str, name: str) -> Path:
         if scope not in SCOPES:
-            raise MemoryRefused(f"scope must be one of {', '.join(SCOPES)}, not {scope!r}")
+            raise MemoryRefused(f"memory is kept separate per market: the scope must be nse or us, not {scope!r}")
         return self.root / "markets" / scope / "memory" / f"{name}.jsonl"
 
     def _append(self, scope: str, name: str, rec: dict) -> None:
@@ -177,28 +178,25 @@ class Memory:
         return out
 
     def propose(self, scope: str, level: str, text: str, evidence: list[str], confidence: str, by: str,
-                strategy: str | None = None, market_neutral: str | None = None, auto_key: str | None = None) -> str:
+                strategy: str | None = None, auto_key: str | None = None) -> str:
+        if scope not in SCOPES:
+            raise MemoryRefused(f"memory is kept separate per market: the scope must be nse or us, not {scope!r}")
         if confidence not in CONFIDENCE:
             raise MemoryRefused(f"confidence must be low, medium or high, not {confidence!r}")
-        if level not in LEVELS or (level == "shared") != (scope == "shared"):
-            raise MemoryRefused(f"a {scope} lesson is a market or strategy lesson; only shared lessons are shared")
-        markets = set()
+        if level not in LEVELS:
+            raise MemoryRefused(f"a lesson is a market or strategy lesson, not {level!r}")
+        if not evidence:
+            raise MemoryRefused("a lesson needs at least one episode as evidence")
         for eid in evidence:
-            market = eid.split("-", 1)[0]
-            if scope != "shared" and market != scope:
+            if eid.split("-", 1)[0] != scope:
                 raise MemoryRefused(f"a {scope} lesson can only cite {scope} episodes; {eid} is not one")
-            if market not in ("nse", "us") or eid not in self.episodes(market):
+            if eid not in self.episodes(scope):
                 raise MemoryRefused(f"no episode {eid} to cite")
-            markets.add(market)
-        if scope == "shared" and markets != {"nse", "us"} and not market_neutral:
-            raise MemoryRefused("a shared lesson needs evidence from both markets, or a market_neutral reason")
-        if scope != "shared" and not evidence:
-            raise MemoryRefused("a market lesson needs at least one episode as evidence")
         lid = f"{scope}-L{len(self.lessons(scope)) + 1:04d}"
         self._append(scope, "lessons", {
             "kind": "lesson_proposed", "lesson": lid, "scope": scope, "level": level, "strategy": strategy,
             "text": text, "evidence": sorted(evidence), "confidence": confidence, "proposed_by": by,
-            "market_neutral": market_neutral, "auto_key": auto_key})
+            "auto_key": auto_key})
         return lid
 
     def decide(self, scope: str, lesson: str, action: str, by: str, why: str) -> None:
@@ -237,6 +235,6 @@ def show(mem: Memory, market: str) -> str:
         lines.append(f"| {eid} | {ep.get('status')} | {pct(ep.get('realized'))} | {pct(ep.get('bench'))} | "
                      f"{pct(ep.get('excess'))} | {'; '.join(ep['mistakes'])} |")
     lines += ["", "| lesson | status | confidence | text | evidence |", "|---|---|---|---|---|"]
-    for lid, rec in sorted({**lessons, **mem.lessons("shared")}.items()):
+    for lid, rec in sorted(lessons.items()):
         lines.append(f"| {lid} | {rec['status']} | {rec['confidence']} | {rec['text']} | {', '.join(rec['evidence'])} |")
     return "\n".join(lines) + "\n"

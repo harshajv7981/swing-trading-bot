@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from swingbot.markets.memory import Memory, MemoryRefused, Mistake, classify
+from swingbot.markets.memory import Memory, MemoryRefused, Mistake, classify, show
 from swingbot.markets.trials import TrialMonth
 
 
@@ -70,14 +70,13 @@ def test_lessons_stay_in_their_market_and_only_a_person_approves(tmp_path):
     mem.decide("us", lid, "approve", by="harsha", why="seen twice")
     assert mem.lessons("us")[lid]["status"] == "approved"
     assert lid not in mem.lessons("nse")
-    with pytest.raises(MemoryRefused, match="both markets"):
-        mem.propose("shared", "shared", "Refuse stale data", ["us-us-m-2026-11"], "medium", by="claude")
-    sid = mem.propose("shared", "shared", "Refuse stale data", ["us-us-m-2026-11", "nse-nse-m-2026-10"],
-                      "medium", by="claude")
-    assert mem.lessons("shared")[sid]["status"] == "proposed"
-    nid = mem.propose("shared", "shared", "Retry with the same idempotency key", [], "medium", by="claude",
-                      market_neutral="an HTTP retry pattern, no market data involved")
-    assert mem.lessons("shared")[nid]["market_neutral"]
+    with pytest.raises(MemoryRefused, match="separate"):
+        mem.propose("shared", "market", "Refuse stale data", ["us-us-m-2026-11", "nse-nse-m-2026-10"],
+                    "medium", by="claude")
+    nse_lid = mem.propose("nse", "market", "Eod2 data lags a week", ["nse-nse-m-2026-10"], "low", by="claude")
+    assert list(mem.lessons("nse")) == [nse_lid] and nse_lid not in mem.lessons("us")
+    view = show(mem, "us")
+    assert lid in view and nse_lid not in view and "nse-" not in view
     with pytest.raises(MemoryRefused, match="confidence"):
         mem.propose("us", "market", "x", ["us-us-m-2026-11"], "certain", by="claude")
 
