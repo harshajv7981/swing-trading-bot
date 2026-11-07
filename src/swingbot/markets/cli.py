@@ -7,6 +7,7 @@
     swingbot-markets status
     swingbot-markets alpaca-check                     # GET account and positions; sends nothing
     swingbot-markets alpaca-smoke --phase quiet       # phase 2 checks on the paper account (1 SPY share)
+    swingbot-markets trials                           # phase 3: NSE and US paper trials, one report
 
 Only alpaca-smoke places orders: paper only, 1 SPY share, cancelled or sold back.
 """
@@ -48,6 +49,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("market", help="nse, us or all")
     sub.add_parser("status", parents=[roots, broker])
     sub.add_parser("alpaca-check", parents=[broker])
+    p = sub.add_parser("trials", help="phase 3: both paper trials, one report")
+    p.add_argument("--nse-ledger", type=Path, default=Path("data/state/momentum_trial.json"))
+    p.add_argument("--us-ref", default="origin/us-trial-state", help="git ref holding the US trial's state")
+    p.add_argument("--out", type=Path, default=Path("runs/markets/trials.md"))
     p = sub.add_parser("alpaca-smoke", parents=[broker])
     p.add_argument("--phase", choices=["quiet", "fill"], required=True)
     p.add_argument("--out", type=Path, default=None, help="default: <state>/markets/us/smoke")
@@ -90,6 +95,13 @@ def _run(args) -> int:
         b = AlpacaBroker(api)
         for line in b.reconcile() or ["positions match the book"]:
             print(line)
+    elif args.cmd == "trials":
+        from .trials import from_nse_ledger, from_us_state, report, us_state_from_git
+        nse = from_nse_ledger(json.loads(args.nse_ledger.read_text())) if args.nse_ledger.exists() else []
+        text = report(nse, from_us_state(us_state_from_git(args.us_ref)))
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(text)
+        print(text)
     elif args.cmd == "alpaca-smoke":
         from datetime import UTC, datetime
 
