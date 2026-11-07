@@ -124,11 +124,13 @@ def score(decisions: list[dict], closes: Closes) -> tuple[list[dict], dict]:
     return rows, summary
 
 
-def router_closes(t: str) -> pd.Series:
+def router_closes(t: str, now: pd.Timestamp | None = None) -> pd.Series:
     from .data import Router
+    from .technicals import bars_known_at
 
-    _, bars = Router().fetch("prices", t, pd.Timestamp.now(tz=IST))
-    return bars["close"]
+    now = now or pd.Timestamp.now(tz=IST)
+    _, bars = Router().fetch("prices", t, now)
+    return bars_known_at(bars, now)["close"]   # a session still trading has a live bar, not a close
 
 
 def _pct(x) -> str:

@@ -3,7 +3,7 @@ import json
 import pandas as pd
 import pytest
 
-from swingbot.agent_calls import load, main, record, score, settle
+from swingbot.agent_calls import load, main, record, router_closes, score, settle
 from swingbot.models import IST
 
 NOW = pd.Timestamp("2026-11-05 15:45", tz=IST)
@@ -88,3 +88,11 @@ def test_cli_record_refusal(tmp_path, capsys):
     f.write_text(json.dumps(call(as_of="2020-01-01 10:00")))
     assert main(["--log", str(tmp_path / "d.jsonl"), "record", str(f)]) == 2
     assert "forward only" in capsys.readouterr().err
+
+
+def test_scoring_closes_leave_out_a_session_still_trading(monkeypatch):
+    live = pd.DataFrame({"close": [100.0, 101.0, 102.0]}, index=pd.to_datetime(["2026-11-04", "2026-11-05", "2026-11-06"]))
+    monkeypatch.setattr("swingbot.data.Router.fetch", lambda self, category, t, as_of: ("yfinance", live))
+    mid_session = pd.Timestamp("2026-11-06 11:00", tz=IST)
+    assert list(router_closes("INFY", mid_session)) == [100.0, 101.0]
+    assert list(router_closes("INFY", pd.Timestamp("2026-11-06 16:00", tz=IST))) == [100.0, 101.0, 102.0]

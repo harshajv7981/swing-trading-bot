@@ -101,6 +101,16 @@ def test_yahoo_downloads_merge_into_saved_csv(tmp_path, monkeypatch):
     assert merged["close"].iloc[-1] == pytest.approx(new["close"].iloc[-1])
 
 
+def test_a_session_still_trading_is_not_saved_to_the_price_cache(tmp_path, monkeypatch):
+    live = bars([100.0, 101.0, 102.0], start="2026-11-04")        # Wed 4, Thu 5, Fri 6 Nov: Friday is mid-session
+    monkeypatch.setattr(vendors, "download_yfinance", lambda *a: live)
+    ctx = vendors.VendorContext(DataConfig(prices_dir=tmp_path, cache_prices=True))
+    got = vendors.prices_yfinance("UP", parse_as_of("2026-11-06 11:00"), ctx)
+    assert len(got) == 3                                            # callers still get the download
+    saved = pd.read_csv(tmp_path / "UP.csv", index_col="date", parse_dates=True)
+    assert list(saved.index.strftime("%Y-%m-%d")) == ["2026-11-04", "2026-11-05"]
+
+
 def test_cli_prints_every_section(setup, capsys, tmp_path):
     router, root = setup
     cfg = root / "sources.toml"

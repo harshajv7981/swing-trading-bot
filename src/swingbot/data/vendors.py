@@ -1,7 +1,8 @@
 """Vendor functions: one per source, each `(ticker, as_of, ctx) -> raw result`.
 
-A vendor returns everything it has; the router cuts it to the as-of time, so a
-vendor that forgets to can't leak the future. On failure a vendor raises one of
+A vendor returns everything it has, and `Router.fetch` hands it on uncut: the
+caller cuts it to the as-of time (`bars_known_at`, or the router's own text
+formats), and `prices_yfinance` saves only closed sessions. On failure a vendor raises one of
 the router's typed errors, never returns an empty result.
 
 Add a source by writing a function here and listing it in REGISTRY, then name
@@ -19,6 +20,7 @@ import pandas as pd
 from ..events import load_events
 from ..models import IST, NewsEvent
 from ..prices import YAHOO_SYMBOLS, CSVPriceSource, _normalise
+from ..technicals import bars_known_at
 from .router import DataConfig, NoData, NotConfigured, VendorUnavailable, Withheld
 
 # A price file whose last bar is this many days before the as-of date is stale:
@@ -62,8 +64,9 @@ def prices_csv(ticker: str, as_of: pd.Timestamp, ctx: VendorContext) -> pd.DataF
 def prices_yfinance(ticker: str, as_of: pd.Timestamp, ctx: VendorContext) -> pd.DataFrame:
     day = as_of.tz_convert(IST).tz_localize(None).normalize()
     bars = download_yfinance(ticker, (day - pd.Timedelta(days=450)).date(), day.date())
-    if ctx.config.cache_prices:
-        _merge_into_csv(Path(ctx.config.prices_dir) / f"{ticker}.csv", bars)
+    closed = bars_known_at(bars, min(as_of, pd.Timestamp.now(IST)))   # Yahoo's row for an open session is live, not a close
+    if ctx.config.cache_prices and not closed.empty:
+        _merge_into_csv(Path(ctx.config.prices_dir) / f"{ticker}.csv", closed)
     return bars
 
 
