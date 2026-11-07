@@ -264,8 +264,38 @@ def booking_month(now: datetime) -> str | None:
     return None
 
 
+def _shadow(skills, m: pd.DataFrame, members: list[str], month: str, out_dir: Path, record: bool) -> dict:
+    """Step 8 shadow runs: settle last month's shadow picks, and pick this month's. No orders.
+
+    Both the shadow picks and the trial's own picks are scored the same way (equal
+    weight, close to close, before costs), so they compare like with like.
+    """
+    from .us_research import trend_gate
+
+    asof, in_shadow = m.index[-1], {k: v for k, v in skills.all("us").items() if v["status"] == "shadow"}
+    earlier = sorted(p for p in Path(out_dir).glob("*.json") if p.stem < month)
+    prev = json.loads(earlier[-1].read_text()) if earlier else None
+    if record and prev and prev.get("shadow") and pd.Timestamp(prev["asof"]) in m.index:
+        t0 = pd.Timestamp(prev["asof"])
+
+        def ew(names: list[str]) -> float:
+            r = [m.at[asof, s] / m.at[t0, s] - 1 for s in names
+                 if s in m.columns and pd.notna(m.at[t0, s]) and pd.notna(m.at[asof, s])]
+            return float(sum(r) / len(r)) if r else 0.0
+
+        for key, names in prev["shadow"].items():
+            if key in in_shadow:
+                skills.record_shadow("us", key, prev["month"], ew(names), ew(prev["picks"]))
+    out = {}
+    for key, v in in_shadow.items():
+        p = v["params"]
+        gated = p["trend_gate"] and "SPY" in m.columns and not trend_gate(m["SPY"])(asof)
+        out[key] = [] if gated else rank(m, asof, members, p["n"], p["lookback"], p["skip"])[0]
+    return out
+
+
 def book(broker: AlpacaBroker, data, members: list[str], now: datetime, out_dir: Path, n: int = N,
-         band: float = BAND, equity: float | None = None, dry_run: bool = False) -> dict:
+         band: float = BAND, equity: float | None = None, dry_run: bool = False, skills=None) -> dict:
     month = booking_month(now)
     if month is None:
         return {"skipped": "not a booking time"}
@@ -294,7 +324,8 @@ def book(broker: AlpacaBroker, data, members: list[str], now: datetime, out_dir:
            "signal": signal, "equity": equity, "held_before": held, "universe_size": len(members),
            "long_market_value": long_value,
            "bench": {b: prices.get(b) for b in BENCH}, "reconcile": broker.reconcile(),
-           "notes": list(getattr(data, "notes", [])), "dry_run": dry_run, "orders": []}
+           "notes": list(getattr(data, "notes", [])), "dry_run": dry_run, "orders": [],
+           "shadow": _shadow(skills, m, members, month, out_dir, not dry_run) if skills is not None else {}}
     for o in intents:
         r = o.to_record()
         if not dry_run:
@@ -416,7 +447,8 @@ def _run(args) -> int:
         return 0
     broker = AlpacaBroker(AlpacaAPI.from_env(cfg))
     members = _members(args.members, cfg.state_dir / STRATEGY / "universe", now.date())
-    rec = book(broker, AlpacaData.from_env(), members, now, out, dry_run=args.dry_run)
+    from .markets.skills import Skills
+    rec = book(broker, AlpacaData.from_env(), members, now, out, dry_run=args.dry_run, skills=Skills(cfg.state_root))
     print(json.dumps({k: rec.get(k) for k in ("month", "skipped", "picks", "equity", "reconcile", "notes")}, indent=1))
     for o in rec.get("orders", []):
         print(f"{o['side']:4} {o['qty']:>6} {o['symbol']:6} {o.get('status', 'dry-run')}")
