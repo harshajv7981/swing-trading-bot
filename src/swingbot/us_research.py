@@ -30,6 +30,7 @@ import pandas as pd
 from .broker.alpaca import AlpacaError
 from .us_momentum import BENCH, SP500_URL, AlpacaData, month_ends, parse_sp500, replay
 
+CHANGES_URL = "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_500"
 COSTS = (0.0005, 0.0015)          # a side: the trial's slippage, and the stress test
 STRATEGIES = ("M12", "M6", "TREND", "M12+TREND")
 
@@ -66,15 +67,22 @@ class _Changes(HTMLParser):
             self.cell += data
 
 
+def _date(text: str) -> date | None:
+    try:
+        return datetime.strptime(text.strip(), "%B %d, %Y").date()
+    except ValueError:
+        return None
+
+
 def parse_changes(html: str) -> list[tuple[date, str, str]]:
     """(date, added ticker, removed ticker) rows of Wikipedia's S&P 500 change table, newest first."""
     p = _Changes()
     p.feed(html)
     out, last = [], None
     for cells in p.rows:
-        if len(cells) >= 6:
-            last = pd.to_datetime(cells[0]).date()
-            cells = cells[1:]
+        when = _date(cells[0]) if cells else None
+        if when:
+            last, cells = when, cells[1:]
         if last is None or len(cells) < 4:
             continue
         out.append((last, cells[0], cells[2]))
@@ -115,11 +123,15 @@ class Membership:
         return cls(raw["current"], [(date.fromisoformat(d), a, r) for d, a, r in raw["changes"]])
 
 
-def fetch_membership() -> Membership:
-    req = urllib.request.Request(SP500_URL, headers={"User-Agent": "swingbot/0.1 (paper-trading research)"})
+def _page(url: str) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": "swingbot/0.1 (paper-trading research)"})
     with urllib.request.urlopen(req, timeout=30) as resp:
-        html = resp.read().decode("utf-8", "replace")
-    return Membership(parse_sp500(html), parse_changes(html))
+        return resp.read().decode("utf-8", "replace")
+
+
+def fetch_membership() -> Membership:
+    """Today's members from the list page; the change table from its own page (moved there in 2026)."""
+    return Membership(parse_sp500(_page(SP500_URL)), parse_changes(_page(CHANGES_URL)))
 
 
 # --- the frozen panel ------------------------------------------------------------------------

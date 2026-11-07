@@ -21,13 +21,15 @@ CHANGES = """
 <table id="changes"><tr><th>Date</th><th colspan=2>Added</th><th colspan=2>Removed</th><th>Reason</th></tr>
 <tr><th>Ticker</th><th>Security</th><th>Ticker</th><th>Security</th></tr>
 <tr><td rowspan=2>September 22, 2025</td><td>APP</td><td>AppLovin</td><td>ENPH</td><td>Enphase</td><td>cap</td></tr>
-<tr><td>HOOD</td><td>Robinhood</td><td>CZR</td><td>Caesars</td><td>cap</td></tr>
+<tr><td>HOOD</td><td>Robinhood</td><td>CZR</td><td>Caesars</td><td>cap</td><td><sup>[3]</sup></td></tr>
 <tr><td>March 18, 2024</td><td>SMCI</td><td>Super Micro</td><td>WHR</td><td>Whirlpool</td><td>cap</td></tr>
 <tr><td>June 1, 2023</td><td></td><td></td><td>OLD</td><td>Old Co</td><td>acquired</td></tr>
 </table>"""
 
 
 def test_members_are_rebuilt_for_each_date_from_the_change_table():
+    """The table moved to "Historical components of the S&P 500" in 2026 and gained a Refs column, so a
+    row that shares the date above has six cells: the date is recognised by parsing, not by counting."""
     changes = parse_changes(CHANGES)
     assert changes[0] == (date(2025, 9, 22), "APP", "ENPH")
     assert changes[1] == (date(2025, 9, 22), "HOOD", "CZR")       # rowspan date reused
