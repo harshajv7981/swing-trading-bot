@@ -606,6 +606,41 @@ swingbot-agent-calls score --ticker INFY    # one stock's past calls
 
 The log is `runs/trading-agents/decisions.jsonl` (git-ignored).
 
+## NSE and US side by side: `swingbot-markets` and the Alpaca paper adapter
+
+Phase 0 of [docs/parallel-markets-learning-plan.md](docs/parallel-markets-learning-plan.md),
+plus the Alpaca paper adapter from its Phase 2. Nothing in the NSE flow changed.
+
+* **Market profiles** (`swingbot.markets.profiles`): `nse_equities` (IST, INR,
+  09:15 to 15:30, NSE's banded tick, Dhan) and `us_equities` (New York time, USD,
+  09:30 to 16:00 with 13:00 early closes, Reg NMS ticks, Alpaca). US holidays are
+  in `config/us_holidays.toml` (NYSE, 2026 and 2027; check each year). Session
+  checks take timezone-aware times and never use the machine's clock zone.
+* **Run namespaces**: `runs/markets/<market>/<run-id>/manifest.json` holds a
+  run's frozen config, and `data/state/markets/<market>/` its state. The markets
+  share no mutable state, and a run id is created once.
+* **Modes and halts**: paper sends to a paper account; shadow builds orders and
+  never sends; live is refused in code for both markets. `swingbot-markets halt
+  us --reason ...` stops one market, `halt all` stops every market.
+* **Normalized contracts** (`swingbot.markets.contracts`): `OrderIntent`
+  (checked against its market's ticks, order types and time in force),
+  `OrderUpdate`, `Fill` and `Position`, all in UTC. Every adapter passes the same
+  conformance suite (`tests/test_adapter_conformance.py`).
+* **Alpaca paper adapter** (`swingbot.broker.alpaca`): client order ids as
+  idempotency keys, lost responses adopted rather than resent, fills paged from
+  account activities and reported once, and raw responses journalled. It fails
+  closed on malformed, fractional or backwards-moving answers. It sends nothing
+  unless `[alpaca] enabled = true` in `config/broker.toml` and
+  `SWINGBOT_ALPACA_KEY_ID` and `SWINGBOT_ALPACA_SECRET_KEY` are set. It has only
+  been tested against a fake Alpaca; bracket orders are not used yet.
+
+```bash
+swingbot-markets profiles
+swingbot-markets new-run us 2026-11-us-paper
+swingbot-markets status
+swingbot-markets alpaca-check      # read-only: account, positions vs the book
+```
+
 ## Roadmap
 
 The mid-cap momentum paper trial runs from November 2026 and is judged in
