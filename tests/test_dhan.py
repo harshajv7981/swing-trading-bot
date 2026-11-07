@@ -463,8 +463,9 @@ def lose_entry_reply(b, fake, mode):
             left[0] -= 1
             if mode == "after":
                 _, raw = inner(m, url, headers, body)
-                day_book.append({"orderId": json.loads(raw)["orderId"],
-                                 "correlationId": json.loads(body)["correlationId"]})
+                day_book.append({"orderId": json.loads(raw)["orderId"], "correlationId": json.loads(body)["correlationId"],
+                                 "securityId": json.loads(body)["securityId"], "quantity": json.loads(body)["quantity"],
+                                 "transactionType": json.loads(body)["transactionType"]})
             raise TimeoutError("read timed out")
         if m == "GET" and url.endswith("/v2/orders"):
             return 200, json.dumps(day_book).encode()
@@ -568,3 +569,41 @@ def test_a_failed_read_back_after_the_forever_stop_does_not_place_a_second_one(t
     assert b.orders[0]["forever_id"] == "F2" and any("the stop did not go through" in n for n in b.notes)
     b.sync("2026-01-07 09:20")
     assert len(placed(fake)) == 1
+
+
+def answer_orders_with(b, fake, status, body=b"{}"):
+    inner = fake.__call__
+    b.api.transport = lambda m, u, h, bd: (status, body) if m == "POST" and u.endswith("/v2/orders") \
+        else inner(m, u, h, bd)
+
+
+def test_an_entry_dhan_refuses_leaves_no_record_and_the_ticker_stays_free(tmp_path):
+    b, fake, _ = make(tmp_path)
+    answer_orders_with(b, fake, 400, json.dumps({"errorCode": "DH-906", "errorMessage": "Markets are Offline"}).encode())
+    with pytest.raises(DhanError, match="DH-906"):
+        b.submit(ticket(), "2026-01-02 18:00")
+    assert b.orders == [] and json.loads((tmp_path / "dhan_book.json").read_text())["orders"] == []
+    b.api.transport = fake
+    assert b.submit(ticket(), "2026-01-02 18:05") == "D00001"          # nothing blocks the retry
+
+
+def test_an_entry_dhan_answers_with_a_server_error_stays_sending(tmp_path):
+    b, fake, _ = make(tmp_path)
+    answer_orders_with(b, fake, 502)
+    with pytest.raises(DhanError) as caught:
+        b.submit(ticket(), "2026-01-02 18:00")
+    assert caught.value.status == 502 and b.orders[0]["status"] == "sending"   # it may have been taken
+
+
+def test_an_older_order_that_reused_the_correlation_id_is_not_adopted(tmp_path):
+    b, fake, _ = make(tmp_path)
+    lose_entry_reply(b, fake, "before")
+    with pytest.raises(TimeoutError):
+        b.submit(ticket(), "2026-01-02 18:00")
+    inner = b.api.transport
+    old = {"orderId": "OLD1", "correlationId": "D00001", "securityId": "2222", "quantity": 1, "transactionType": "BUY"}
+    b.api.transport = lambda m, u, h, bd: (200, json.dumps([old]).encode()) if m == "GET" and u.endswith("/v2/orders") \
+        else inner(m, u, h, bd)
+    b.sync("2026-01-05 18:00")
+    assert b.orders[0]["status"] == "sending" and b.orders[0]["dhan_id"] == ""
+    assert "does not list it" in b.notes[-1]
