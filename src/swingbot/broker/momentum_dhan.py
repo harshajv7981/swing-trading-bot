@@ -208,8 +208,27 @@ class MomentumDhan:
 
     # --- fills ---------------------------------------------------------------------
 
-    def sync(self) -> list[dict]:
+    def _resolve_sending(self, now: pd.Timestamp) -> None:
+        """Orders saved before a send whose reply never came: find them in Dhan's order book by correlation id."""
+        sending = [o for o in self.book["orders"] if o["status"] == "sending"]
+        if not sending:
+            return
+        by_corr = {str(r.get("correlationId")): r for r in _rows(self.api.call("GET", "/orders"))}
+        for o in sending:
+            r = by_corr.get(o["id"])
+            if r and r.get("orderId"):
+                o.update(dhan_id=str(r["orderId"]), status="open")
+            elif o["sent_at"][:10] == f"{now:%Y-%m-%d}":
+                o["status"] = "unsent"        # the day's order book lists every order sent today; it never arrived
+            else:
+                o["status"] = "unknown"       # yesterday's order book is gone: a person has to look
+                self.halt(f"{o['side'].lower()} {o['qty']} {o['symbol']} ({o['id']}, sent {o['sent_at']}) got no "
+                          "reply from Dhan; check Dhan's trade history and fix the book's holdings if it filled")
+        self.save()
+
+    def sync(self, now=None) -> list[dict]:
         """Read every open order's status back from Dhan and move the book by what filled."""
+        self._resolve_sending(_ts(now if now is not None else pd.Timestamp.now(tz="Asia/Kolkata")))
         done = []
         for o in self.pending():
             r = self.api.call("GET", f"/orders/{o['dhan_id']}")
@@ -267,12 +286,17 @@ class MomentumDhan:
                    "price": limit, "triggerPrice": 0.0, "afterMarketOrder": amo}
         if amo:
             payload["amoTime"] = "OPEN"
-        resp = self.api.call("POST", "/orders", payload)
-        rec = {"id": oid, "dhan_id": str(resp.get("orderId", "")), "month": month, "symbol": o["symbol"],
+        rec = {"id": oid, "dhan_id": "", "month": month, "symbol": o["symbol"],
                "side": o["side"], "qty": int(o["qty"]), "ref_price": o["price"], "limit": limit,
-               "sent_at": f"{at:%Y-%m-%d %H:%M}", "status": "open", "filled": 0}
+               "sent_at": f"{at:%Y-%m-%d %H:%M}", "status": "sending", "filled": 0}
         self.book["orders"].append(rec)
-        self.save()   # after every order, so a crash never loses one that Dhan has
+        self.save()   # before the send: a lost reply leaves it "sending", and the next sync finds it by correlationId
+        resp = self.api.call("POST", "/orders", payload)
+        if not resp.get("orderId"):
+            raise DhanError(f"Dhan answered the {o['symbol']} order ({oid}) without an order id; "
+                            "the next run looks it up by its correlation id")
+        rec.update(dhan_id=str(resp["orderId"]), status="open")
+        self.save()
         return rec
 
     def _wait_for(self, side: str) -> bool:
@@ -294,7 +318,9 @@ class MomentumDhan:
             raise OrderRefused(f"halted: {self.halt_path.read_text().strip()}. Delete {self.halt_path} to resume.")
         if send and self.api.config.live:
             raise OrderRefused("Live mode is read-only: the dry run works on the real account, --send does not.")
-        self.sync()
+        self.sync(at)
+        if self.halt_path.exists():   # the sync may have halted (an odd fill, an order with no reply)
+            raise OrderRefused(f"halted: {self.halt_path.read_text().strip()}. Delete {self.halt_path} to resume.")
         if self.pending():
             self.save()
             left = ", ".join(f"{o['side'].lower()} {o['symbol']}" for o in self.pending())
