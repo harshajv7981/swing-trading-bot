@@ -374,7 +374,7 @@ class DhanBroker:
         os.replace(tmp, self.path)
 
     def open_orders(self) -> list[dict]:
-        return [o for o in self.orders if o["status"] in ("open", "held")]
+        return [o for o in self.orders if o["status"] in ("sending", "open", "held")]
 
     def _held(self, ticker: str) -> dict | None:
         return next((o for o in self.orders if o["ticker"] == ticker and o["status"] == "held"), None)
@@ -424,15 +424,21 @@ class DhanBroker:
                    "afterMarketOrder": amo}
         if amo:
             payload["amoTime"] = "OPEN"
-        resp = self.api.call("POST", "/orders", payload)
         self.orders.append({
-            "id": oid, "dhan_id": str(resp.get("orderId", "")), "type": "entry", "status": "open",
+            "id": oid, "dhan_id": "", "type": "entry", "status": "sending",
             "ticker": ticker, "security_id": security, "qty": qty, "limit": limit, "stop": stop, "target": target,
             "session": session.isoformat(), "submitted_at": f"{at:%Y-%m-%d %H:%M}",
             "fingerprint": ticket["fingerprint"], "checked_at": ticket["checked_at"],
             "sector": ticket.get("sector") or load_sectors().get(ticker, ""), "filled": 0, "forever_id": "",
             "modifications": 0, "exit_by": (ticket.get("hold") or {}).get("exit_by"),
         })
+        self.save()   # before the send: a lost reply leaves it "sending", and sync finds it by correlationId
+        resp = self.api.call("POST", "/orders", payload)
+        if not resp.get("orderId"):
+            raise DhanError(f"Dhan answered the {ticker} entry ({oid}) without an order id; "
+                            "the next sync looks it up by its correlation id")
+        self.orders[-1].update(dhan_id=str(resp["orderId"]), status="open")
+        self.save()
         return oid
 
     def cancel(self, order_id: str, at) -> None:
@@ -576,6 +582,7 @@ class DhanBroker:
         on a session day so the Forever Orders can go in.
         """
         as_of = _ts(as_of)
+        self._resolve_sending()
         mine = [o for o in self.orders if o["status"] in ("open", "held")]
         if not mine:
             return []
@@ -620,6 +627,23 @@ class DhanBroker:
             elif due:
                 self.notes.append(f"{o['ticker']} has no stop at Dhan yet; sync again after 09:15 to place it")
         return events
+
+    def _resolve_sending(self) -> None:
+        """Entries saved before a send whose reply never came: find them in Dhan's order book by correlation id.
+
+        One Dhan does not list stays "sending", which still blocks the ticker, so it cannot be bought twice:
+        a person checks Dhan, then deletes the entry from the book file if it is not there."""
+        sending = [o for o in self.orders if o["status"] == "sending"]
+        if not sending:
+            return
+        by_corr = {str(r.get("correlationId")): r for r in _rows(self.api.call("GET", "/orders"))}
+        for o in sending:
+            r = by_corr.get(o["id"])
+            if r and r.get("orderId"):
+                o.update(dhan_id=str(r["orderId"]), status="open")
+            else:
+                self.notes.append(f"{o['id']} {o['ticker']}: sent {o['submitted_at']} with no reply, and Dhan's order "
+                                  f"book does not list it; check Dhan, and if it is not there delete it from {self.path}")
 
     def _each(self, o: dict, what: str, fn) -> bool:
         """Run one position's order step. A failed call becomes a note, so the other positions still run
