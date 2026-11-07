@@ -8,6 +8,7 @@
     swingbot-markets alpaca-check                     # GET account and positions; sends nothing
     swingbot-markets alpaca-smoke --phase quiet       # phase 2 checks on the paper account (1 SPY share)
     swingbot-markets trials                           # phase 3: NSE and US paper trials, one report
+    swingbot-markets memory update --market nse       # step 7: episodes and lessons from the booked months
 
 Only alpaca-smoke places orders: paper only, 1 SPY share, cancelled or sold back.
 """
@@ -53,6 +54,32 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--nse-ledger", type=Path, default=Path("data/state/momentum_trial.json"))
     p.add_argument("--us-ref", default="origin/us-trial-state", help="git ref holding the US trial's state")
     p.add_argument("--out", type=Path, default=Path("runs/markets/trials.md"))
+    mem = sub.add_parser("memory", help="step 7: episodes, mistakes and market-scoped lessons")
+    msub = mem.add_subparsers(dest="mcmd", required=True)
+    p = msub.add_parser("update", parents=[roots])
+    p.add_argument("--market", choices=["nse", "us"], required=True)
+    p.add_argument("--nse-ledger", type=Path, default=Path("data/state/momentum_trial.json"))
+    p = msub.add_parser("show", parents=[roots])
+    p.add_argument("--market", choices=["nse", "us"], required=True)
+    p = msub.add_parser("classify", parents=[roots])
+    p.add_argument("episode")
+    p.add_argument("--mistake", required=True, help="a Mistake name, e.g. REGIME or FORECAST")
+    p.add_argument("--evidence", required=True)
+    p.add_argument("--by", required=True)
+    p = msub.add_parser("propose", parents=[roots])
+    p.add_argument("--scope", choices=["nse", "us", "shared"], required=True)
+    p.add_argument("--level", choices=["market", "strategy", "shared"], required=True)
+    p.add_argument("--text", required=True)
+    p.add_argument("--evidence", nargs="*", default=[])
+    p.add_argument("--confidence", choices=["low", "medium", "high"], required=True)
+    p.add_argument("--by", required=True)
+    p.add_argument("--market-neutral", default=None, help="why a shared lesson holds in any market")
+    p = msub.add_parser("decide", parents=[roots])
+    p.add_argument("--scope", choices=["nse", "us", "shared"], required=True)
+    p.add_argument("lesson")
+    p.add_argument("action", choices=["approve", "reject", "retire"])
+    p.add_argument("--by", required=True)
+    p.add_argument("--why", required=True)
     p = sub.add_parser("alpaca-smoke", parents=[broker])
     p.add_argument("--phase", choices=["quiet", "fill"], required=True)
     p.add_argument("--out", type=Path, default=None, help="default: <state>/markets/us/smoke")
@@ -102,6 +129,27 @@ def _run(args) -> int:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(text)
         print(text)
+    elif args.cmd == "memory":
+        from .memory import Memory, Mistake, show
+        from .trials import from_nse_ledger, from_us_state
+        m = Memory(args.state_root)
+        if args.mcmd == "update":
+            if args.market == "nse":
+                rows = from_nse_ledger(json.loads(args.nse_ledger.read_text())) if args.nse_ledger.exists() else []
+            else:
+                rows = from_us_state(args.state_root)
+            print(f"{args.market}: {m.update(args.market, rows)} new episode records from {len(rows)} booked months")
+        elif args.mcmd == "show":
+            print(show(m, args.market))
+        elif args.mcmd == "classify":
+            m.classify(args.episode, Mistake[args.mistake.upper()], args.evidence, args.by)
+            print(f"{args.episode}: {Mistake[args.mistake.upper()].value} recorded")
+        elif args.mcmd == "propose":
+            print(m.propose(args.scope, args.level, args.text, args.evidence, args.confidence, args.by,
+                            market_neutral=args.market_neutral))
+        else:
+            m.decide(args.scope, args.lesson, args.action, args.by, args.why)
+            print(f"{args.lesson}: {args.action}d by {args.by}")
     elif args.cmd == "alpaca-smoke":
         from datetime import UTC, datetime
 

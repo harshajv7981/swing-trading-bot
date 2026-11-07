@@ -63,8 +63,8 @@ jobs:
           case "$TASK" in
             replay)  swingbot-us-momentum replay --first 2025-10 --last 2026-09 ;;
             dry-run) swingbot-us-momentum book --dry-run ;;
-            book)    swingbot-us-momentum book ;;
-            report)  swingbot-us-momentum report ;;
+            book)    swingbot-us-momentum book && swingbot-markets memory update --market us ;;
+            report)  swingbot-us-momentum report && swingbot-markets memory show --market us ;;
             check)   swingbot-markets alpaca-check ;;
             smoke-quiet) swingbot-markets alpaca-smoke --phase quiet ;;
             smoke-fill)  swingbot-markets alpaca-smoke --phase fill ;;
