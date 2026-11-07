@@ -4,7 +4,7 @@ import pytest
 from test_dhan import Clock, FakeDhan
 
 from swingbot.broker import OrderRefused
-from swingbot.broker.dhan import DhanAPI, DhanConfig, RateLimit
+from swingbot.broker.dhan import DhanAPI, DhanConfig, DhanError, RateLimit
 from swingbot.broker.dhan_cli import main as dhan_main
 from swingbot.broker.momentum_dhan import MomentumConfig, MomentumDhan, check, plan
 from swingbot.risk import NSECalendar
@@ -196,3 +196,80 @@ def test_a_fill_far_from_its_limit_is_booked_but_halts(tmp_path):
     assert bot.halt_path.exists() and any("from its limit" in n for n in bot.notes)
     with pytest.raises(OrderRefused, match="halted"):
         bot.rebalance(ledger(NOV), "2026-12-01 11:00")
+
+
+class LossyDhan(FeedDhan):
+    """FeedDhan whose next order POST loses its reply, before or after Dhan took it; GET /orders is the day's book."""
+
+    def __init__(self, prices):
+        super().__init__(prices)
+        self.lose = None          # "before" | "after"
+        self.day_book = []
+
+    def __call__(self, method, url, headers, body):
+        if method == "POST" and url.endswith("/orders") and self.lose:
+            lose, self.lose = self.lose, None
+            if lose == "after":
+                status, raw = super().__call__(method, url, headers, body)
+                self.day_book.append({"orderId": json.loads(raw)["orderId"],
+                                      "correlationId": json.loads(body)["correlationId"]})
+            raise TimeoutError("read timed out")
+        if method == "GET" and url.endswith("/v2/orders"):
+            self.calls.append((method, "/orders", None))
+            return 200, json.dumps(self.day_book).encode()
+        return super().__call__(method, url, headers, body)
+
+
+def lossy(tmp_path):
+    bot, _ = make(tmp_path)
+    fake = LossyDhan(bot.api.transport.prices)
+    bot.api.transport = fake
+    return bot, fake
+
+
+def posts(fake):
+    return [b for m, p, b in fake.calls if (m, p) == ("POST", "/orders")]
+
+
+def test_a_lost_reply_after_dhan_took_the_order_is_adopted_not_sent_again(tmp_path):
+    bot, fake = lossy(tmp_path)
+    fake.lose = "after"
+    with pytest.raises(TimeoutError):
+        bot.rebalance(ledger(NOV), "2026-12-01 10:00", send=True)
+    assert bot.book["orders"][0]["status"] == "sending"               # saved before the send
+    bot.rebalance(ledger(NOV), "2026-12-01 10:05", send=True)
+    first = bot.book["orders"][0]
+    assert first["status"] != "sending" and first["dhan_id"] == "O1"
+    assert [b["securityId"] for b in posts(fake)].count(SCRIPS["S00"]) == 1   # S00 bought once
+    bot.sync("2026-12-01 10:06")
+    assert len(bot.book["holdings"]) == 20
+
+
+def test_a_lost_send_that_never_arrived_is_planned_again_the_same_day(tmp_path):
+    bot, fake = lossy(tmp_path)
+    fake.lose = "before"
+    with pytest.raises(TimeoutError):
+        bot.rebalance(ledger(NOV), "2026-12-01 10:00", send=True)
+    bot.rebalance(ledger(NOV), "2026-12-01 10:05", send=True)
+    assert bot.book["orders"][0]["status"] == "unsent"
+    bot.sync("2026-12-01 10:06")
+    assert len(bot.book["holdings"]) == 20 and not bot.halt_path.exists()
+
+
+def test_a_lost_send_from_an_earlier_day_halts_for_a_person(tmp_path):
+    bot, fake = lossy(tmp_path)
+    fake.lose = "before"
+    with pytest.raises(TimeoutError):
+        bot.rebalance(ledger(NOV), "2026-12-01 10:00", send=True)
+    with pytest.raises(OrderRefused, match="halted: .*no reply from Dhan"):
+        bot.rebalance(ledger(NOV), "2026-12-02 10:00", send=True)
+    assert bot.book["orders"][0]["status"] == "unknown"
+
+
+def test_an_answer_without_an_order_id_is_not_booked_as_open(tmp_path):
+    bot, fake = lossy(tmp_path)
+    inner = fake.__call__
+    bot.api.transport = lambda m, u, h, b: (200, b"{}") if m == "POST" and u.endswith("/orders") else inner(m, u, h, b)
+    with pytest.raises(DhanError, match="without an order id"):
+        bot.rebalance(ledger(NOV), "2026-12-01 10:00", send=True)
+    assert bot.book["orders"][0]["status"] == "sending" and bot.pending() == []
