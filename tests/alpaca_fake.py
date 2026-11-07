@@ -23,6 +23,8 @@ class FakeAlpaca:
         self.reject_next_post = False
         self.override_next: dict | None = None     # replace the next GET order body (malformed / stale tests)
         self.fill_qty_override = None
+        self.auto_fill = None                      # a price: market orders fill as soon as they arrive
+        self.allow_duplicates = False              # a broken Alpaca that accepts a reused client_order_id
 
     # --- transport ---------------------------------------------------------------
 
@@ -69,7 +71,8 @@ class FakeAlpaca:
         if self.reject_next_post:
             self.reject_next_post = False
             return 403, json.dumps({"code": 40310000, "message": "insufficient buying power"}).encode()
-        if any(o["client_order_id"] == p["client_order_id"] for o in self.orders.values()):
+        if not self.allow_duplicates and any(o["client_order_id"] == p["client_order_id"]
+                                             for o in self.orders.values()):
             return 422, json.dumps({"code": 40010001, "message": "client_order_id must be unique"}).encode()
         self.n += 1
         oid = f"a{self.n:04d}"
@@ -78,6 +81,8 @@ class FakeAlpaca:
                             "time_in_force": p["time_in_force"], "limit_price": p.get("limit_price"),
                             "stop_price": p.get("stop_price"), "status": "accepted", "filled_qty": "0",
                             "updated_at": "2026-11-02T15:00:00.123456789Z"}
+        if self.auto_fill and p["type"] == "market":
+            self.execute(p["client_order_id"], int(p["qty"]), self.auto_fill)
         if self.lose_next_post == "after":
             self.lose_next_post = None
             raise Unreachable("read timed out")
