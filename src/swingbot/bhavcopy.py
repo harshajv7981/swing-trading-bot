@@ -20,6 +20,7 @@ the git-ignored data/raw/, never in the repo or GitHub Actions.
 from __future__ import annotations
 
 import io
+import os
 import time
 import urllib.request
 import zipfile
@@ -86,6 +87,8 @@ def fetch(day: date, folder: Path = DEFAULT_DIR, pause: float = 3.0) -> Path:
     with urllib.request.urlopen(req, timeout=60) as resp:
         data = resp.read()
     zipfile.ZipFile(io.BytesIO(data)).testzip()   # refuses an error page saved as a zip
-    out.write_bytes(data)
+    tmp = out.with_name(out.name + ".tmp")   # written whole, then swapped in: a cut-off write must not leave a bad zip at `out`
+    tmp.write_bytes(data)
+    os.replace(tmp, out)
     time.sleep(pause)
     return out
