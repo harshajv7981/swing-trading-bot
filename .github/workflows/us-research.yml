@@ -1,0 +1,72 @@
+# Phase 1 US history study (docs/research/us-research-prereg.md). Research only: no orders.
+#
+# The price panel is Alpaca's data and the repo is public, so it is kept only
+# in the Actions cache (one panel per month-end). The report, the panel's
+# manifest (hash, dates, gaps) and the S&P 500 membership history go on the
+# us-trial-state branch under markets/us/research/.
+name: US history study (phase 1)
+
+on:
+  workflow_dispatch:
+    inputs:
+      rebuild:
+        description: "Fetch a new panel even if this month's is cached"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: us-momentum            # shares the state branch with the trial workflow
+  cancel-in-progress: false
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SWINGBOT_ALPACA_KEY_ID: ${{ secrets.SWINGBOT_ALPACA_KEY_ID }}
+      SWINGBOT_ALPACA_SECRET_KEY: ${{ secrets.SWINGBOT_ALPACA_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -e .
+      - id: month
+        name: Last month-end
+        run: echo "end=$(date -u -d "$(date -u +%Y-%m-01) -1 day" +%F)" >> "$GITHUB_OUTPUT"
+      - id: panel
+        uses: actions/cache/restore@v4
+        with:
+          path: data/raw/us_panel
+          key: us-panel-${{ steps.month.outputs.end }}
+      - name: Build the frozen panel
+        if: steps.panel.outputs.cache-hit != 'true' || inputs.rebuild
+        run: swingbot-us-research panel --end "${{ steps.month.outputs.end }}"
+      - if: steps.panel.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: data/raw/us_panel
+          key: us-panel-${{ steps.month.outputs.end }}
+      - name: Load the trial state branch
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch -q --depth=1 origin us-trial-state; then
+            git worktree add -q data/state FETCH_HEAD
+          else
+            git worktree add -q --orphan -b us-trial-state data/state
+          fi
+      - name: Run the study
+        run: |
+          set -o pipefail
+          swingbot-us-research study --out data/state/markets/us/research | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Save the report
+        run: |
+          cd data/state
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -q -m "us research study $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q origin HEAD:us-trial-state

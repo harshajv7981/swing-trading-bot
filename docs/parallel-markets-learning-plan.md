@@ -11,7 +11,7 @@ Written 2026-11-07.
 | 1. Freeze plan, US paper-trial preregistration | Plan committed. Preregistered in [research/us-momentum-prereg.md](research/us-momentum-prereg.md): S&P 500 12-1 momentum, top 20, monthly, $100,000 of paper money, judged against RSP, SPY and SPMO. Its code and replay check come next. |
 | 2. Market profiles and run namespaces | Built: `swingbot.markets` (profiles, `config/us_holidays.toml`, `RunSpace`, paper/shadow/live modes, global and per-market halt files). NSE behaviour unchanged. |
 | 3. Normalized contracts and conformance tests | Built: `OrderIntent`, `OrderStatus`, `OrderUpdate`, `Fill`, `Position`; `tests/test_adapter_conformance.py` runs against the in-memory reference adapter and Alpaca. |
-| 4. US historical research | Not started. Needs a frozen US data source. |
+| 4. US historical research | Built: `swingbot-us-research` (frozen Alpaca panel with hash and manifest, S&P 500 members rebuilt for each month-end, four fixed strategies against equal weight, SPY, RSP and SPMO, by year with costs, turnover and worst fall). Pre-registered in [research/us-research-prereg.md](research/us-research-prereg.md). Runs in GitHub Actions (`us-research.yml`). |
 | 5. Alpaca paper adapter behind a flag | Built and tested against a fake Alpaca only. Not run against the real paper account. No bracket orders, no cancel-replace, no regulatory-fee activities. |
 | 6-11 | Not started. They need forward paper data or approval. |
 
