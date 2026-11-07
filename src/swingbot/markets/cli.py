@@ -79,6 +79,29 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("action", choices=["approve", "reject", "retire"])
     p.add_argument("--by", required=True)
     p.add_argument("--why", required=True)
+    sk = sub.add_parser("skills", help="step 8: versioned skills per market, replay and approval gates")
+    ssub = sk.add_subparsers(dest="scmd", required=True)
+    p = ssub.add_parser("list", parents=[roots])
+    p.add_argument("--market", choices=["nse", "us"], required=True)
+    p = ssub.add_parser("propose", parents=[roots])
+    p.add_argument("--market", choices=["nse", "us"], required=True)
+    p.add_argument("--skill", required=True, help="e.g. us-momentum")
+    p.add_argument("--set", nargs="+", required=True, metavar="KEY=VALUE", help="e.g. lookback=6 trend_gate=true")
+    p.add_argument("--reason", required=True)
+    p.add_argument("--evidence", nargs="+", required=True)
+    p.add_argument("--owner", required=True)
+    p = ssub.add_parser("generate", parents=[roots])
+    p.add_argument("--market", choices=["us"], required=True)
+    p.add_argument("--study-dir", type=Path, default=None, help="default: <state>/markets/us/research")
+    p = ssub.add_parser("replay", parents=[roots])
+    p.add_argument("--market", choices=["nse", "us"], required=True)
+    p.add_argument("--panel", type=Path, default=Path("data/raw/us_panel"))
+    p = ssub.add_parser("decide", parents=[roots])
+    p.add_argument("--market", choices=["nse", "us"], required=True)
+    p.add_argument("skill", help="e.g. us-momentum@v2")
+    p.add_argument("action", choices=["shadow", "approve", "reject", "retire"])
+    p.add_argument("--by", required=True)
+    p.add_argument("--why", required=True)
     p = sub.add_parser("alpaca-smoke", parents=[broker])
     p.add_argument("--phase", choices=["quiet", "fill"], required=True)
     p.add_argument("--out", type=Path, default=None, help="default: <state>/markets/us/smoke")
@@ -148,6 +171,36 @@ def _run(args) -> int:
         else:
             m.decide(args.scope, args.lesson, args.action, args.by, args.why)
             print(f"{args.lesson}: {args.action}d by {args.by}")
+    elif args.cmd == "skills":
+        from .skills import Skills, show
+        sk = Skills(args.state_root)
+        if args.scmd == "list":
+            print(show(sk, args.market))
+        elif args.scmd == "propose":
+            params = {}
+            for kv in args.set:
+                k, _, v = kv.partition("=")
+                params[k] = {"true": True, "false": False}.get(v.lower(), float(v) if "." in v else
+                                                              (int(v) if v.lstrip("-").isdigit() else v))
+            print(sk.propose(args.market, args.skill, params, args.reason, args.evidence, args.owner))
+        elif args.scmd == "generate":
+            d = args.study_dir or args.state_root / "markets" / "us" / "research"
+            sha = json.loads((d / "panel-manifest.json").read_text())["sha256"][:16]
+            made = sk.generate_from_study("us", d / "study.json", sha)
+            print(f"{len(made)} new candidate(s): {', '.join(made) or 'none'}")
+        elif args.scmd == "replay":
+            from ..us_research import Membership, load_panel
+            daily, manifest = load_panel(args.panel)
+            members = Membership.from_json(json.loads((args.panel / "membership.json").read_text()))
+            sha = manifest["sha256"][:16]
+            for key, v in sk.all(args.market).items():
+                if v["status"] == "candidate" and not any(r["panel"] == sha for r in v["replays"]):
+                    r = sk.replay(args.market, key, daily, members, sha)
+                    print(f"{key}: {r['verdict']} {'; '.join(r['why'])}")
+            print(show(sk, args.market))
+        else:
+            sk.decide(args.market, args.skill, args.action, args.by, args.why)
+            print(f"{args.skill}: {args.action} by {args.by}")
     elif args.cmd == "alpaca-smoke":
         from datetime import UTC, datetime
 
