@@ -1,0 +1,76 @@
+# US large-cap momentum on Alpaca paper (docs/research/us-momentum-prereg.md).
+#
+# Needs two repository secrets: SWINGBOT_ALPACA_KEY_ID and SWINGBOT_ALPACA_SECRET_KEY
+# (paper keys). The trial's state (Alpaca book, monthly bookings, S&P 500
+# snapshots, replay) lives on the us-trial-state branch, because a runner
+# keeps nothing between runs. The repo is public, so that branch is too: it
+# holds paper picks and paper equity, never keys. The raw broker journal
+# (alpaca_raw.jsonl, which includes account details) is not kept here.
+#
+# Scheduled runs call `book`, which does nothing except on the last NYSE
+# session of a month (after the close) or before 09:25 ET the next morning.
+name: US momentum (Alpaca paper)
+
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"   # 16:30 EST / 17:30 EDT, after the close
+    - cron: "0 13 * * 1-5"    # 08:00 EST / 09:00 EDT, catch-up before the open
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "What to run"
+        type: choice
+        default: replay
+        options: [replay, dry-run, book, report, check]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: us-momentum
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SWINGBOT_ALPACA_KEY_ID: ${{ secrets.SWINGBOT_ALPACA_KEY_ID }}
+      SWINGBOT_ALPACA_SECRET_KEY: ${{ secrets.SWINGBOT_ALPACA_SECRET_KEY }}
+      TASK: ${{ github.event.inputs.task || 'book' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -e .
+      - name: Load the trial state branch
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch -q --depth=1 origin us-trial-state; then
+            git worktree add -q data/state FETCH_HEAD
+          else
+            git worktree add -q --orphan -b us-trial-state data/state
+          fi
+          printf 'markets/us/alpaca_raw.jsonl\n' > data/state/.gitignore
+      - name: Enable the Alpaca adapter on this runner only
+        run: sed -i 's/^enabled = false/enabled = true/' config/broker.toml
+      - name: Run ${{ env.TASK }}
+        run: |
+          set -o pipefail
+          case "$TASK" in
+            replay)  swingbot-us-momentum replay --first 2025-10 --last 2026-09 ;;
+            dry-run) swingbot-us-momentum book --dry-run ;;
+            book)    swingbot-us-momentum book ;;
+            report)  swingbot-us-momentum report ;;
+            check)   swingbot-markets alpaca-check ;;
+          esac | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Save the trial state
+        if: always()
+        run: |
+          cd data/state
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -q -m "us-m12 $TASK $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q origin HEAD:us-trial-state
