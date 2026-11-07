@@ -67,15 +67,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--evidence", required=True)
     p.add_argument("--by", required=True)
     p = msub.add_parser("propose", parents=[roots])
-    p.add_argument("--scope", choices=["nse", "us", "shared"], required=True)
-    p.add_argument("--level", choices=["market", "strategy", "shared"], required=True)
+    p.add_argument("--scope", choices=["nse", "us"], required=True)
+    p.add_argument("--level", choices=["market", "strategy"], required=True)
     p.add_argument("--text", required=True)
     p.add_argument("--evidence", nargs="*", default=[])
     p.add_argument("--confidence", choices=["low", "medium", "high"], required=True)
     p.add_argument("--by", required=True)
-    p.add_argument("--market-neutral", default=None, help="why a shared lesson holds in any market")
     p = msub.add_parser("decide", parents=[roots])
-    p.add_argument("--scope", choices=["nse", "us", "shared"], required=True)
+    p.add_argument("--scope", choices=["nse", "us"], required=True)
     p.add_argument("lesson")
     p.add_argument("action", choices=["approve", "reject", "retire"])
     p.add_argument("--by", required=True)
@@ -145,8 +144,7 @@ def _run(args) -> int:
             m.classify(args.episode, Mistake[args.mistake.upper()], args.evidence, args.by)
             print(f"{args.episode}: {Mistake[args.mistake.upper()].value} recorded")
         elif args.mcmd == "propose":
-            print(m.propose(args.scope, args.level, args.text, args.evidence, args.confidence, args.by,
-                            market_neutral=args.market_neutral))
+            print(m.propose(args.scope, args.level, args.text, args.evidence, args.confidence, args.by))
         else:
             m.decide(args.scope, args.lesson, args.action, args.by, args.why)
             print(f"{args.lesson}: {args.action}d by {args.by}")
