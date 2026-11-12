@@ -625,6 +625,36 @@ swingbot-agent-calls score --ticker INFY    # one stock's past calls
 
 The log is `runs/trading-agents/decisions.jsonl` (git-ignored).
 
+### The same calls through the API: `swingbot-agent-calls run`
+
+The skill's steps without Claude Code: the same `swingbot-data` reads and market
+mood, then one Claude Haiku 5.5 call per role, in TradingAgents' graph order,
+each role shown only what TradingAgents gives it. It writes the same decision
+file and records it itself, marked `engine: api` with its tokens and cost. It
+isn't used for the test yet: the prereg names the skill as the engine.
+
+```bash
+pip install -e '.[api]'                        # the anthropic package (`.[agents]` brings it too)
+echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env    # git-ignored; never export it in the shell (see above)
+swingbot-refresh --only prices news --tickers RELIANCE HDFCBANK ICICIBANK INFY TCS ITC LT BHARTIARTL SUNPHARMA MARUTI NIFTY50 NIFTYFMCG GOLDBEES USDINR INDIAVIX
+swingbot-agent-calls run                       # Friday after 16:00 IST: the ten, in the prereg's order
+swingbot-agent-calls run INFY                  # one stock, logged outside the watchlist schedule
+```
+
+* **Today only, once.** There is no date option. A stock that already has a
+  call today, from the skill or the API, is skipped and costs nothing. A stock
+  whose run failed has no call, so running again is not a second call.
+* **No prices, no call.** A stock with no price data is not sent to the model:
+  refresh the data and run again. Other gaps (news, filings, fundamentals,
+  social sentiment) are reported as gaps, as in the skill.
+* **An unreadable rating is REVIEW**, logged and not scored.
+* **A spend stop:** `--max-usd` (default $3), as for the mid-cap run. Twelve
+  model calls a stock; the cost has not been measured yet.
+* **Differences from the skill:** each role is its own model call, so the
+  debate is more independent than one model writing every role in one pass,
+  and the model is fixed (Haiku 5.5) instead of whatever the plan serves.
+  `score` prints how many calls each engine made once both exist.
+
 ## NSE and US side by side: `swingbot-markets` and the Alpaca paper adapter
 
 Phase 0 of [docs/parallel-markets-learning-plan.md](docs/parallel-markets-learning-plan.md),

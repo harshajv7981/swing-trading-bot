@@ -13,6 +13,8 @@ dependencies = ["pandas>=2.0", "numpy>=1.24"]
 [project.optional-dependencies]
 data = ["yfinance>=0.2"]
 dev = ["pytest>=8"]
+# The large-cap test's API run (`swingbot-agent-calls run`); needs ANTHROPIC_API_KEY. `agents` brings it too.
+api = ["anthropic"]
 # TradingAgents paper test (docs/research/tradingagents-paper-test.md); needs ANTHROPIC_API_KEY.
 agents = ["tradingagents @ git+https://github.com/TauricResearch/TradingAgents@v0.7.1"]
 
