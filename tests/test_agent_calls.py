@@ -96,3 +96,175 @@ def test_scoring_closes_leave_out_a_session_still_trading(monkeypatch):
     mid_session = pd.Timestamp("2026-11-06 11:00", tz=IST)
     assert list(router_closes("INFY", mid_session)) == [100.0, 101.0]
     assert list(router_closes("INFY", pd.Timestamp("2026-11-06 16:00", tz=IST))) == [100.0, 101.0, 102.0]
+
+
+# ---------------------------------------------------------------- the API run
+
+FRIDAY = pd.Timestamp("2026-11-13 16:30", tz=IST)
+
+
+class FakeRouter:
+    """Serves text per category and a flat price history; counts nothing as a gap except fundamentals."""
+
+    def text(self, category, ticker, as_of, **kw):
+        if category == "fundamentals":
+            return f"WITHHELD: fundamentals for {ticker} (test)"
+        return f"{category} of {ticker} to {as_of:%Y-%m-%d %H:%M}"
+
+    def fetch(self, category, ticker, as_of):
+        days = pd.bdate_range("2026-01-01", "2026-11-13")
+        bars = pd.DataFrame({c: 100.0 for c in ("open", "high", "low", "close")}, index=days)
+        return "fake", bars.assign(volume=1000)
+
+
+def fake_model(final="Rating: Overweight\nSolid.\nEntry: Rs. 1,450.50\nStop: ₹1,400\nRationale: trend and results agree."):
+    seen = []
+
+    def complete(system, user):
+        role = system.rsplit("Your role: ", 1)[1].split(".")[0]
+        seen.append((role, user))
+        text = {"Trader": "Action: Buy\nEntry 1450.50, stop 1400, 2 x ATR14.", "Portfolio Manager": final}
+        return text.get(role, f"{role} says so"), 1000, 200
+
+    return complete, seen
+
+
+def run_api(tmp_path, monkeypatch, tickers=("INFY",), **kw):
+    from swingbot import agent_calls, regime
+
+    monkeypatch.setattr(regime, "from_router", lambda router, as_of: type("M", (), {"text": lambda self: "Market mood: NEUTRAL"})())
+    lines = []
+    kw.setdefault("now", FRIDAY)
+    failed = agent_calls.run(tickers, tmp_path / "d.jsonl", router=FakeRouter(), log=lines.append, **kw)
+    return failed, lines, load(tmp_path / "d.jsonl")
+
+
+def test_api_run_plays_every_role_in_order_and_records(tmp_path, monkeypatch):
+    complete, seen = fake_model()
+    failed, lines, log = run_api(tmp_path, monkeypatch, complete=complete)
+    assert failed == 0 and [role for role, _ in seen] == [
+        "Market Analyst", "Sentiment Analyst", "News Analyst", "Fundamentals Analyst", "Bull Researcher",
+        "Bear Researcher", "Research Manager", "Trader", "Aggressive Risk Analyst",
+        "Conservative Risk Analyst", "Neutral Risk Analyst", "Portfolio Manager"]
+    d = log[0]
+    assert (d["ticker"], d["rating"], d["action"], d["entry"], d["stop"]) == ("INFY", "Overweight", "Buy", 1450.5, 1400.0)
+    assert d["rationale"] == "trend and results agree." and d["as_of"] == "2026-11-13 16:30"
+    assert (d["engine"], d["model"], d["llm_calls"], d["tokens_in"], d["tokens_out"]) == ("api", "claude-haiku-5-5", 12, 12000, 2400)
+    assert d["usd"] == pytest.approx(12 * (1000 * 0.10 + 200 * 0.50) / 1e6, abs=1e-4)
+    assert d["gaps"][0] == "Social sentiment: NOT_CONFIGURED" and d["gaps"][1].startswith("WITHHELD")
+    assert d["atr14"] == 0.0 and "Bear: Bear Researcher says so" in d["reports"]["debate"]
+    assert json.loads((tmp_path / "2026-11-13" / "INFY.json").read_text())["rating"] == "Overweight"
+
+
+def test_api_run_shows_each_role_only_what_tradingagents_gives_it(tmp_path, monkeypatch):
+    complete, seen = fake_model()
+    run_api(tmp_path, monkeypatch, complete=complete)
+    shown = dict(seen)
+    assert "technicals of INFY" in shown["Market Analyst"] and "news of INFY" not in shown["Market Analyst"]
+    assert "Market mood: NEUTRAL" in shown["News Analyst"] and "filings of INFY" in shown["News Analyst"]
+    # After the analysts, nobody sees raw data: only the reports and the debate so far.
+    for role in ("Bull Researcher", "Bear Researcher", "Research Manager", "Trader", "Neutral Risk Analyst"):
+        assert "technicals of INFY" not in shown[role] and "Market Analyst says so" in shown[role]
+    assert "Bull Researcher says so" in shown["Bear Researcher"] and "Bear Researcher" not in shown["Bull Researcher"]
+    pm = shown["Portfolio Manager"]
+    assert "Neutral Risk Analyst says so" in pm and "No earlier calls on this stock." in pm
+    assert "Market Analyst says so" not in pm
+
+
+def test_api_run_unreadable_rating_is_review_and_the_first_call_stands(tmp_path, monkeypatch):
+    complete, seen = fake_model(final="I can't decide between Hold and Sell.")
+    failed, lines, log = run_api(tmp_path, monkeypatch, complete=complete)
+    assert failed == 0 and log[0]["rating"] == "REVIEW" and log[0]["entry"] is None
+    again, seen2 = fake_model()
+    failed, lines, log = run_api(tmp_path, monkeypatch, complete=again)
+    assert "already has a call" in lines[-1] and seen2 == [] and len(log) == 1   # no second call, no spend
+
+
+def test_api_run_stops_at_the_spend_limit_and_survives_a_failed_stock(tmp_path, monkeypatch):
+    complete, _ = fake_model()
+
+    def flaky(system, user):
+        if "TCS" in system:
+            raise RuntimeError("overloaded")
+        return complete(system, user)
+
+    failed, lines, log = run_api(tmp_path, monkeypatch, tickers=("TCS", "infy.ns", "ITC"), complete=flaky,
+                                 max_usd=0.002)
+    assert [d["ticker"] for d in log] == ["INFY"] and failed == 2
+    assert "no call (RuntimeError: overloaded)" in lines[0] and "limit $0.00" in lines[-1]
+
+
+def test_api_run_needs_a_key_and_reads_it_from_dot_env(tmp_path, monkeypatch):
+    from swingbot import agent_calls
+
+    monkeypatch.delenv(agent_calls.KEY_ENV, raising=False)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match=agent_calls.KEY_ENV):
+        agent_calls.run(["INFY"], tmp_path / "d.jsonl", router=FakeRouter(), now=FRIDAY)
+    (tmp_path / ".env").write_text("OTHER=1\nexport ANTHROPIC_API_KEY='from-file'\n")
+    assert agent_calls.api_key() == "from-file"
+    monkeypatch.setenv(agent_calls.KEY_ENV, "from-env")
+    assert agent_calls.api_key() == "from-env"
+
+
+def test_anthropic_complete_keeps_the_text_and_drops_the_thinking(monkeypatch):
+    anthropic = pytest.importorskip("anthropic")
+    from types import SimpleNamespace as NS
+    from swingbot import agent_calls
+
+    sent = {}
+
+    class FakeClient:
+        def __init__(self, api_key):
+            sent["key"] = api_key
+            self.messages = self
+
+        def create(self, **kw):
+            sent.update(kw)
+            return NS(content=[NS(type="thinking", thinking="hmm"), NS(type="text", text="Rating: Hold")],
+                      usage=NS(input_tokens=11, output_tokens=7), stop_reason="max_tokens")
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeClient)
+    text, t_in, t_out = agent_calls.anthropic_complete("k")("sys", "user")
+    assert text == "Rating: Hold\n\n(cut off at the length limit)" and (t_in, t_out) == (11, 7)
+    assert sent["key"] == "k" and sent["model"] == "claude-haiku-5-5" and sent["system"] == "sys"
+    assert "temperature" not in sent and sent["messages"] == [{"role": "user", "content": "user"}]
+
+
+def test_watchlist_is_the_preregistered_ten():
+    from swingbot.agent_calls import WATCHLIST
+
+    assert WATCHLIST == ("RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "ITC", "LT", "BHARTIARTL",
+                         "SUNPHARMA", "MARUTI")
+
+
+def test_api_run_makes_no_call_without_prices(tmp_path, monkeypatch):
+    class NoPrices(FakeRouter):
+        def text(self, category, ticker, as_of, **kw):
+            if category == "technicals":
+                return f"NO_DATA: no technicals for {ticker}"
+            return super().text(category, ticker, as_of, **kw)
+
+    from swingbot import agent_calls, regime
+
+    monkeypatch.setattr(regime, "from_router", lambda router, as_of: type("M", (), {"text": lambda self: "mood"})())
+    complete, seen = fake_model()
+    lines = []
+    failed = agent_calls.run(["INFY"], tmp_path / "d.jsonl", router=NoPrices(), complete=complete,
+                             now=FRIDAY, log=lines.append)
+    assert failed == 1 and seen == [] and load(tmp_path / "d.jsonl") == []     # nothing spent, nothing logged
+    assert "no prices to decide from" in lines[-1]
+
+
+def test_api_run_counts_what_a_failed_stock_spent(tmp_path, monkeypatch):
+    complete, _ = fake_model()
+
+    def fails_at_the_end(system, user):
+        if "Portfolio Manager" in system:
+            raise RuntimeError("overloaded")
+        return complete(system, user)
+
+    # 11 paid roles on TCS (about $0.0022) pass the limit, so INFY is not started.
+    failed, lines, log = run_api(tmp_path, monkeypatch, tickers=("TCS", "INFY"), complete=fails_at_the_end,
+                                 max_usd=0.002)
+    assert failed == 2 and log == [] and "not run" in lines[-1]
