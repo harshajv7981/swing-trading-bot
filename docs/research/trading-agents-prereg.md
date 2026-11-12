@@ -1,5 +1,31 @@
 # TradingAgents as a Claude Code skill: forward paper test, fixed before the first call
 
+**Change on 2026-11-13, before any call was scored:** the calls move from the
+`trading-agents` skill to the Anthropic API (`swingbot-agent-calls run`,
+`claude-haiku-5-5`), and the test restarts on that engine. The first scored
+call is the first Friday the API makes, planned for Friday 2026-11-20.
+
+- **The pass bar counts API calls only.** The 10 skill calls from 6 Nov stay in the
+  log as a separate record; `swingbot-agent-calls score` lists them apart, and they
+  are not counted towards the 200 settled calls or the three conditions below.
+  Nothing had settled when this was written: their 5-session windows had not finished.
+- **Judgement rule unchanged:** the first Friday on or after 31 May 2027, or after
+  200 settled directional API calls, whichever comes first. The watchlist, rating
+  scale, score and cost are unchanged.
+- **The runner enforces the schedule.** It refuses a day other than Friday unless
+  run with `--any-day` (the week's last session when Friday is a market holiday),
+  and skips a stock whose last call is under 5 days old, so two calls' windows
+  can't overlap. A cost check is therefore made on the first Friday itself, with
+  the first stock or two, never on another day.
+- **A missed call is a missed call.** A stock the spend limit (`--max-usd`, 3.0
+  a run) or missing prices leaves without a call that Friday counts against
+  condition 2, not as a Hold.
+- **Known differences below:** the first bullet no longer applies to the API
+  engine, which makes each role its own request (12 per stock). The stock's memory
+  is its settled calls from either engine.
+
+The text below is the plan as first written for the skill.
+
 Written 2026-11-05, before any call is logged. Harsha has no API budget, so
 TradingAgents' agents are played by Claude Code inside his Claude plan (the
 `trading-agents` skill), with this repo's data tools in place of its own. This

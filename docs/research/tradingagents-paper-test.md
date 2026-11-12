@@ -1,5 +1,31 @@
 # TradingAgents paper test: rules fixed before the first run
 
+**Change on 2026-11-13, before any call was scored:** the decisions move from the
+`tradingagents-weekly` skill to the real TradingAgents graph on the Anthropic API
+(`swingbot-agents run`, `claude-haiku-5-5`), and the test restarts on that engine.
+The first scored call is the first Friday the API makes, planned for Friday
+2026-11-20. What changes and what does not:
+
+- **The pass bar counts API weeks only.** The 13 scored weeks run from that first
+  API Friday, so the judgement falls around late February 2027, not early
+  February. If the first API Friday slips, the judgement moves with it; the rule
+  is 13 scored weeks of API calls.
+- **The 6 Nov skill week stays in the log as a separate record.** Its 20 calls
+  (`claude-opus-5-5`) are scored on their own, reported in
+  `runs/agents-trial/report-skill.md`, and are not part of the pass bar or the
+  book. Nothing had settled when this was written: their 5-session windows had not
+  finished.
+- **Unchanged:** the 20 stocks, the rating scale, the hold window, the 0.20% a
+  side cost, the comparisons, the pass bar and the 7-day spacing.
+- **Cost is now API spend**, held by `--max-usd` (3.0 a run); about $4 to $5 a
+  month for both tests was estimated and has not been measured. The "Cost"
+  section below is superseded. `swingbot-agents cost` reports what was spent.
+- A stock the spend limit or a data gap leaves without a decision that Friday is
+  a missed call, not a Hold.
+
+The sections below describe the skill engine as first written; they still apply
+to the 6 Nov week.
+
 **Change on 2026-11-04, before any decision was made:** Harsha has no budget
 for an API key, so the decisions are made inside Claude Code on his plan by the
 `tradingagents-weekly` skill, not by the TradingAgents graph on the Haiku API.
@@ -86,6 +112,7 @@ since 13 weeks is a short sample.
 
 ## Cost
 
+*Superseded on 2026-11-13: the test now runs on the API, see the change note at the top.*
 No API spend: the skill runs on Harsha's Claude plan and uses its usage
 allowance. If a weekly run of 20 stocks uses too much of the plan, the fix is
 shorter notes per role, not fewer stocks, so the sample stays as drawn.

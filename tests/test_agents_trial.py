@@ -1,3 +1,4 @@
+import json
 from datetime import date
 
 import pandas as pd
@@ -232,3 +233,29 @@ def test_run_stops_at_the_spend_limit_and_refuses_without_a_key(tmp_path, monkey
     errors = at.run(day, ["NHPC", "NMDC", "SRF"], path=log, log=lines.append, max_usd=1.0, today=day)
     assert [d["symbol"] for d in at.read_decisions(log)] == ["NHPC", "NMDC"]
     assert errors == 1 and "limit $1.00" in lines[-1]
+
+
+def test_score_counts_the_api_weeks_only_and_keeps_the_skill_weeks_apart(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    rows = [{"date": "2026-11-06", "symbol": "SRF", "rating": "Buy", "engine": "skill"},
+            {"date": "2026-11-20", "symbol": "SRF", "rating": "Sell", "engine": "api", "model": "claude-haiku-5-5"},
+            {"date": "2026-11-20", "symbol": "NHPC", "rating": "Hold"}]   # no engine field: the API's, as before
+    api, skill = at.split_engines(rows)
+    assert [d["symbol"] for d in api] == ["SRF", "NHPC"] and [d["date"] for d in skill] == ["2026-11-06"]
+
+    seen = []
+    monkeypatch.setattr(at, "score", lambda decisions, data: seen.append([d["date"] for d in decisions]) or {"weeks": [], "calls": []})
+    log = tmp_path / "data/state/agents_trial/decisions.jsonl"
+    log.parent.mkdir(parents=True)
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    assert at.main(["score", "--data", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert seen == [["2026-11-20", "2026-11-20"], ["2026-11-06"]]
+    assert "counts the API engine's weeks only, from 2026-11-20" in out
+    assert "skill weeks (separate record, not part of the pass bar)" in out
+    assert (tmp_path / "runs/agents-trial/report.md").exists() and (tmp_path / "runs/agents-trial/report-skill.md").exists()
+
+
+def test_report_before_any_api_week_says_the_test_has_not_started():
+    text = at.report({"weeks": [], "calls": []}, [])
+    assert "which have not started" in text and "Engines: none yet" in text

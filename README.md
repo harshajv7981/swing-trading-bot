@@ -570,21 +570,21 @@ NSE-derived, so keep it, the ledger and the report off GitHub Actions.
 ## TradingAgents paper test: `swingbot-agents`
 
 A weekly forward test of [TradingAgents](https://github.com/TauricResearch/TradingAgents)
-on 20 fixed mid caps. Paper only, no orders, no API key: Claude Code plays
-TradingAgents' roles through the `tradingagents-weekly` skill on your Claude plan.
+on 20 fixed mid caps. Paper only, no orders. From Friday 20 Nov 2026 the decisions
+come from the full TradingAgents graph through the Anthropic API, on Claude Haiku 5.5
+(`swingbot-agents run`, estimated at $4–5 a month for both tests; not measured yet).
+The first week (6 Nov) was played by Claude Code through the `tradingagents-weekly`
+skill on the Claude plan; `score` keeps it as a separate record and the pass bar
+counts API weeks only.
 Rules and pass bar: [docs/research/tradingagents-paper-test.md](docs/research/tradingagents-paper-test.md).
 
 ```bash
-pip install -e '.[agents]'                         # TradingAgents' data tools (no model calls)
-# Friday after 15:30 IST, in Claude Code in this folder:
-#   "run this week's tradingagents decisions"  -> the skill runs brief, plays the roles, records 20 ratings
+pip install -e '.[agents]'                         # TradingAgents and its data tools
 swingbot-agents pending                            # stocks still to decide
-swingbot-agents score --data data/raw/eod2_data/daily
+swingbot-agents score --data data/raw/eod2_data/daily   # the API test; skill weeks in report-skill.md
 ```
 
-`swingbot-agents run` is the same test on the full TradingAgents graph through
-the Anthropic API, on Claude Haiku 5.5 (estimated at $4–5 a month; not measured
-yet). It isn't used for now. To use it:
+To run it:
 
 ```bash
 echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env    # git-ignored; read when the run starts
@@ -596,6 +596,9 @@ swingbot-agents cost
 * **Keep the key in `.env`, not in the shell.** With `ANTHROPIC_API_KEY`
   exported, `claude -p` (which `weekly.sh` uses for the skills) bills that key
   instead of the Claude plan.
+* **The skill still works** as an alternative engine (ask Claude Code to "run this
+  week's tradingagents decisions": it runs `brief`, plays the roles and records 20
+  ratings), but its weeks are not part of the API test.
 * **The same rules as the skill.** `run` refuses a date more than 3 days old,
   a future date, and a date under 7 days after the last decisions. A stock that
   failed is tried again on the next run; one with a rating is never rerun.
@@ -609,18 +612,20 @@ swingbot-agents cost
 
 [TradingAgents](https://github.com/TauricResearch/TradingAgents)' roles (four
 analysts, Bull/Bear debate, Research Manager, Trader, three risk analysts,
-Portfolio Manager) played by Claude Code with `swingbot-data`, so a call costs
-no API money: ask Claude Code to "run trading agents on INFY" or "run the
-watchlist" and the `trading-agents` skill (`.claude/skills/trading-agents/`)
-does the rest. It runs next to the mid-cap test above, on Fridays, by Harsha's choice (2026-11-04). It is a forward paper test, fixed in
+Portfolio Manager), played with `swingbot-data`. It runs next to the mid-cap test
+above, on Fridays. It is a forward paper test, fixed in
 [docs/research/trading-agents-prereg.md](docs/research/trading-agents-prereg.md):
 ten Nifty 50 stocks every Friday after the close, scored on the next 5
-sessions against the Nifty 50. No orders.
+sessions against the Nifty 50. No orders. From Friday 20 Nov 2026 the calls
+come from the Anthropic API (next section); the 6 Nov calls, which Claude Code
+made through the `trading-agents` skill (`.claude/skills/trading-agents/`: ask it
+to "run trading agents on INFY" or "run the watchlist"), are kept as a separate
+record and are not part of the pass bar.
 
 ```bash
 swingbot-agent-calls record runs/trading-agents/2026-11-06/INFY.json   # the skill does this; refuses past dates
-swingbot-agent-calls score                  # every call, settled or pending, and the summary
-swingbot-agent-calls score --ticker INFY    # one stock's past calls
+swingbot-agent-calls score                  # the API test first, then the skill calls apart
+swingbot-agent-calls score --ticker INFY    # one stock's past calls, both engines
 ```
 
 The log is `runs/trading-agents/decisions.jsonl` (git-ignored).
@@ -630,20 +635,24 @@ The log is `runs/trading-agents/decisions.jsonl` (git-ignored).
 The skill's steps without Claude Code: the same `swingbot-data` reads and market
 mood, then one Claude Haiku 5.5 call per role, in TradingAgents' graph order,
 each role shown only what TradingAgents gives it. It writes the same decision
-file and records it itself, marked `engine: api` with its tokens and cost. It
-isn't used for the test yet: the prereg names the skill as the engine.
+file and records it itself, marked `engine: api` with its tokens and cost. This
+is the test's engine from 20 Nov 2026 (see the change note in the prereg).
 
 ```bash
 pip install -e '.[api]'                        # the anthropic package (`.[agents]` brings it too)
 echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env    # git-ignored; never export it in the shell (see above)
 swingbot-refresh --only prices news --tickers RELIANCE HDFCBANK ICICIBANK INFY TCS ITC LT BHARTIARTL SUNPHARMA MARUTI NIFTY50 NIFTYFMCG GOLDBEES USDINR INDIAVIX
 swingbot-agent-calls run                       # Friday after 16:00 IST: the ten, in the prereg's order
-swingbot-agent-calls run INFY                  # one stock, logged outside the watchlist schedule
+swingbot-agent-calls run INFY                  # one stock (a Friday, like the rest)
 ```
 
-* **Today only, once.** There is no date option. A stock that already has a
-  call today, from the skill or the API, is skipped and costs nothing. A stock
-  whose run failed has no call, so running again is not a second call.
+* **Fridays, today only, once.** There is no date option, and another weekday is
+  refused unless you pass `--any-day` (the week's last session when Friday is a
+  market holiday). A stock that already has a call today, from the skill or the
+  API, is skipped and costs nothing, and so is a stock called in the last 5 days,
+  so two calls' windows can't overlap. A stock whose run failed has no call, so
+  running again is not a second call. Make the first cost check on that Friday
+  itself (`swingbot-agent-calls run RELIANCE`, then `run` for the rest).
 * **No prices, no call.** A stock with no price data is not sent to the model:
   refresh the data and run again. Other gaps (news, filings, fundamentals,
   social sentiment) are reported as gaps, as in the skill.
@@ -653,7 +662,7 @@ swingbot-agent-calls run INFY                  # one stock, logged outside the w
 * **Differences from the skill:** each role is its own model call, so the
   debate is more independent than one model writing every role in one pass,
   and the model is fixed (Haiku 5.5) instead of whatever the plan serves.
-  `score` prints how many calls each engine made once both exist.
+  `score` counts the API's calls as the test and lists the skill's apart.
 
 ## NSE and US side by side: `swingbot-markets` and the Alpaca paper adapter
 
