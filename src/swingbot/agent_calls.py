@@ -1,6 +1,8 @@
 """The large-cap TradingAgents test: its decision log, its forward score, and the API run.
 
-Two ways to make a call, both with this repo's data tools and TradingAgents' roles:
+Two ways to make a call, both with this repo's data tools and TradingAgents' roles.
+The test's engine is the API from 2026-11-20; the skill's earlier calls stay in the
+log, and `score` lists them apart from the test (they are not in the pass bar).
 
 * Skill (no API key): the `trading-agents` skill (`.claude/skills/trading-agents/`)
   plays the roles inside Claude Code and hands the finished decision to `record`.
@@ -16,9 +18,9 @@ after the decision day, over 5 sessions, against the Nifty 50. The plan is
 fixed in docs/research/trading-agents-prereg.md.
 
     swingbot-agent-calls record runs/trading-agents/today/INFY.json
-    swingbot-agent-calls run                    # the watchlist, today, through the API
+    swingbot-agent-calls run                    # the watchlist, today (a Friday), through the API
     swingbot-agent-calls run INFY               # one stock (logged beside the test's calls)
-    swingbot-agent-calls score                  # every call, settled or pending, and the summary
+    swingbot-agent-calls score                  # the API test first, then the skill calls apart
     swingbot-agent-calls score --ticker INFY    # one stock's past calls (the Portfolio Manager's memory)
 """
 
@@ -40,6 +42,8 @@ from .models import IST
 
 LOG = Path("runs/trading-agents/decisions.jsonl")
 HOLD_DAYS = 5
+FRIDAY = 4
+MIN_GAP_DAYS = 5   # a Friday call, then a holiday-week Thursday one, is 6 days; anything closer overlaps
 BENCHMARK = "NIFTY50"
 # TradingAgents' 5-tier scale, most bullish first. REVIEW is a run whose rating
 # could not be read: logged, never scored as a Hold.
@@ -58,6 +62,11 @@ def load(path: Path = LOG) -> list[dict]:
 
 def _day(as_of: str) -> pd.Timestamp:
     return pd.Timestamp(as_of[:10])
+
+
+def engine_of(d: dict) -> str:
+    """Which engine made a call; rows from before the API run have no field and are skill calls."""
+    return d.get("engine", "skill")
 
 
 def record(decision: dict, path: Path = LOG, now: pd.Timestamp | None = None) -> dict:
@@ -332,14 +341,24 @@ def decide(ticker: str, as_of: pd.Timestamp, pack: dict[str, str], complete: Com
 
 
 def run(tickers, path: Path = LOG, *, complete: Complete | None = None, router=None,
-        now: pd.Timestamp | None = None, max_usd: float = MAX_USD, log=print) -> int:
-    """Today's call for each ticker through the API. Returns how many did not get one."""
+        now: pd.Timestamp | None = None, max_usd: float = MAX_USD, any_day: bool = False,
+        log=print) -> int:
+    """Today's call for each ticker through the API. Returns how many did not get one.
+
+    The test is run on Fridays, so another day is refused unless `any_day` (a week whose Friday is a
+    market holiday), and a stock whose last call is under MIN_GAP_DAYS old is skipped, so two calls'
+    5-session windows can't overlap.
+    """
     from . import regime, technicals
     from .data import Router
 
     now = (now or pd.Timestamp.now(tz=IST)).tz_convert(IST)
     today = f"{now:%Y-%m-%d}"
     tickers = [t.upper().removesuffix(".NS") for t in tickers]
+    if now.weekday() != FRIDAY and not any_day:
+        log(f"no calls: today is {now:%A}. The test is run on Fridays after 16:00 IST; in a week whose "
+            "Friday is a market holiday, run the week's last session with --any-day.")
+        return len(tickers)
     if complete is None:
         key = api_key()
         if not key:
@@ -359,6 +378,11 @@ def run(tickers, path: Path = LOG, *, complete: Complete | None = None, router=N
         decisions = load(path)
         if any(d["ticker"] == t and d["as_of"][:10] == today for d in decisions):
             log(f"{t}: already has a call for {today}, skipped")
+            continue
+        last = max((_day(d["as_of"]) for d in decisions if d["ticker"] == t), default=None)
+        if last is not None and (pd.Timestamp(today) - last).days < MIN_GAP_DAYS:
+            log(f"{t}: last call was {last:%Y-%m-%d}, under {MIN_GAP_DAYS} days ago; skipped so the "
+                "5-session windows don't overlap")
             continue
         if spent >= max_usd:
             log(f"{t}: not run, this run has spent ${spent:.2f} (limit ${max_usd:.2f}); run again to "
@@ -426,12 +450,15 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("tickers", nargs="*", help="NSE symbols; none means the test's watchlist, in its order")
     u.add_argument("--max-usd", type=float, default=MAX_USD,
                    help=f"stop before the next stock once the run has spent this much (default {MAX_USD})")
+    u.add_argument("--any-day", action="store_true",
+                   help="allow a day other than Friday (the week's last session when Friday is a holiday)")
     args = ap.parse_args(argv)
 
     if args.cmd == "run":
         if args.tickers:
             print("note: these are logged beside the test's calls, outside the watchlist schedule")
-        return 1 if run(args.tickers or WATCHLIST, args.log, max_usd=args.max_usd) else 0
+        return 1 if run(args.tickers or WATCHLIST, args.log, max_usd=args.max_usd,
+                        any_day=args.any_day) else 0
 
     if args.cmd == "record":
         try:
@@ -446,6 +473,21 @@ def main(argv: list[str] | None = None) -> int:
     if not decisions:
         print(f"no calls{' for ' + args.ticker.upper() if args.ticker else ''} in {args.log} yet")
         return 0
+    if args.ticker:   # one stock's history, whichever engine made each call (the Portfolio Manager's memory)
+        _print_scored(decisions)
+        return 0
+    # The pre-registered test counts the API's calls only; the skill's earlier weeks stay as a record.
+    api = [d for d in decisions if engine_of(d) == "api"]
+    other = [d for d in decisions if engine_of(d) != "api"]
+    print("The test (API calls, the pass bar counts these):")
+    _print_scored(api) if api else print("  none yet")
+    if other:
+        print("\nEarlier skill calls (a separate record, not part of the pass bar):")
+        _print_scored(other)
+    return 0
+
+
+def _print_scored(decisions: list[dict]) -> None:
     rows, sm = score(decisions, router_closes)
     for x in rows:
         print(_line(x))
@@ -454,10 +496,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{sm['calls']} calls: {sm['settled']} settled, {sm['pending']} pending, {sm['review']} unreadable "
           f"(REVIEW). Directional and settled: {sm['directional']}; hit rate {hit}; mean alpha in the "
           f"call's direction {_pct(sm['mean_signed_alpha'])}, t {t}")
-    engines = [d.get("engine", "skill") for d in decisions]
+    engines = [engine_of(d) for d in decisions]
     if "api" in engines:
         print("Engines: " + ", ".join(f"{e} {engines.count(e)}" for e in sorted(set(engines))))
-    return 0
 
 
 if __name__ == "__main__":

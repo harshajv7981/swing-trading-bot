@@ -268,3 +268,47 @@ def test_api_run_counts_what_a_failed_stock_spent(tmp_path, monkeypatch):
     failed, lines, log = run_api(tmp_path, monkeypatch, tickers=("TCS", "INFY"), complete=fails_at_the_end,
                                  max_usd=0.002)
     assert failed == 2 and log == [] and "not run" in lines[-1]
+
+
+def test_api_run_is_for_fridays_unless_told_otherwise(tmp_path, monkeypatch):
+    monday = pd.Timestamp("2026-11-16 16:30", tz=IST)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)   # no .env here, so reaching the key check would exit
+    failed, lines, log = run_api(tmp_path, monkeypatch, tickers=("INFY", "TCS"), now=monday)
+    assert failed == 2 and log == [] and "today is Monday" in lines[0] and "--any-day" in lines[0]
+    complete, _ = fake_model()
+    failed, _, log = run_api(tmp_path, monkeypatch, now=monday, any_day=True, complete=complete)
+    assert failed == 0 and [d["ticker"] for d in log] == ["INFY"]
+
+
+def test_api_run_skips_a_stock_called_in_the_last_five_days(tmp_path, monkeypatch):
+    log = tmp_path / "d.jsonl"
+    log.write_text(json.dumps(call(as_of="2026-11-10 16:30")) + "\n" +
+                   json.dumps(call(ticker="TCS", as_of="2026-11-06 16:30")) + "\n")   # 3 days, 7 days before
+    complete, seen = fake_model()
+    failed, lines, rows = run_api(tmp_path, monkeypatch, tickers=("INFY", "TCS"), complete=complete)
+    assert failed == 0 and [d["ticker"] for d in rows if d["as_of"].startswith("2026-11-13")] == ["TCS"]
+    assert "INFY: last call was 2026-11-10" in lines[0] and len(seen) == 12
+
+
+def test_score_keeps_the_api_test_apart_from_skill_calls(tmp_path, monkeypatch, capsys):
+    from swingbot import agent_calls
+
+    flat = [100] * 9
+    prices = {"NIFTY50": closes([50] * 10), "INFY": closes(flat + [105]), "TCS": closes(flat + [98])}
+    monkeypatch.setattr(agent_calls, "router_closes", lambda t: prices[t])
+    log = tmp_path / "d.jsonl"
+    rows = [call(), {**call(ticker="TCS", rating="Underweight"), "engine": "api"}]
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    assert main(["--log", str(log), "score"]) == 0
+    out = capsys.readouterr().out
+    test, skill = out.split("Earlier skill calls")
+    assert "TCS" in test and "INFY" not in test and "1 calls: 1 settled" in test
+    assert "INFY" in skill and "TCS" not in skill
+    # One stock's history stays whole, whichever engine made each call (the Portfolio Manager's memory).
+    assert main(["--log", str(log), "score", "--ticker", "INFY"]) == 0
+    assert "Earlier skill calls" not in capsys.readouterr().out
+    # No API call yet: the test says so instead of borrowing the skill's.
+    log.write_text(json.dumps(call()) + "\n")
+    main(["--log", str(log), "score"])
+    assert "none yet" in capsys.readouterr().out.split("Earlier skill calls")[0]

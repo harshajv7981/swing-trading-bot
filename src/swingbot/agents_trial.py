@@ -3,9 +3,11 @@
 Runs TauricResearch/TradingAgents on 20 fixed mid-cap stocks once a week and
 scores its ratings on paper. Nothing here places an order.
 
-Two ways to make the weekly decisions:
+Two ways to make the weekly decisions. The test's engine is the API from
+2026-11-20; the skill made the first week (6 Nov), which `score` keeps as a
+separate record, outside the pass bar.
 
-* Skill (no API key, Harsha's default): Claude Code plays TradingAgents' roles
+* Skill (no API key): Claude Code plays TradingAgents' roles
   using the `tradingagents-weekly` skill (.claude/skills/tradingagents-weekly).
 
       swingbot-agents brief [--date YYYY-MM-DD] [--data data/raw/eod2_data/daily]
@@ -17,7 +19,7 @@ Two ways to make the weekly decisions:
   writes the analyst, debate, trader, risk and portfolio-manager notes, and
   `record` logs the rating.
 
-* API (needs ANTHROPIC_API_KEY): the full TradingAgents graph on Haiku.
+* API (needs ANTHROPIC_API_KEY): the full TradingAgents graph on Haiku. The test's engine.
 
       swingbot-agents run [--date YYYY-MM-DD] [--limit N] [--max-usd 3]
 
@@ -35,7 +37,8 @@ Either way:
 log. A stock already decided for that date is skipped, so an interrupted run
 continues where it stopped. Every LLM call's tokens are counted and priced.
 
-`score` holds each Buy or Overweight call from the first close after the
+`score` counts the API's weeks as the test and reports the skill's apart
+(runs/agents-trial/report-skill.md). It holds each Buy or Overweight call from the first close after the
 decision date to the fifth close after that, the rule TradingAgents' own
 backtest uses. The paper book puts equal money in every such call each week
 and pays 0.20% a side; the comparison is the same 20 stocks held in equal
@@ -62,12 +65,12 @@ STATE = Path("data/state/agents_trial")
 DECISIONS = STATE / "decisions.jsonl"
 RUNS = Path("runs/agents-trial")
 REPORT = RUNS / "report.md"
+REPORT_SKILL = RUNS / "report-skill.md"
 
 # Fixed before the first run: random.Random(20261102).sample(sorted midcap150 symbols), 20.
 STOCKS = ["ASTERDM", "AUBANK", "BAJAJHFL", "CRISIL", "FEDERALBNK", "GODFRYPHLP", "GODREJPROP",
           "GVT&D", "LICHSGFIN", "MFSL", "NH", "NHPC", "NMDC", "PATANJALI", "PIRAMALFIN", "SRF",
           "SWIGGY", "UNOMINDA", "WAAREEENER", "YESBANK"]
-START = "2026-11-06"  # first Friday decided
 MODEL = "claude-haiku-5-5"
 # USD per million tokens: (input, output) up to the cut, (input, output) above it, cut in prompt tokens.
 PRICE = {"claude-haiku-5-5": ((0.10, 0.50), (0.50, 2.50), 100_000)}
@@ -409,6 +412,16 @@ def record(day: date, symbol: str, rating: str, summary: str = "", engine: str =
 # ---------------------------------------------------------------- score
 
 
+def engine_of(d: dict) -> str:
+    return d.get("engine", "api")
+
+
+def split_engines(decisions: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(the test's API decisions, the skill weeks kept as a separate record)."""
+    return ([d for d in decisions if engine_of(d) == "api"],
+            [d for d in decisions if engine_of(d) != "api"])
+
+
 def closes(data: Path, symbol: str) -> pd.Series | None:
     p = data / f"{symbol.lower()}.csv"
     if not p.exists():
@@ -480,12 +493,20 @@ def compound(xs) -> float:
     return v - 1
 
 
-def report(result: dict, decisions: list[dict]) -> str:
+def report(result: dict, decisions: list[dict], skill_record: bool = False) -> str:
     weeks, calls = result["weeks"], result["calls"]
-    lines = ["# TradingAgents paper test", "",
-             f"Rules: docs/research/tradingagents-paper-test.md. 20 fixed mid-caps, weekly from {START}. "
-             "Engines: " + (", ".join(sorted({f"{d.get('engine', 'api')} ({d.get('model') or '?'})"
-                                             for d in decisions})) or "none yet") + ".", ""]
+    first = min((d["date"] for d in decisions), default=None)
+    if skill_record:
+        lines = ["# TradingAgents paper test: skill weeks (separate record, not part of the pass bar)", "",
+                 f"The weeks decided by Claude Code playing the roles, from {first}, before the test moved to "
+                 "the API. Rules: docs/research/tradingagents-paper-test.md.", ""]
+    else:
+        lines = ["# TradingAgents paper test", "",
+                 "Rules: docs/research/tradingagents-paper-test.md. 20 fixed mid-caps, weekly. The pass bar "
+                 "counts the API engine's weeks only"
+                 + (f", from {first}" if first else ", which have not started") + ". Engines: "
+                 + (", ".join(sorted({f"{engine_of(d)} ({d.get('model') or '?'})" for d in decisions}))
+                    or "none yet") + ".", ""]
     usd = sum(d.get("usd", 0) for d in decisions)
     lines += [f"Decisions logged: {len(decisions)} ({sum(1 for d in decisions if not d.get('rating'))} failed). "
               f"Model cost so far: ${usd:.2f}.", ""]
@@ -597,9 +618,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"recorded {row['symbol']} {row['date']}: {row['rating']}")
         return 0
     if args.cmd == "score":
-        text = report(score(decisions, args.data), decisions)
+        api, skill = split_engines(decisions)
+        text = report(score(api, args.data), api)
         RUNS.mkdir(parents=True, exist_ok=True)
         REPORT.write_text(text)
+        if skill:
+            skill_text = report(score(skill, args.data), skill, skill_record=True)
+            REPORT_SKILL.write_text(skill_text)
+            text += "\n" + skill_text
         print(text)
         return 0
     print(cost_summary(decisions))
