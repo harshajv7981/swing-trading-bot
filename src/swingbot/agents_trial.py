@@ -19,7 +19,11 @@ Two ways to make the weekly decisions:
 
 * API (needs ANTHROPIC_API_KEY): the full TradingAgents graph on Haiku.
 
-      swingbot-agents run [--date YYYY-MM-DD] [--limit N]
+      swingbot-agents run [--date YYYY-MM-DD] [--limit N] [--max-usd 3]
+
+  The key goes in a .env file in this folder. `run` follows the skill's date
+  rules (not over 3 days old, 7 days after the last decisions) and stops before
+  the next stock once it has spent --max-usd.
 
 Either way:
 
@@ -43,6 +47,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 import threading
 import time
@@ -70,6 +75,8 @@ ANALYSTS = ("market", "news", "fundamentals")  # social reads StockTwits/Reddit,
 LONG = {"Buy", "Overweight"}
 HOLD_SESSIONS = 5
 COST_SIDE = 0.002
+KEY_ENV = "ANTHROPIC_API_KEY"
+MAX_USD = 3.0  # an API run stops before the next stock once it has spent this much
 INDEX = "nifty midcap 150"
 
 
@@ -149,23 +156,74 @@ def make_config(model: str = MODEL) -> dict:
     return cfg
 
 
-def run(day: date, stocks: list[str], model: str = MODEL, path: Path = DECISIONS, log=print) -> int:
-    from tradingagents import __version__ as ta_version
+def run_refusal(day: date, decisions: list[dict], today: date | None = None) -> str | None:
+    """Why an API run for `day` must not start, or None. The same forward-only rules as the skill."""
+    today = today or date.today()
+    gap = too_soon(day, decisions, today)
+    if gap:
+        return gap
+    if (today - day).days > RECORD_GRACE_DAYS:
+        return (f"{day} is more than {RECORD_GRACE_DAYS} days ago; a model may know what happened "
+                "since, so late calls are not made")
+    return None
+
+
+def repo_news_vendor(day: date):
+    """A `get_news` vendor for TradingAgents that reads this repo's news file (GDELT headlines).
+
+    Listed after Yahoo in the run's config, it is reached only when Yahoo serves
+    nothing, which is what happened to all 20 stocks on 6 Nov 2026. `brief` has
+    had the same fallback since then. The model picks the dates it asks for, so
+    the window is cut at the decision date whatever it passes."""
+    def get_news(ticker: str, start_date: str, end_date: str) -> str:
+        from .data.router import Router, parse_as_of
+
+        end = min(date.fromisoformat(end_date[:10]), day)
+        days = max(1, (end - date.fromisoformat(start_date[:10])).days)
+        symbol = ticker.upper().removesuffix(".NS")
+        text = Router().text("news", symbol, parse_as_of(end.isoformat()), days=days)
+        return (f"## {ticker} news to {end}, from this repo's news file (GDELT headlines; "
+                f"Yahoo served nothing):\n\n{text}")
+
+    return get_news
+
+
+def run(day: date, stocks: list[str], model: str = MODEL, path: Path = DECISIONS, log=print,
+        max_usd: float = MAX_USD, today: date | None = None) -> int:
+    refusal = run_refusal(day, read_decisions(path), today)
+    if refusal:
+        raise SystemExit(refusal)
+
+    from tradingagents import __version__ as ta_version  # importing it loads .env from this folder
+    from tradingagents.dataflows import router as ta_router
     from tradingagents.graph.trading_graph import TradingAgentsGraph
 
+    if not os.environ.get(KEY_ENV):
+        raise SystemExit(f"{KEY_ENV} is not set. Put `{KEY_ENV}=...` in a .env file in this folder "
+                         "(git-ignored); don't export it in the shell, or Claude Code bills that key too.")
     done = {(d["date"], d["symbol"]) for d in read_decisions(path) if d.get("rating")}
     path.parent.mkdir(parents=True, exist_ok=True)
     cfg = make_config(model)
+    # The two data fixes of 6 Nov 2026, which `brief` already has: GVT&D, and news when Yahoo has none.
+    _allow_ampersand_tickers(graph=True)
+    ta_router.VENDOR_METHODS["get_news"]["swingbot"] = repo_news_vendor(day)
+    cfg["tool_vendors"] = {**cfg.get("tool_vendors", {}), "get_news": "yfinance,swingbot"}
     errors = 0
+    spent = 0.0
     for sym in stocks:
         if (day.isoformat(), sym) in done:
             log(f"{sym}: already decided for {day}, skipped")
             continue
+        if spent >= max_usd:
+            log(f"{sym}: not run, this run has spent ${spent:.2f} (limit ${max_usd:.2f}); "
+                "run again to carry on, with a higher --max-usd if that spend is expected")
+            errors += 1
+            continue
         meter = _meter(model)
         graph = TradingAgentsGraph(selected_analysts=ANALYSTS, config=cfg, callbacks=[meter])
         t0 = time.time()
-        row = {"date": day.isoformat(), "symbol": sym, "ticker": yahoo(sym), "model": model,
-               "tradingagents": ta_version}
+        row = {"date": day.isoformat(), "symbol": sym, "ticker": yahoo(sym), "engine": "api",
+               "model": model, "tradingagents": ta_version}
         try:
             _, rating = graph.propagate(yahoo(sym), day.isoformat())
             row["rating"] = str(rating)
@@ -173,6 +231,7 @@ def run(day: date, stocks: list[str], model: str = MODEL, path: Path = DECISIONS
             row["rating"] = None
             row["error"] = f"{type(exc).__name__}: {exc}"[:500]
             errors += 1
+        spent += meter.usd
         row.update({"llm_calls": meter.calls, "tokens_in": meter.tokens_in, "tokens_out": meter.tokens_out,
                     "usd": round(meter.usd, 4), "seconds": round(time.time() - t0, 1)})
         with path.open("a") as f:
@@ -268,23 +327,31 @@ def too_soon(day: date, decisions: list[dict], today: date | None = None) -> str
     return None
 
 
-def _allow_ampersand_tickers() -> None:
-    """Let TradingAgents' price cache take tickers like GVT&D.NS.
+def _allow_ampersand_tickers(graph: bool = False) -> None:
+    """Let TradingAgents take tickers like GVT&D.NS.
 
-    Its cache file name must match a path-safe pattern that has no '&', so the
-    whole price download was refused. Only the cache file's name changes; the
-    symbol sent to Yahoo is still GVT&D.NS."""
+    Its file names must match a path-safe pattern that has no '&', so the price
+    cache refused the whole download. With `graph`, the same goes for the graph's
+    run log and checkpoint names: without it a finished (and paid-for) API run
+    of GVT&D fails while saving, and the rating is lost. Only file names change;
+    the symbol sent to Yahoo is still GVT&D.NS."""
     from tradingagents.dataflows.vendors.yahoo import ohlcv
 
-    if getattr(ohlcv.safe_ticker_component, "_swingbot", False):
-        return
-    original = ohlcv.safe_ticker_component
+    modules = [ohlcv]
+    if graph:
+        from tradingagents.graph import checkpointer, trading_graph
 
-    def safe(value: str, **kw) -> str:
-        return original(value.replace("&", "_AND_"), **kw)
+        modules += [trading_graph, checkpointer]
+    for module in modules:
+        original = module.safe_ticker_component
+        if getattr(original, "_swingbot", False):
+            continue
 
-    safe._swingbot = True
-    ohlcv.safe_ticker_component = safe
+        def safe(value: str, _original=original, **kw) -> str:
+            return _original(value.replace("&", "_AND_"), **kw)
+
+        safe._swingbot = True
+        module.safe_ticker_component = safe
 
 
 def _missing(text: str) -> bool:
@@ -483,6 +550,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--date", help="decision date (default: latest Friday on or before today)")
     r.add_argument("--limit", type=int, help="only the first N stocks (for a cost check)")
     r.add_argument("--stocks", help="comma-separated symbols instead of the fixed 20 (not scored)")
+    r.add_argument("--max-usd", type=float, default=MAX_USD,
+                   help=f"stop before the next stock once the run has spent this much (default {MAX_USD})")
     s = sub.add_parser("score", help="score the logged decisions and write the report")
     s.add_argument("--data", type=Path, required=True, help="eod2_data daily folder")
     sub.add_parser("cost", help="tokens and dollars spent so far")
@@ -506,7 +575,7 @@ def main(argv: list[str] | None = None) -> int:
         stocks = args.stocks.split(",") if args.stocks else STOCKS
         if args.limit:
             stocks = stocks[: args.limit]
-        errors = run(day, stocks)
+        errors = run(day, stocks, max_usd=args.max_usd)
         print(cost_summary(read_decisions()))
         return 1 if errors else 0
     if args.cmd in ("brief", "pending"):

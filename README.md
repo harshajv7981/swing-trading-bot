@@ -583,8 +583,27 @@ swingbot-agents score --data data/raw/eod2_data/daily
 ```
 
 `swingbot-agents run` is the same test on the full TradingAgents graph through
-the Anthropic API (needs `ANTHROPIC_API_KEY`, about $4–5 a month on Haiku).
-It isn't used for now.
+the Anthropic API, on Claude Haiku 5.5 (estimated at $4–5 a month; not measured
+yet). It isn't used for now. To use it:
+
+```bash
+echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env    # git-ignored; read when the run starts
+swingbot-agents run --limit 2                  # the decision day, after the close: 2 stocks, prints the spend
+swingbot-agents run                            # the other 18; stocks already decided are skipped
+swingbot-agents cost
+```
+
+* **Keep the key in `.env`, not in the shell.** With `ANTHROPIC_API_KEY`
+  exported, `claude -p` (which `weekly.sh` uses for the skills) bills that key
+  instead of the Claude plan.
+* **The same rules as the skill.** `run` refuses a date more than 3 days old,
+  a future date, and a date under 7 days after the last decisions. A stock that
+  failed is tried again on the next run; one with a rating is never rerun.
+* **A spend stop.** A run stops before the next stock once it has spent
+  `--max-usd` (default $3). Set a monthly limit in the Claude Console as well.
+* **The 6 Nov data fixes apply here too:** GVT&D runs, and when Yahoo serves no
+  company news the news analyst gets this repo's news file (GDELT headlines),
+  cut at the decision date.
 
 ## TradingAgents large-cap test: `swingbot-agent-calls`
 

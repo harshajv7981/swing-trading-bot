@@ -128,3 +128,107 @@ def test_ampersand_ticker_gets_a_safe_cache_name():
     assert ohlcv.safe_ticker_component("GVT&D.NS") == "GVT_AND_D.NS"
     with pytest.raises(ValueError):
         ohlcv.safe_ticker_component("../etc")
+
+
+def test_ampersand_ticker_is_safe_in_the_graph_run_log():
+    pytest.importorskip("tradingagents")
+    from tradingagents.graph import checkpointer, trading_graph
+
+    at._allow_ampersand_tickers(graph=True)
+    at._allow_ampersand_tickers(graph=True)   # a second run in the same process wraps nothing twice
+    assert trading_graph.safe_ticker_component("GVT&D.NS") == "GVT_AND_D.NS"
+    assert checkpointer.safe_ticker_component("GVT&D.NS") == "GVT_AND_D.NS"
+    with pytest.raises(ValueError):
+        trading_graph.safe_ticker_component("../etc")
+
+
+def test_run_refusal_follows_the_skills_forward_only_rules():
+    ds = [{"date": "2026-11-06", "symbol": "SRF", "rating": "Hold"}]
+    assert at.run_refusal(date(2026, 11, 13), ds, today=date(2026, 11, 13)) is None
+    assert at.run_refusal(date(2026, 11, 13), ds, today=date(2026, 11, 15)) is None     # over the weekend
+    assert "days ago" in at.run_refusal(date(2026, 11, 13), ds, today=date(2026, 11, 18))
+    assert "2026-11-13" in at.run_refusal(date(2026, 11, 12), ds, today=date(2026, 11, 12))
+    assert "future" in at.run_refusal(date(2026, 11, 20), ds, today=date(2026, 11, 13))
+
+
+def test_repo_news_vendor_cuts_the_window_at_the_decision_date(monkeypatch):
+    asked = {}
+
+    class FakeRouter:
+        def text(self, category, symbol, as_of, days):
+            asked.update(category=category, symbol=symbol, as_of=as_of, days=days)
+            return "headline"
+
+    import swingbot.data.router as r
+    monkeypatch.setattr(r, "Router", FakeRouter)
+    get_news = at.repo_news_vendor(date(2026, 11, 13))
+    text = get_news("GVT&D.NS", "2026-11-06", "2026-11-20")      # the model asked past the decision date
+    assert "headline" in text and "2026-11-13" in text
+    assert asked["symbol"] == "GVT&D" and asked["days"] == 7
+    assert asked["as_of"].date() == date(2026, 11, 13)
+
+
+def _fake_graph(monkeypatch, usd_per_stock=0.0, fail=()):
+    """Stand in for TradingAgentsGraph: no model calls, a rating per stock, a spend on the meter."""
+    pytest.importorskip("tradingagents")
+    from tradingagents.graph import trading_graph
+
+    class FakeGraph:
+        def __init__(self, selected_analysts, config, callbacks):
+            self.config, self.meter = config, callbacks[0]
+
+        def propagate(self, ticker, day):
+            self.meter.calls += 1
+            self.meter.usd += usd_per_stock
+            if ticker in fail:
+                raise RuntimeError("boom")
+            return {}, "Overweight"
+
+    monkeypatch.setattr(trading_graph, "TradingAgentsGraph", FakeGraph)
+    return FakeGraph
+
+
+def test_run_logs_api_decisions_and_skips_what_the_skill_decided(tmp_path, monkeypatch):
+    _fake_graph(monkeypatch, fail=("SRF.NS",))
+    monkeypatch.setenv(at.KEY_ENV, "test-key")
+    monkeypatch.chdir(tmp_path)
+    log, day = tmp_path / "d.jsonl", date(2026, 11, 13)
+    at.record(day, "AUBANK", "Hold", path=log, today=day)
+    lines = []
+    errors = at.run(day, ["AUBANK", "GVT&D", "SRF"], path=log, log=lines.append, today=day)
+    rows = {d["symbol"]: d for d in at.read_decisions(log)}
+    assert errors == 1 and "already decided" in lines[0]
+    assert rows["AUBANK"]["engine"] == "skill"
+    assert rows["GVT&D"]["engine"] == "api" and rows["GVT&D"]["rating"] == "Overweight"
+    assert rows["SRF"]["rating"] is None and "boom" in rows["SRF"]["error"]
+    assert at.pending(day, ["AUBANK", "GVT&D", "SRF"], at.read_decisions(log)) == ["SRF"]   # retried next run
+
+
+def test_run_registers_the_news_fallback_after_yahoo(tmp_path, monkeypatch):
+    fake = _fake_graph(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(fake, "propagate", lambda self, t, d: (seen.update(self.config), ({}, "Hold"))[1])
+    monkeypatch.setenv(at.KEY_ENV, "test-key")
+    monkeypatch.chdir(tmp_path)
+    day = date(2026, 11, 13)
+    assert at.run(day, ["NHPC"], path=tmp_path / "d.jsonl", log=lambda _: None, today=day) == 0
+    from tradingagents.dataflows import router
+
+    assert seen["tool_vendors"]["get_news"] == "yfinance,swingbot"
+    assert "swingbot" in router.VENDOR_METHODS["get_news"]
+
+
+def test_run_stops_at_the_spend_limit_and_refuses_without_a_key(tmp_path, monkeypatch):
+    _fake_graph(monkeypatch, usd_per_stock=0.6)
+    monkeypatch.chdir(tmp_path)
+    log, day = tmp_path / "d.jsonl", date(2026, 11, 13)
+    monkeypatch.delenv(at.KEY_ENV, raising=False)
+    with pytest.raises(SystemExit, match=at.KEY_ENV):
+        at.run(day, ["NHPC"], path=log, today=day)
+    with pytest.raises(SystemExit, match="days ago"):
+        at.run(date(2026, 11, 6), ["NHPC"], path=log, today=day)
+    monkeypatch.setenv(at.KEY_ENV, "test-key")
+    lines = []
+    errors = at.run(day, ["NHPC", "NMDC", "SRF"], path=log, log=lines.append, max_usd=1.0, today=day)
+    assert [d["symbol"] for d in at.read_decisions(log)] == ["NHPC", "NMDC"]
+    assert errors == 1 and "limit $1.00" in lines[-1]
