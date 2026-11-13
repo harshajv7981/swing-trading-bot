@@ -37,6 +37,8 @@ from typing import Callable
 
 import pandas as pd
 
+from .agent_checks import by_market, random_sign_p
+from .agent_checks import lines as check_lines
 from .agents_trial import KEY_ENV, MAX_USD, MODEL, call_cost
 from .models import IST
 
@@ -496,6 +498,11 @@ def _print_scored(decisions: list[dict]) -> None:
     print(f"{sm['calls']} calls: {sm['settled']} settled, {sm['pending']} pending, {sm['review']} unreadable "
           f"(REVIEW). Directional and settled: {sm['directional']}; hit rate {hit}; mean alpha in the "
           f"call's direction {_pct(sm['mean_signed_alpha'])}, t {t}")
+    settled = [x for x in rows if x["status"] == "settled" and x.get("signed_alpha") is not None]
+    if settled:   # FINSABER checks, reported only: the pass bar is unchanged
+        p = random_sign_p([x["alpha"] for x in settled], [DIRECTION[x["rating"]] for x in settled])
+        split = by_market((x["signed_alpha"], x["raw"] - x["alpha"]) for x in settled)
+        print("\n".join(check_lines(p, split, "buy/sell calls", "Nifty 50")))
     engines = [engine_of(d) for d in decisions]
     if "api" in engines:
         print("Engines: " + ", ".join(f"{e} {engines.count(e)}" for e in sorted(set(engines))))
