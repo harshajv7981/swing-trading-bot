@@ -59,6 +59,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .agent_checks import by_market, random_picks_p
+from .agent_checks import lines as check_lines
 from .momentum import adjust_jumps
 
 STATE = Path("data/state/agents_trial")
@@ -471,7 +473,7 @@ def score(decisions: list[dict], data: Path, stocks: list[str] = STOCKS) -> dict
         net = gross - COST_SIDE * traded
         held = new
         wi = window(idx, day)
-        weeks.append({"date": day_s, "longs": longs, "gross": gross, "net": net, "ew": ew,
+        weeks.append({"date": day_s, "longs": longs, "rets": list(rets.values()), "gross": gross, "net": net, "ew": ew,
                       "index": wi[2] if wi else None, "decided": len(ratings),
                       "review": sum(1 for r in ratings.values() if r not in (*LONG, "Hold", "Underweight", "Sell"))})
     return {"weeks": weeks, "calls": calls}
@@ -530,6 +532,17 @@ def report(result: dict, decisions: list[dict], skill_record: bool = False) -> s
     lines.append(f"Long calls vs equal weight, week by week: {len(excess)} weeks with a long call, mean "
                  + (f"{sum(excess) / len(excess):+.2%}" if excess else "n/a")
                  + (f", t {t:.2f}" if t is not None else "") + ".")
+    # FINSABER checks, reported only: the pass bar above is unchanged.
+    picked = [w for w in weeks if w["longs"]]
+    with_ix = [w for w in picked if w["index"] is not None]
+    vs_ix = [w["gross"] - w["index"] for w in with_ix]
+    t_ix = _t(vs_ix)
+    lines.append(f"Long calls vs the Nifty Midcap 150, week by week: {len(vs_ix)} weeks, mean "
+                 + (f"{sum(vs_ix) / len(vs_ix):+.2%}" if vs_ix else "n/a")
+                 + (f", t {t_ix:.2f}" if t_ix is not None else "") + ".")
+    p = random_picks_p([(w["rets"], len(w["longs"]), w["gross"]) for w in picked]) if picked else None
+    lines += check_lines(p, by_market((w["gross"] - w["ew"], w["index"]) for w in with_ix),
+                         "picks of the same size", "Nifty Midcap 150")
     by_rating: dict[str, list[float]] = {}
     week_ew = {w["date"]: w["ew"] for w in weeks}
     for c in calls:
