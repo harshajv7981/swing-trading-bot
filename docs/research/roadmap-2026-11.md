@@ -186,7 +186,8 @@ through a pre-registration and a ledger row first.
 **Status, 2026-11-14:**
 - **Build 1:**
   - (a) Done. The nightly pull retries, notifies on failure, and warns when
-    the data is over 7 days old.
+    the data is over 7 days old. A notification fired from a one-off launchd
+    job showed on screen (confirmed by Harsha, 2026-11-14).
   - (b) Done. Each booked month records its next-session shortfall, and the
     judging rule is in momentum-paper-trial.md.
   - (c) Done. The plan is in momentum-paper-trial.md: no real money before
