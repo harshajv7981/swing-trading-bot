@@ -26,6 +26,9 @@ outcome when it is judged.
 | 2026-11-05 | [TradingAgents, large-cap](trading-agents-prereg.md) | Running; judged after 31 May 2027 |
 | 2026-11-07 | [US large-cap momentum trial](us-momentum-prereg.md) | Running |
 | 2026-11-07 | [US history study](us-research-prereg.md) | See doc |
+| 2026-11-13 | [151 Trading Strategies: untested price rules](book-rules-prereg.md) | No rule passes |
+| 2026-11-11 | [Open-to-close (intraday) rules](intraday-open-close-prereg.md) | G-down passes the bar, not trusted; needs minute bars |
+| 2026-11-14 | [Smart-money market structure](smc-structure-prereg.md) | No rule passes |
 
 Running paper tests with their own rules docs, not counted above:
 [mid-cap momentum trial](momentum-paper-trial.md),
