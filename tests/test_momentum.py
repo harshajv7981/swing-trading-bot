@@ -159,3 +159,58 @@ def test_booking_also_records_nse_memory_and_never_fails_because_of_it(tmp_path,
     ledger.write_text(json.dumps(momentum.new_ledger()))
     assert momentum.main(["update", "--data", str(tmp_path / "d"), "--ledger", str(ledger)]) == 0
     assert calls == [ledger]
+
+
+def test_pull_retries_a_network_blip_then_notifies_and_raises(tmp_path, monkeypatch):
+    import subprocess
+
+    def flaky(fails):
+        calls = []
+
+        def run(cmd, check):
+            calls.append(cmd[0] if cmd[0] == "osascript" else cmd[3])
+            if cmd[0] != "osascript" and len(calls) <= fails:
+                raise subprocess.CalledProcessError(128, cmd)
+        return run, calls
+
+    sleeps = []
+    run, calls = flaky(1)  # the first fetch fails, the retry works
+    momentum.pull(tmp_path / "daily", run=run, sleep=sleeps.append)
+    assert calls == ["fetch", "fetch", "reset"] and sleeps == [60]
+
+    monkeypatch.setattr(momentum.shutil, "which", lambda name: "/usr/bin/" + name)
+    run, calls = flaky(99)
+    with pytest.raises(subprocess.CalledProcessError):
+        momentum.pull(tmp_path / "daily", run=run, sleep=sleeps.append)
+    assert calls == ["fetch", "fetch", "fetch", "osascript"]
+
+
+def test_shortfall_compares_the_next_session_with_the_booked_close(tmp_path):
+    def ohlc(df):  # opens 1% above the close; high and low equal to it
+        return df.assign(Open=df["Close"] * 1.01, High=df["Close"], Low=df["Close"])
+
+    write_stocks(tmp_path / "d", extra={k: ohlc for k in range(N)})
+    ledger = tmp_path / "ledger.json"
+    momentum.update(tmp_path / "d", ledger, KNOWN_2025, start="2025-07-01")
+    jul, aug = json.loads(ledger.read_text())["months"]
+    assert "shortfall" not in aug  # 29 Aug is the data's last day: no next session yet
+    s = jul["shortfall"]  # all buys; S4 and S5 grow 0.4% and 0.5% a day
+    assert 1.01 * 1.004 - 1 < s["open"] < 1.01 * 1.005 - 1
+    assert 0.004 < s["typical"] < 0.005
+    assert s["value"] == pytest.approx(sum(o["shares"] * o["price"] for o in jul["orders"]))
+    assert "| 2025-08-29 | pending |" in momentum.report(json.loads(ledger.read_text()))
+
+
+def test_the_nightly_pull_warns_when_the_data_stops_moving(tmp_path, monkeypatch):
+    write_stocks(tmp_path / "d")  # last bar 2025-08-29, long past
+    said = []
+    monkeypatch.setattr(momentum, "pull", lambda data: None)
+    monkeypatch.setattr(momentum, "notify", said.append)
+    monkeypatch.setattr(momentum, "REPORT", tmp_path / "report.md")
+    monkeypatch.setattr(momentum, "_scorecard", lambda *a: tmp_path / "card.html")
+    monkeypatch.setattr(momentum, "record_memory", lambda *a: "")
+    args = ["update", "--data", str(tmp_path / "d"), "--ledger", str(tmp_path / "l.json")]
+    momentum.main(args)
+    assert said == []  # no --pull: no warning
+    momentum.main(args + ["--pull"])
+    assert len(said) == 1 and "days old" in said[0]
