@@ -31,6 +31,7 @@ swingbot-agent-calls = "swingbot.agent_calls:main"
 swingbot-markets = "swingbot.markets.cli:main"
 swingbot-us-momentum = "swingbot.us_momentum:main"
 swingbot-us-research = "swingbot.us_research:main"
+swingbot-real = "swingbot.realpos:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

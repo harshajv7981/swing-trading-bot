@@ -98,6 +98,19 @@ passive fund rather than M6.
 - **Changing these:** only in writing, dated, before the October 2027
   review. Never during a fall.
 
+**Tracked by `swingbot-real`.** The limits live in `config/real_money.toml`,
+and holdings in the git-ignored `data/state/real_position.json`.
+- **Recording trades:** record each real buy or sell after making it
+  (`swingbot-real buy|sell`). Buys before the start date, over the cap, or
+  while the position is past the review drawdown are refused.
+- **Reporting:** `swingbot-real report` shows the value, the time-weighted
+  return, the drawdown, the cap used, this tax year's booked gains and the
+  exemption room left, with the M6 paper trial alongside.
+- **The nightly check:** the nightly job runs `swingbot-real check`. It
+  notifies once at the review drawdown, and once again on recovery. It also
+  notifies each December when there are two or more targets (rebalance), and
+  each March when long-term gain fits in the ₹1.25 lakh exemption.
+
 What the money would go into is decided at the review. By build 2's rule
 it is the Momentum 50 fund, optionally 70/30 with a gold ETF, unless the
 trial and a new pre-registered comparison say otherwise.
