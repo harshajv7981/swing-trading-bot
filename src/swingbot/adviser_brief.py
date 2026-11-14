@@ -18,9 +18,13 @@ import pandas as pd
 
 from .momentum import LEDGER, LOOKBACK, load, select
 from .risk.portfolio import load_sectors
+from .technicals import _wilder, true_range
 
 OUT = Path("runs/momentum-trial")
 YEAR = 250  # trading days
+# The paper gate and the action columns: docs/research/momentum-paper-trial.md, "The paper gate" (fixed 2026-11-14).
+GATE_MONTHS, FUND = 6, "Nifty Midcap150 Momentum 50"
+ATR_DAYS, STOP_ATRS, CAP = 14, 2.0, 250_000.0
 
 # The backtest and test results behind the rule, from docs/research (fixed numbers, not recomputed here).
 EVIDENCE = """\
@@ -78,6 +82,39 @@ def rows(px: pd.DataFrame, val: pd.DataFrame, asof: pd.Timestamp, picks: list[st
     return out.sort_values("score", ascending=False)
 
 
+def gate(ledger: dict, month: dict) -> tuple[bool, list[str]]:
+    """Whether the paper record clears the fixed bar at `month`, and each condition's result."""
+    first = ledger["months"][0]
+    results = sum(1 for m in ledger["months"] if m["date"] <= month["date"]) - 1
+    paper = month["value"] / ledger["capital"] - 1
+    ew = month["ew"]["level"] - 1
+    a, b = first["indexes"].get(FUND), month["indexes"].get(FUND)
+    fund = b / a - 1 if a and b else None
+    checks = [
+        (results >= GATE_MONTHS, f"{results} of {GATE_MONTHS} monthly results booked"),
+        (paper > 0, f"paper account {paper:+.1%} since the start"),
+        (paper > ew, f"mid-cap equal weight {ew:+.1%}"),
+        (fund is not None and paper > fund, f"{FUND} index " + (f"{fund:+.1%}" if fund is not None else "n/a")),
+    ]
+    return all(ok for ok, _ in checks), [("pass: " if ok else "not yet: ") + text for ok, text in checks]
+
+
+def stop_levels(data: Path, asof: pd.Timestamp, picks: list[str]) -> pd.Series:
+    """Latest close minus STOP_ATRS x the 14-day Wilder average true range, from the raw OHLC files."""
+    out = {}
+    for sym in picks:
+        p = data / f"{sym.lower()}.csv"
+        if not p.exists():
+            continue
+        df = pd.read_csv(p, usecols=["Date", "High", "Low", "Close", "Series"], parse_dates=["Date"], index_col="Date")
+        df = df[(df["Series"].fillna("EQ") == "EQ") & (df.index <= asof)]
+        df = df[~df.index.duplicated()].sort_index().tail(120).rename(columns=str.lower)
+        atr = _wilder(true_range(df), ATR_DAYS).iloc[-1]
+        if pd.notna(atr):
+            out[sym] = float(df["close"].iloc[-1] - STOP_ATRS * atr)
+    return pd.Series(out, dtype=float)
+
+
 def streak(ledger: dict, upto: str, sym: str) -> int:
     """Consecutive month-ends, ending at `upto`, that held `sym`."""
     n = 0
@@ -88,7 +125,8 @@ def streak(ledger: dict, upto: str, sym: str) -> int:
     return n
 
 
-def brief(ledger: dict, px: pd.DataFrame, val: pd.DataFrame, month: dict, sectors: dict[str, str]) -> str:
+def brief(ledger: dict, px: pd.DataFrame, val: pd.DataFrame, month: dict, sectors: dict[str, str],
+          data: Path | None = None, cap: float = CAP) -> str:
     asof = pd.Timestamp(month["date"])
     bucket, picks = select(px, val, asof)
     if sorted(picks) != sorted(month["picks"]):
@@ -96,6 +134,9 @@ def brief(ledger: dict, px: pd.DataFrame, val: pd.DataFrame, month: dict, sector
     prev = [m for m in ledger["months"] if m["date"] < month["date"]]
     before = set(prev[-1]["picks"]) if prev else set()
     t = rows(px, val, asof, picks)
+    cleared, checks = gate(ledger, month)
+    stops = stop_levels(data, asof, picks) if cleared and data is not None else pd.Series(dtype=float)
+    slice_ = cap / len(picks)
     lines = [
         f"# Monthly stock list for adviser review: {asof:%B %Y}",
         "",
@@ -103,23 +144,48 @@ def brief(ledger: dict, px: pd.DataFrame, val: pd.DataFrame, month: dict, sector
         "discussion with a SEBI-registered investment adviser before any money is invested. Past results don't "
         "predict future ones.",
         "",
+        f"## Status: {'CLEARED FOR ADVISER REVIEW' if cleared else 'PAPER ONLY'}",
+        "",
+        "The paper gate, fixed before any result existed (momentum-paper-trial.md):",
+        "",
+        *[f"- {c}" for c in checks],
+        "",
+        ("The paper record clears the bar: actions, stop levels and sizes are filled in below for the adviser "
+         "to confirm or reject." if cleared else
+         "The paper record doesn't clear the bar yet, so there are no buy/sell actions, stops or sizes. "
+         "The list below is what the rule holds on paper."),
+        "",
         "## The list",
         "",
         "Equal weight (about 5% each), held until the next month-end, then re-ranked.",
         "",
-        "| # | Stock | Sector | 6-1 month return (the ranking) | Last month | 12 months | Volatility | "
-        "Worst fall, past year | Traded value (Rs cr/day) | Close | In the list |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "| # | Action | Stock | Sector | 6-1 month return (the ranking) | Last month | 12 months | Volatility | "
+        f"Worst fall, past year | Traded value (Rs cr/day) | Close | Stop level (info only) | "
+        f"Shares for Rs {slice_:,.0f} | In the list |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for k, (sym, r) in enumerate(t.iterrows(), 1):
-        status = f"{streak(ledger, month['date'], sym)} months" if sym in before else "new"
-        lines.append(f"| {k} | {sym} | {sectors.get(sym, '–')} | {r['score']:+.0%} | {r['last_month']:+.0%} | "
-                     f"{r['twelve_months']:+.0%} | {r['volatility']:.0%} | {r['worst_fall']:.0%} | "
-                     f"{r['traded_cr']:,.0f} | {r['close']:,.2f} | {status} |")
+        held = sym in before
+        status = f"{streak(ledger, month['date'], sym)} months" if held else "new"
+        action = ("HOLD" if held else "BUY") if cleared else "paper"
+        stop = f"{stops[sym]:,.2f} ({stops[sym] / r['close'] - 1:+.0%})" if sym in stops.index else "–"
+        shares = f"{math.floor(slice_ / r['close']):,}" if cleared else "–"
+        lines.append(f"| {k} | {action} | {sym} | {sectors.get(sym, '–')} | {r['score']:+.0%} | "
+                     f"{r['last_month']:+.0%} | {r['twelve_months']:+.0%} | {r['volatility']:.0%} | "
+                     f"{r['worst_fall']:.0%} | {r['traded_cr']:,.0f} | {r['close']:,.2f} | {stop} | {shares} | "
+                     f"{status} |")
     added, dropped = sorted(set(picks) - before), sorted(before - set(picks))
     if prev:
         lines += ["", f"**Changes since {prev[-1]['date']}:** added {', '.join(added) or 'none'}; "
                       f"dropped {', '.join(dropped) or 'none'}."]
+        if cleared and dropped:
+            last = px[px.index <= asof].iloc[-1]
+            lines += ["", "**SELL (dropped from the list):** " + ", ".join(
+                f"{s} at about {last[s]:,.2f}" if s in last.index and pd.notna(last[s]) else s for s in dropped)]
+    if cleared:
+        lines += ["", f"Stop levels are {STOP_ATRS:g} x the {ATR_DAYS}-day average true range below the close. "
+                      "They are **information only**: the tested rule has no stop-loss and exits only at the month-end "
+                      "re-rank. Stops were never tested on this rule, and using them would change its results."]
     lines += [
         "",
         "## How the list is made",
@@ -144,6 +210,15 @@ def brief(ledger: dict, px: pd.DataFrame, val: pd.DataFrame, month: dict, sector
     return "\n".join(lines)
 
 
+def _cap() -> float:
+    """The written cap from config/real_money.toml, if it's there."""
+    try:
+        from .realpos import load_config
+        return float(load_config()["cap"])
+    except (OSError, KeyError, ValueError):
+        return CAP
+
+
 def write(data: Path, month: str | None = None, ledger_path: Path = LEDGER, out: Path = OUT) -> Path:
     ledger = json.loads(ledger_path.read_text())
     m = _month_end(ledger, month)
@@ -152,5 +227,5 @@ def write(data: Path, month: str | None = None, ledger_path: Path = LEDGER, out:
     px, val = load(data, since=str((asof.date().replace(day=1) - timedelta(days=800))))
     path = out / f"brief-{m['date'][:7]}.md"
     out.mkdir(parents=True, exist_ok=True)
-    path.write_text(brief(ledger, px, val, m, load_sectors()))
+    path.write_text(brief(ledger, px, val, m, load_sectors(), data, _cap()))
     return path

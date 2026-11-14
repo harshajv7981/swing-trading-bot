@@ -121,6 +121,30 @@ git-ignored and stays private. It contains:
 - the questions to ask a SEBI-registered adviser before any real money
   moves.
 
+**The paper gate (fixed 2026-11-14, before any monthly result existed; only
+the 30 Oct 2026 starting booking was in).** The brief reads **CLEARED FOR
+ADVISER REVIEW** only when all four of these hold at the latest booking.
+Otherwise it reads **PAPER ONLY**.
+1. At least 6 monthly results are booked.
+2. The paper account is up since the start, after costs.
+3. It's ahead of the mid-cap equal-weight bucket since the start.
+4. It's ahead of the Nifty Midcap150 Momentum 50 index since the start.
+
+Clearing isn't a decision to invest:
+- The real-money plan (start date, cap, review point) still applies.
+- A SEBI-registered adviser decides.
+- These four conditions don't change once results start coming in.
+
+When cleared, the brief gives each stock an action and a size:
+- **BUY:** new to the list.
+- **HOLD:** stayed on the list.
+- **SELL:** dropped from the list.
+- **Size:** shares for an equal ₹2.5 lakh ÷ 20 slice.
+- **Stop level:** 2 × the 14-day average true range below the latest close.
+  This is **information only**. The tested rule has no stop-loss and exits
+  only at the month-end re-rank. Stops were never tested on M6, and using
+  them would change its results.
+
 To make one for any booked month:
 `swingbot-momentum brief --data data/raw/eod2_data/daily --month YYYY-MM`.
 
