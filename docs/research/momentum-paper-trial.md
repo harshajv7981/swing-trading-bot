@@ -111,6 +111,19 @@ and holdings in the git-ignored `data/state/real_position.json`.
   notifies each December when there are two or more targets (rebalance), and
   each March when long-term gain fits in the ₹1.25 lakh exemption.
 
+**The adviser brief.** After each month-end booking, the nightly job writes
+`runs/momentum-trial/brief-YYYY-MM.md` and sends a notification. The file is
+git-ignored and stays private. It contains:
+- the M6 list, with the data behind each stock (ranking return, recent
+  returns, volatility, worst fall, liquidity, months in the list);
+- how the list is made;
+- what the evidence says about trusting it;
+- the questions to ask a SEBI-registered adviser before any real money
+  moves.
+
+To make one for any booked month:
+`swingbot-momentum brief --data data/raw/eod2_data/daily --month YYYY-MM`.
+
 What the money would go into is decided at the review. By build 2's rule
 it is the Momentum 50 fund, optionally 70/30 with a gold ETF, unless the
 trial and a new pre-registered comparison say otherwise.

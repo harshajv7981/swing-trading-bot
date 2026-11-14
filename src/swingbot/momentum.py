@@ -540,14 +540,25 @@ def main(argv: list[str] | None = None) -> int:
                          "one-file-a-day download")
     pk.add_argument("--out", type=Path, default=PICKS)
     pk.add_argument("--holidays", help="NSE holiday TOML (default config/nse_holidays.toml)")
+    br = sub.add_parser("brief", help="write the month's stock list, with its data, for a SEBI-registered adviser")
+    br.add_argument("--data", required=True, type=Path, help="eod2_data's daily/ folder")
+    br.add_argument("--month", help="YYYY-MM of a booked month-end (default: the latest)")
     sc = sub.add_parser("scorecard", help="write the HTML scorecard: measures, charts, review checks")
     sc.add_argument("--out", type=Path, default=Path(scorecard.OUT))
     sc.add_argument("--open", action="store_true", help="open the page in the browser")
-    for p in (u, sub.add_parser("report", help="print the trial so far"), pk, sc):
+    for p in (u, sub.add_parser("report", help="print the trial so far"), pk, sc, br):
         p.add_argument("--ledger", type=Path, default=LEDGER)
     args = ap.parse_args(argv)
     if args.cmd == "picks":
         return _picks(args)
+    if args.cmd == "brief":
+        from .adviser_brief import write
+        try:
+            print(f"wrote {write(args.data, args.month, args.ledger)}")
+        except ValueError as e:
+            print(f"no brief: {e}", file=sys.stderr)
+            return 1
+        return 0
     if args.cmd == "scorecard":
         out = _scorecard(args.ledger, args.out)
         print(f"wrote {out}")
@@ -567,6 +578,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"booked {m['date']}: value Rs {m['value']:,.0f}, {len(m['orders'])} orders, "
                   f"costs Rs {m['costs']:,.0f}")
         print(record_memory(args.ledger))
+        try:  # the adviser brief for the newest month; never fails the booking
+            from .adviser_brief import write
+            path = write(args.data, done[-1]["date"][:7], args.ledger, REPORT.parent)
+            notify(f"New monthly stock list for your adviser: {path}")
+        except Exception as e:  # noqa: BLE001
+            print(f"adviser brief not written: {e}", file=sys.stderr)
     ledger = json.loads(args.ledger.read_text()) if args.ledger.exists() else new_ledger()
     text = report(ledger)
     if args.cmd == "update":
