@@ -1,5 +1,7 @@
 import json
 
+import pandas as pd
+
 import pytest
 from test_momentum import KNOWN_2025, write_stocks
 
@@ -53,3 +55,55 @@ def test_a_brief_that_no_longer_matches_the_booking_is_refused(booked):
     px, val = momentum.load(data, since="2023-01-01")
     with pytest.raises(ValueError, match="no longer gives the booked picks"):
         adviser_brief.brief(ledger, px, val, ledger["months"][1], {})
+
+
+def ledger_with(results, paper, ew, fund):
+    months = [{"date": "2026-10-30", "value": 1e6, "ew": {"level": 1.0}, "indexes": {adviser_brief.FUND: 100.0}}]
+    for k in range(results):
+        months.append({"date": f"2027-0{k + 1}-28", "value": 1e6 * (1 + paper), "ew": {"level": 1 + ew},
+                       "indexes": {adviser_brief.FUND: 100 * (1 + fund)}})
+    return {"capital": 1e6, "months": months}
+
+
+def test_the_paper_gate_needs_six_results_a_gain_and_both_benchmarks_beaten():
+    ok, why = adviser_brief.gate(*(lambda led: (led, led["months"][-1]))(ledger_with(6, 0.10, 0.05, 0.08)))
+    assert ok and all(w.startswith("pass") for w in why)
+    for args, missing in [((5, 0.10, 0.05, 0.08), "5 of 6"), ((6, -0.01, -0.05, -0.08), "paper account"),
+                          ((6, 0.10, 0.12, 0.08), "equal weight"), ((6, 0.10, 0.05, 0.11), "Momentum 50")]:
+        led = ledger_with(*args)
+        ok, why = adviser_brief.gate(led, led["months"][-1])
+        assert not ok and any(w.startswith("not yet") and missing in w for w in why)
+
+
+def test_a_cleared_brief_gives_actions_stops_and_sizes(tmp_path, monkeypatch):
+    def ohlc(df):
+        return df.assign(High=df["Close"] * 1.01, Low=df["Close"] * 0.99)
+
+    write_stocks(tmp_path / "d", extra={k: ohlc for k in range(10)})
+    ledger_path = tmp_path / "ledger.json"
+    momentum.update(tmp_path / "d", ledger_path, KNOWN_2025, start="2025-07-01")
+    ledger = json.loads(ledger_path.read_text())
+    jul, aug = ledger["months"]
+    jul["picks"] = ["S4", "S9"]  # so August keeps S4, adds S5 and drops S9
+    for m, (paper, fund) in ((jul, (0.0, 100.0)), (aug, (0.10, 101.0))):
+        m["value"], m["ew"]["level"] = ledger["capital"] * (1 + paper), 1.02
+        m["indexes"][adviser_brief.FUND] = fund
+    monkeypatch.setattr(adviser_brief, "GATE_MONTHS", 1)
+    px, val = momentum.load(tmp_path / "d", since="2023-01-01")
+    text = adviser_brief.brief(ledger, px, val, aug, {}, tmp_path / "d", cap=100_000)
+    assert "CLEARED FOR ADVISER REVIEW" in text
+    assert "| HOLD | S4 |" in text and "| BUY | S5 |" in text
+    assert "**SELL (dropped from the list):** S9 at about" in text
+    s5 = px["S5"].iloc[-1] if px.index[-1] <= pd.Timestamp(aug["date"]) else px.loc[aug["date"], "S5"]
+    assert f"| {int(50_000 // s5):,} | new |" in text  # Rs 1 lakh cap / 2 picks
+    row = next(line for line in text.splitlines() if "| BUY | S5 |" in line)
+    stop = float(row.split("|")[12].split("(")[0].replace(",", ""))
+    assert 0 < stop < s5 and "information only" in text
+
+
+def test_a_brief_that_is_not_cleared_has_no_actions(booked):
+    data, ledger_path = booked
+    ledger = json.loads(ledger_path.read_text())
+    px, val = momentum.load(data, since="2023-01-01")
+    text = adviser_brief.brief(ledger, px, val, ledger["months"][1], {}, data)
+    assert "PAPER ONLY" in text and "| BUY |" not in text and "| paper |" in text
