@@ -310,6 +310,11 @@ def update(data: Path, ledger_path: Path = LEDGER, calendar: NSECalendar | None 
         asof = days.max()
         expected = month_end_session(y, m, calendar) if calendar.knows(y) else None
         done.append(book(ledger, px, val, prices, asof, index_closes(data, asof)))
+        try:  # step 8: settle and pick for skills in shadow; never fails the booking
+            from .markets.skills import Skills, nse_shadow
+            done[-1]["shadow"] = nse_shadow(Skills(Path(ledger_path).parent), px, val, ledger, done[-1])
+        except Exception as e:  # noqa: BLE001
+            done[-1]["notes"].append(f"shadow skills not run: {e}")
         if expected and asof.date() != expected:
             done[-1]["notes"].append(f"the data's last day in the month is {asof.date()}, "
                                      f"not {expected} as the holiday list has it")
