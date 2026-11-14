@@ -85,8 +85,8 @@ signature or when they ask for help.
 - [ ] Decide where the case studies live (a public page or a gist) so `[link]`
       points somewhere. Use no return figures in them, and no data newer than
       three months.
-- [ ] Make a one-page sample audit report from build 2, with method and
-      findings only.
+- [x] Make a one-page sample audit report from build 2, with method and
+      findings only: [sample-audit-report.md](sample-audit-report.md).
 - [ ] Have a CA or lawyer confirm the audit and pipeline scopes aren't
       research-analyst or algo-provider work under SEBI rules.
 
