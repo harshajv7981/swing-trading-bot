@@ -220,7 +220,9 @@ through a pre-registration and a ledger row first.
     deflated Sharpe, and the ledger check, all tested;
   - `examples/kit_example.py` runs on made-up prices.
 
-  Still open: prices and contact in the offer, and splitting the kit into its
+  Outreach targets, messages and a tracker are drafted in
+  [../side-hustle/outreach.md](../side-hustle/outreach.md); nothing has been
+  sent. Still open: prices and contact in the offer, and splitting the kit into its
   own pip package if a buyer ever asks for one.
 
 **Order:** 1 now, before the 30 Nov booking. Then 2, the cheapest and
