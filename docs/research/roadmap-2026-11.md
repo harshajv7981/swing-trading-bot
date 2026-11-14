@@ -147,27 +147,22 @@ their benchmark over 10 years, with mid and small caps among the worst
 With the 4% cess these become 20.8% and 13%, as the repo uses. At M6's
 turnover the 7.8-point gap costs about 1–1.5 points a year (arithmetic).
 
-## Ways to earn
+## Ways to earn (your own money)
 
-The goal is low-risk side income that holds up if the day job goes, not a job
-search. Trading returns are a poor hedge for that: mid-cap drawdowns of about
-60% tend to come in recessions, which is also when layoffs come. Ranked by
-realistic expected value per hour, with money and legal risk weighed in.
+The goal is to invest your own money by what this project found, not to sell
+anything built here. Trading returns are a poor hedge against losing the job:
+mid-cap drawdowns of about 60% tend to come in recessions, which is also when
+layoffs come. Keep money you'd live on out of all of this.
 
-| Rank | Option | Realistic payoff | Money at risk | Legal risk | Effort to start | Long shot? |
-|---|---|---|---|---|---|---|
-| 1 | **Freelance engineering for traders, fintechs and SEBI-registered advisers.** NSE data pipelines (survivorship-free, point-in-time), backtest harnesses, broker integrations, and a fixed-price "backtest audit" that checks look-ahead, survivorship, PBO/DSR and Indian costs and tax | Repeat project income. Rates not researched [unverified]. The repo already shows every one of these skills | None | Low: sell code and checks, never picks | 3–5 days: offer page, two case studies (builds 1 and 3), outreach | No. Finding clients is the hard part |
-| 2 | **Freelance AI and agent work outside trading** (LLM apps, evals) | Likely the biggest market. The forward-tested LLM-agent trials and the ledger show eval discipline, which is rare | None | Low | Same portfolio as rank 1 | No |
-| 3 | **The passive twin for your own long-term money:** a Momentum 50 index fund, optionally 70/30 with a gold ETF, held over a year, with the ₹1.25 lakh LTCG exemption harvested each year | Market return, minus 0.24–0.5% in fees. Harvesting saves up to about ₹16k a year (₹1.25L × 13%) | Market risk | None | Hours a year | No. Small and fairly reliable |
-| 4 | **A paid code kit** (build 5): the harness as a package run on the buyer's own data. No NSE data and no signals | Small one-off sales, mostly support for ranks 1 and 2 | None | Low | 4–5 days | Yes, as income alone |
-| 5 | **M6 or G30 at small size after the Oct 2027 review,** only if builds 1–3 pass, and only with money you won't need if the job goes | On ₹5 lakh, a 2-point after-tax edge is about ₹10k a year at best, and may be about zero | High (-35% to -60% falls) | Low | One manual rebalance a month | Yes. An experiment, not a hustle |
-| 6 | **Educational writing:** "what failed on NSE and why" | Brings in rank 1 clients. Direct income is unlikely. SEBI's 2025 rules require price data at least 3 months old and bar return claims ([Business Today](https://www.businesstoday.in/markets/stocks/story/sebis-clampdown-on-finfluencers-cannot-use-live-stock-market-data-in-educational-content-462704-2025-01-31)) | None | Medium if it drifts into stock talk | Ongoing | Yes, for money |
-| 7 | **The LLM-agent tests turn into an edge** | Unknown until 2027. The swarm already failed its walk-forward | None | None | Weekly Claude usage | Yes |
-| 8 | **Selling algos or signals, or registering as a SEBI RA** | Retail algos go only through brokers and empanelled providers ([QuantInsti summary](https://blog.quantinsti.com/sebi-algo-trading-guidelines-retail-investors)). Signals need RA registration and a proven edge, which you don't have | None | High | Months | Yes. Don't |
+| Rank | Option | Realistic payoff | Money at risk | Effort | Long shot? |
+|---|---|---|---|---|---|
+| 1 | **The passive twin:** a Momentum 50 index ETF or fund, optionally 70/30 with a gold ETF, held over a year, with the ₹1.25 lakh long-term gain exemption used each year. Tracked by `swingbot-real` under the written limits | Market return, minus 0.24–0.5% in fees. Using the exemption saves up to about ₹16k a year (₹1.25L × 13%) | Market risk (the fund fell about 25% from Sep 2024 to Mar 2025) | Hours a year | No. Fairly reliable, not large |
+| 2 | **M6 or G30 at small size after the Oct 2027 review,** only if the trial and a new pre-registered comparison beat the fund, and only with money you won't need if the job goes | On ₹5 lakh, a 2-point after-tax edge is about ₹10k a year at best, and may be about zero | High (-35% to -60% falls) | One manual rebalance a month | Yes. An experiment |
+| 3 | **The LLM-agent tests turn into an edge** | Unknown until 2027. The swarm already failed its walk-forward | None while on paper | Weekly Claude usage | Yes |
+| 4 | **Selling signals or algos** | Needs SEBI registration and a proven edge, which you don't have | None | Months | Yes. Don't |
 
-Not legal or tax advice. Before taking client money on rank 1, have a CA or
-lawyer check whether a given contract, such as a tool that ranks stocks for a
-client, could count as research-analyst activity.
+Not tax advice: check the gold ETF holding period with a CA before relying on
+it.
 
 ## Next 5 builds
 
@@ -181,7 +176,7 @@ through a pre-registration and a ledger row first.
 | 2 | **M6 and G30 against their passive twins, after tax, 2010–2026.** M6 after costs and 20.8% STCG, against the Momentum 50 TRI after a 0.4% fee and 13% LTCG over ₹1.25L. G30 against 70/30 Momentum 50 fund plus gold ETF. Report Aug 2022 onward (live index) separately | Decides where real money goes. If the twin matches, the reason to trade M6 by hand disappears | NSE factsheet; repo's 12-month replay (M6 +25.3% vs Momentum 50 +3.5%, one year only); the tax gap | 1–2 (reuse `scorecard.after_tax` and the study series) | niftyindices.com historical index and TRI files; GOLDBEES already local | Days: if the twin's after-tax CAGR is at or above M6's in both windows, real money goes to the fund and M6 stays research | Yes: a short decision rule written first. Adds 0 rules |
 | 3 | **Survivorship-free M6 re-run.** Build a full-history panel from NSE daily bhavcopies, delisted names included, and re-run M6 unchanged. Cross-check against IIMA's survivorship-adjusted WML | The largest known bias in the only passing result | momentum-broad-prereg.md; IIMA library; McLean & Pontiff | 3–4 (parser for the pre-2024 format; symbol changes via eod2's `isin_symbol_map.json`, and by hand before ISINs appear) | NSE bhavcopy archive (2010 and 2018 files checked by hand: they list JETAIRWAYS and DHFL, which eod2_data lacks); IIMA CSVs | Week 1–2: full-period excess over EW below +0.3%/month, or t < 1.5 in either period. Then drop the real-money plan and treat the paper year as a process test | Yes: a re-test with thresholds fixed first. Adds 0 rules |
 | 4 | **Rank-buffer M6:** buy the top 20 by 6-1 momentum, sell only when a holding leaves the top 40. Judge on after-tax CAGR | Turnover drives both cost and tax. A buffer is the best-documented fix, and the drawdown study's lower-turnover arm already raised after-tax return | Novy-Marx & Velikov 2016; momentum-drawdown-prereg.md arm C | 1–2 | Build 3's panel | Days: after-tax CAGR not at least 0.5 points above M6's in both periods, or discovery t < 2. Then drop it | Yes. Adds 1 momentum trial (N 87 → 88). Feeds only the Oct 2027 real-money design; the running trial stays as booked |
-| 5 | **Side-hustle kit.** Pull the data router, bhavcopy loader, cost-and-tax backtest and trials ledger into a standalone package with a README and one example study. Ship no NSE data and no signals. Write builds 2 and 3 up as two public case studies using data at least 3 months old and no return claims. Add a one-page freelance offer | Turns the repo's real asset, its honest process, into income that doesn't depend on the market or an employer | SEBI intraday study (most retail strategies fail, so an audit has buyers [unverified: demand not measured]) | 4–5 | None | Six weeks after outreach: fewer than 3 serious enquiries and no paid project means narrowing the pitch, for example to registered advisers only | No study. Adds 0 rules |
+| 5 | **Research kit for your own studies.** Collect load, after-tax CAGR (short-term and held), t-stat, deflated Sharpe and the ledger check into one tested module, with a README and an example on made-up prices | Every future study reuses the same honest checks instead of copying them | The repo's own studies | 1–2 | None | n/a | No study. Adds 0 rules |
 
 **Status, 2026-11-14:**
 - **Build 1:**
@@ -212,21 +207,15 @@ through a pre-registration and a ledger row first.
   R40 fails: -0.6 points after tax against M6 in 2010–19, and a discovery t
   of 1.6. Turnover only fell from 50% to 38%. N is now 88. No more momentum
   variants.
-- **Build 5:** started. Drafts are in [../side-hustle/offer.md](../side-hustle/offer.md)
-  (prices and contact left blank) and [../side-hustle/case-studies.md](../side-hustle/case-studies.md)
-  (method only, no return figures). The kit's first version is in
-  [../kit.md](../kit.md):
+- **Build 5:** done. The kit is in [../kit.md](../kit.md):
   - `swingbot.research` has load, t-stat, short-term and held after-tax CAGR,
     deflated Sharpe, and the ledger check, all tested;
   - `examples/kit_example.py` runs on made-up prices.
-
-  Outreach targets, messages and a tracker are drafted in
-  [../side-hustle/outreach.md](../side-hustle/outreach.md); nothing has been
-  sent. Still open: prices and contact in the offer, and splitting the kit into its
-  own pip package if a buyer ever asks for one.
+- **Real money:** `swingbot-real` tracks a real Momentum 50 (or 70/30 with
+  gold) position under the written limits. The nightly job checks it.
 
 **Order:** 1 now, before the 30 Nov booking. Then 2, the cheapest and
-possibly decisive, then 3, then 5 (which uses 2 and 3 as case studies), then
+possibly decisive, then 3, then 5, then
 4 on build 3's panel.
 
 **Deferred: price-only earnings-announcement drift in mid-caps.** The one
