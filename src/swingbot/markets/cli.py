@@ -96,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     p = ssub.add_parser("replay", parents=[roots])
     p.add_argument("--market", choices=["nse", "us"], required=True)
     p.add_argument("--panel", type=Path, default=Path("data/raw/us_panel"))
+    p.add_argument("--data", type=Path, default=Path("data/raw/eod2_data/daily"), help="NSE: eod2_data's daily/")
     p = ssub.add_parser("decide", parents=[roots])
     p.add_argument("--market", choices=["nse", "us"], required=True)
     p.add_argument("skill", help="e.g. us-momentum@v2")
@@ -189,10 +190,20 @@ def _run(args) -> int:
             made = sk.generate_from_study("us", d / "study.json", sha)
             print(f"{len(made)} new candidate(s): {', '.join(made) or 'none'}")
         elif args.scmd == "replay":
-            from ..us_research import Membership, load_panel
-            daily, manifest = load_panel(args.panel)
-            members = Membership.from_json(json.loads((args.panel / "membership.json").read_text()))
-            sha = manifest["sha256"][:16]
+            if args.market == "nse":
+                import subprocess
+
+                from ..momentum import load
+                from .skills import NseMembers
+                daily, val = load(args.data)
+                members = NseMembers(daily, val)
+                sha = "eod2-" + subprocess.run(["git", "-C", str(args.data.parent), "rev-parse", "--short=12", "HEAD"],
+                                               capture_output=True, text=True, check=True).stdout.strip()
+            else:
+                from ..us_research import Membership, load_panel
+                daily, manifest = load_panel(args.panel)
+                members = Membership.from_json(json.loads((args.panel / "membership.json").read_text()))
+                sha = manifest["sha256"][:16]
             for key, v in sk.all(args.market).items():
                 if v["status"] == "candidate" and not any(r["panel"] == sha for r in v["replays"]):
                     r = sk.replay(args.market, key, daily, members, sha)

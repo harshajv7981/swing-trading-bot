@@ -91,12 +91,3 @@ def test_candidates_are_generated_from_the_study_once(tmp_path):
     made = s.generate_from_study("us", study, panel_id="sha1")
     assert [s.all("us")[k]["params"]["lookback"] for k in made] == [6]
     assert s.generate_from_study("us", study, panel_id="sha1") == []
-
-
-def test_nse_replay_is_not_supported_yet(tmp_path):
-    s = Skills(tmp_path)
-    key = s.propose("nse", "nse-momentum", {"lookback": 12}, "test", ["x"], owner="claude")
-    daily, members = panel()
-    with pytest.raises(SkillRefused, match="not supported"):
-        s.replay("nse", key, daily, members, panel_id="p")
-    assert date(2026, 11, 7)
