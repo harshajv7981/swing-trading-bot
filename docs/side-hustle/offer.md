@@ -50,7 +50,8 @@ methods used in this repo's two TradingAgents trials.
 
 ## Proof of work
 
-Two case studies are in [case-studies.md](case-studies.md). The process
+Two case studies are in [case-studies.md](case-studies.md). Who to contact,
+and how, is in [outreach.md](outreach.md). The process
 behind them is the repo's [trials ledger](../research/trials-ledger.md):
 every pre-registered study, including the failures.
 
