@@ -48,6 +48,11 @@ def _wilder(series: pd.Series, n: int) -> pd.Series:
     return series.ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
 
 
+def true_range(bars: pd.DataFrame) -> pd.Series:
+    high, low, close = bars["high"], bars["low"], bars["close"]
+    return pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
+
+
 def _last(series: pd.Series) -> float | None:
     if series.empty or pd.isna(series.iloc[-1]):
         return None
@@ -69,7 +74,6 @@ def indicators(bars: pd.DataFrame) -> dict[str, float | None]:
 
     mid = close.rolling(20).mean()
     sd = close.rolling(20).std(ddof=0)
-    true_range = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
 
     def ret(n: int) -> float | None:
         return float(close.iloc[-1] / close.iloc[-1 - n] - 1) if len(close) > n else None
@@ -89,7 +93,7 @@ def indicators(bars: pd.DataFrame) -> dict[str, float | None]:
         "boll_mid": _last(mid),
         "boll_upper": _last(mid + 2 * sd),
         "boll_lower": _last(mid - 2 * sd),
-        "atr_14": _last(_wilder(true_range, 14)),
+        "atr_14": _last(_wilder(true_range(bars), 14)),
         "vwma_20": _last((close * vol).rolling(20).sum() / vol.rolling(20).sum()),
         "high_20": _last(high.rolling(20).max()),
         "low_20": _last(low.rolling(20).min()),

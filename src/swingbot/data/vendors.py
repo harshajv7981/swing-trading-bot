@@ -12,7 +12,7 @@ it in `config/data_sources.toml`.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd

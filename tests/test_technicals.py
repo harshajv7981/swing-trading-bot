@@ -50,3 +50,19 @@ def test_missing_or_short_history_is_unavailable_not_flat():
     assert "unavailable (only 3 sessions" in snapshot(DictPrices({"UP": bars([1, 2, 3])}), ev("2026-01-07 15:45"))
 
 
+
+
+def test_shared_true_range_matches_the_old_inline_copies():
+    # exits.atr and timemachine.base_rate used their own copy of this formula; prove the shared one is identical.
+    import numpy as np
+
+    from swingbot.technicals import _wilder, true_range
+
+    rng = np.random.default_rng(7)
+    close = pd.Series(100 + rng.standard_normal(300).cumsum())
+    bars = pd.DataFrame({"high": close + rng.random(300), "low": close - rng.random(300), "close": close})
+    high, low = bars["high"], bars["low"]
+    old = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
+    pd.testing.assert_series_equal(true_range(bars), old)
+    old_atr = old.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+    pd.testing.assert_series_equal(_wilder(true_range(bars), 14), old_atr)
