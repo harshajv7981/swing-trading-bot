@@ -93,6 +93,17 @@ backfill. M6's survivorship bias stays unmeasured, and the pass bar above
 stays open. It can be run only if a properly licensed history of delisted
 stocks turns up.
 
+Licensed routes found on 2026-11-14 (neither has a public price):
+- **NSE Data & Analytics (NDAL)**, through NSE's
+  [end-of-day historical data subscription](https://www.nseindia.com/static/market-data/eod-historical-data-subscription),
+  requested by email to marketdata@nse.co.in. Before paying, get it in writing
+  that the history includes securities later delisted.
+- **Exchange Data International's NSE end-of-day feed.** A third-party post
+  says it includes delisted stocks; this is [unverified].
+
+If either is bought, the data section above gets a dated amendment naming the
+source, before any M6 result is computed.
+
 **Cross-check (information, not judged), run 2026-11-14:**
 `scripts/research/iima_wml_check.py`, using IIMA's survivorship-bias-adjusted
 monthly file, release 2025-12.
