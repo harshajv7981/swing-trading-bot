@@ -51,6 +51,23 @@ def test_checks_flag_booking_notes_and_the_ew_race():
     assert rows["2. Beat mid-cap EW after costs"][0] == "behind"
 
 
+def test_check_4_sets_the_paper_account_against_the_index_fund_after_tax():
+    led = ledger([1_000_000, 1_300_000], [1, 1], [1, 1]) | {"capital": 1_000_000}
+    lv = scorecard.levels(led)
+    assert {c: s for c, s, _ in scorecard.checks(led, lv)}["4. Indian tax checked"] == "Harsha"  # no fund series
+    for m, level in zip(led["months"], [100, 128]):
+        m["indexes"][scorecard.FUND] = level
+    lv = scorecard.levels(led)
+    paper, fund = scorecard.after_tax(led, lv)
+    assert paper == pytest.approx(300_000 * (1 - 0.208))  # every gain inside a year is short-term
+    gain = 1_000_000 * (1.28 * (1 - 0.004) ** (1 / 12) - 1)
+    assert fund == pytest.approx(gain - 0.13 * (gain - 125_000))  # the first Rs 1.25 lakh is free
+    # +30% against +28% before tax, and behind after it
+    assert {c: s for c, s, _ in scorecard.checks(led, lv)}["4. Indian tax checked"] == "behind"
+    led["months"][1]["value"] = 900_000
+    assert scorecard.after_tax(led, scorecard.levels(led))[0] == pytest.approx(-100_000)  # a loss is not taxed
+
+
 def test_render_handles_an_empty_and_a_booked_ledger(tmp_path):
     assert "No month booked yet" in scorecard.render(momentum.new_ledger())
     page = scorecard.render(ledger([100, 110, 99, 120], [1, 1.05, 1.0, 1.1], [50, 55, 60, 66]))

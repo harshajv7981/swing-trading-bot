@@ -29,7 +29,11 @@ from .momentum import INDEXES, gold_mix
 OUT = "runs/momentum-trial/scorecard.html"
 PAPER, EW, MIX = "Paper account (M6)", "Mid-cap EW", "70/30 with gold"
 MIDCAP = "Nifty Midcap 150"
+FUND = "Nifty Midcap150 Momentum 50"
 REVIEW_MONTHS = 12
+# Tax on shares and equity funds with the 4% cess (FY 2026-27): 20% on gains sold within a year, 12.5% on gains
+# over Rs 1.25 lakh a year when held longer. FUND_FEE is a direct-plan index fund's yearly cost; check the factsheet.
+STCG, LTCG, LTCG_FREE, FUND_FEE = 0.208, 0.13, 125_000, 0.004
 COLORS = {PAPER: "var(--accent)", EW: "var(--bench)", MIDCAP: "#c2761b", "Nifty Midcap150 Momentum 50": "#7a52a8",
           "Gold ETF (GOLDBEES)": "#b8a02b", MIX: "var(--good)"}
 
@@ -80,11 +84,28 @@ def versus(paper: pd.Series, other: pd.Series) -> dict:
             "beta": r.iloc[:, 0].cov(r.iloc[:, 1]) / var if var and not math.isnan(var) else math.nan}
 
 
+def after_tax(ledger: dict, lv: pd.DataFrame) -> tuple[float, float]:
+    """Rupee gain since the start after tax: the paper account, and the same money in a Momentum 50 index fund.
+
+    The fund is taxed as if sold after more than a year, which is how it would be held.
+    shortcut: the paper account's net gain is taxed once as short-term, true while the trial is 12 months or less
+    (profits taken before 31 March and losses after it would owe more); past 12 months, tax each lot by tax year."""
+    cap = ledger["capital"]
+    paper = cap * (lv[PAPER].iloc[-1] - 1)
+    fund = cap * (lv[FUND].iloc[-1] * (1 - FUND_FEE) ** ((len(lv) - 1) / 12) - 1)
+    return paper - STCG * max(paper, 0), fund - LTCG * max(fund - LTCG_FREE, 0)
+
+
 def checks(ledger: dict, lv: pd.DataFrame) -> list[tuple[str, str, str]]:
     """(check, status, detail) for the review rules the ledger can answer; the rest need Harsha."""
     n = max(len(ledger["months"]) - 1, 0)
     notes = sum(len(m["notes"]) for m in ledger["months"])
     ahead = versus(lv[PAPER], lv[EW])["excess"]
+    paper, fund = after_tax(ledger, lv) if n else (math.nan, math.nan)
+    tax = ("Harsha", "short-term gains at 20% vs 12.5% for an index fund held a year") if math.isnan(fund) else (
+        "ahead" if paper > fund else "behind",
+        (f"after tax Rs {paper:+,.0f}, against Rs {fund:+,.0f} for the same money in a Momentum 50 index fund; "
+         "an estimate for Harsha to confirm"))
     return [
         ("Months held", f"{n} of {REVIEW_MONTHS}", "the review is at the booking at the end of Oct 2027"),
         ("1. Booked from the data, no hand fixes", "review notes" if notes else "ok so far",
@@ -94,7 +115,7 @@ def checks(ledger: dict, lv: pd.DataFrame) -> list[tuple[str, str, str]]:
          + ("" if n >= REVIEW_MONTHS else "; only the 12-month figure counts")),
         ("3. Written plan for a -60% fall", "written",
          "momentum-paper-trial.md, 'Real-money limits': Rs 2.5 lakh cap, review at -25%, hold through -60%"),
-        ("4. Indian tax checked", "Harsha", "short-term gains at 20% vs 12.5% for an index fund held a year"),
+        ("4. Indian tax checked", *tax),
     ]
 
 
