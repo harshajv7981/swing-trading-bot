@@ -186,7 +186,8 @@ through a pre-registration and a ledger row first.
 **Status, 2026-11-14:**
 - **Build 1:**
   - (a) Done. The nightly pull retries, notifies on failure, and warns when
-    the data is over 7 days old.
+    the data is over 7 days old. A notification fired from a one-off launchd
+    job showed on screen (confirmed by Harsha, 2026-11-14).
   - (b) Done. Each booked month records its next-session shortfall, and the
     judging rule is in momentum-paper-trial.md.
   - (c) Done. The plan is in momentum-paper-trial.md: no real money before
@@ -204,15 +205,23 @@ through a pre-registration and a ledger row first.
   The judged re-run was dropped: the backfill would break NSE's ban on
   automated collection. The IIMA cross-check ran. Indian momentum survives
   survivorship adjustment (WML t +3.6, 2010–25), but it tracks M6 only weakly
-  (correlation 0.27), so M6's own bias is still unmeasured.
+  (correlation 0.27), so M6's own bias is still unmeasured. The licensed
+  routes, NSE's NDAL end-of-day subscription or the EDI feed, have no public
+  price. They're listed in the pre-registration.
 - **Build 4:** done on eod2_data ([rank-buffer-prereg.md](rank-buffer-prereg.md)).
   R40 fails: -0.6 points after tax against M6 in 2010–19, and a discovery t
   of 1.6. Turnover only fell from 50% to 38%. N is now 88. No more momentum
   variants.
 - **Build 5:** started. Drafts are in [../side-hustle/offer.md](../side-hustle/offer.md)
   (prices and contact left blank) and [../side-hustle/case-studies.md](../side-hustle/case-studies.md)
-  (method only, no return figures). Pulling the harness out into a standalone
-  package (4–5 days) is not started.
+  (method only, no return figures). The kit's first version is in
+  [../kit.md](../kit.md):
+  - `swingbot.research` has load, t-stat, short-term and held after-tax CAGR,
+    deflated Sharpe, and the ledger check, all tested;
+  - `examples/kit_example.py` runs on made-up prices.
+
+  Still open: prices and contact in the offer, and splitting the kit into its
+  own pip package if a buyer ever asks for one.
 
 **Order:** 1 now, before the 30 Nov booking. Then 2, the cheapest and
 possibly decisive, then 3, then 5 (which uses 2 and 3 as case studies), then
