@@ -92,7 +92,8 @@ def checks(ledger: dict, lv: pd.DataFrame) -> list[tuple[str, str, str]]:
         ("2. Beat mid-cap EW after costs", "–" if math.isnan(ahead) else ("ahead" if ahead > 0 else "behind"),
          "–" if math.isnan(ahead) else f"{ahead * 100:+.1f} points since the start"
          + ("" if n >= REVIEW_MONTHS else "; only the 12-month figure counts")),
-        ("3. Written plan for a -60% fall", "Harsha", "not something the ledger can show"),
+        ("3. Written plan for a -60% fall", "written",
+         "momentum-paper-trial.md, 'Real-money limits': Rs 2.5 lakh cap, review at -25%, hold through -60%"),
         ("4. Indian tax checked", "Harsha", "short-term gains at 20% vs 12.5% for an index fund held a year"),
     ]
 
@@ -192,7 +193,7 @@ def render(ledger: dict) -> str:
     if e["months"]:
         parts.append(f'<p class="sub">Against mid-cap EW: tracking error {_pct(e["te"], signed=False)} a year, '
                      f'information ratio {_num(e["ir"])}.</p>')
-    tone = {"ok so far": "good", "ahead": "good", "behind": "warn", "review notes": "warn"}
+    tone = {"ok so far": "good", "ahead": "good", "written": "good", "behind": "warn", "review notes": "warn"}
     parts += ["<h2>October 2027 review</h2>", _table(
         ["Check", "Status", "Detail"],
         [[_e(c), f'<span class="{tone.get(s, "")}">{_e(s)}</span>',

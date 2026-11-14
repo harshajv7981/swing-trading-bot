@@ -29,6 +29,9 @@ outcome when it is judged.
 | 2026-11-13 | [151 Trading Strategies: untested price rules](book-rules-prereg.md) | No rule passes |
 | 2026-11-11 | [Open-to-close (intraday) rules](intraday-open-close-prereg.md) | G-down passes the bar, not trusted; needs minute bars |
 | 2026-11-14 | [Smart-money market structure](smc-structure-prereg.md) | No rule passes |
+| 2026-11-14 | [M6 and G30 against their passive twins, after tax](passive-twin-prereg.md) | Twin wins both by the rule (M6 -8.0 pts full, +10.7 live; full window rests on back-calculated index) (adds 0 rules) |
+| 2026-11-14 | [Rank-buffer M6 (R40)](rank-buffer-prereg.md) | Fail (2010–19 after tax -0.6 pt vs M6, t 1.6); adds 1 momentum trial, N 87 → 88 |
+| 2026-11-14 | [Survivorship-free M6](survivorship-free-m6-prereg.md) | Judged test not run (NSE bulk data declined); IIMA cross-check: momentum survives survivorship, weak link to M6 (adds 0 rules) |
 
 Running paper tests with their own rules docs, not counted above:
 [mid-cap momentum trial](momentum-paper-trial.md),

@@ -30,8 +30,10 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
+import time
 import webbrowser
 from datetime import date, timedelta
 from fractions import Fraction
@@ -52,6 +54,7 @@ RANKS = (100, 250)
 MIN_VALUE = 5e7  # Rs 5 crore
 MIN_HISTORY = 260
 LOOKBACK = 6
+STALE_DAYS = 7  # eod2_data has synced as rarely as weekly; longer than that means something broke
 # Index series, ETFs and debt funds share the folder with the stocks.
 NOT_STOCK = re.compile(r"\s|etf|bees$|sensex|nifty|liquid|gilt|gsec")
 INDEXES = {"Nifty Midcap 150": "nifty midcap 150", "Nifty Midcap150 Momentum 50": "nifty midcap150 momentum 50",
@@ -296,12 +299,12 @@ def update(data: Path, ledger_path: Path = LEDGER, calendar: NSECalendar | None 
            start: str = START) -> list[dict]:
     calendar = calendar or NSECalendar.load()
     ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else new_ledger(start)
-    todo = due(ledger, last_date(data), calendar)
-    if not todo:
-        return []
-    y, m = todo[0]
-    px, val = load(data, since=str(date(y, m, 1) - timedelta(days=800)))
-    prices, done = Closes(data), []
+    last = last_date(data)
+    todo, done = due(ledger, last, calendar), []
+    if todo:
+        y, m = todo[0]
+        px, val = load(data, since=str(date(y, m, 1) - timedelta(days=800)))
+        prices = Closes(data)
     for y, m in todo:
         days = px.index[(px.index.year == y) & (px.index.month == m)]
         asof = days.max()
@@ -310,11 +313,42 @@ def update(data: Path, ledger_path: Path = LEDGER, calendar: NSECalendar | None 
         if expected and asof.date() != expected:
             done[-1]["notes"].append(f"the data's last day in the month is {asof.date()}, "
                                      f"not {expected} as the holiday list has it")
+    filled = [m for m in ledger["months"] if "shortfall" not in m and date.fromisoformat(m["date"]) < last]
+    for m in filled:
+        m["shortfall"] = shortfall(data, m)
+    if not (done or filled):
+        return []
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = ledger_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(ledger, indent=1))
     tmp.replace(ledger_path)
     return done
+
+
+def shortfall(data: Path, month: dict) -> dict:
+    """What filling at the next session would have cost against the booked close, weighted by order value.
+
+    Positive is a cost: buys paying more, sells getting less. `open` is the next session's open, `typical` its
+    (high + low + close) / 3 as a stand-in for VWAP. Both come from the raw file, so the ratio is unaffected
+    by later split adjustments. Orders without a close on the day or a next row are left out."""
+    asof, tot, cost = pd.Timestamp(month["date"]), 0.0, {"open": 0.0, "typical": 0.0}
+    for o in month["orders"]:
+        p = data / f"{o['symbol'].lower()}.csv"
+        df = pd.read_csv(p, parse_dates=["Date"], index_col="Date") if p.exists() else pd.DataFrame()
+        if not {"Open", "High", "Low", "Close"} <= set(df.columns):
+            continue
+        df = df[~df.index.duplicated()].sort_index()
+        after = df[df.index > asof].dropna(subset=["Open", "High", "Low", "Close"])
+        if asof not in df.index or after.empty or not df.at[asof, "Close"] > 0:
+            continue
+        close, nxt = df.at[asof, "Close"], after.iloc[0]
+        w = o["shares"] * o["price"] * (1 if o["side"] == "buy" else -1)
+        cost["open"] += w * (nxt["Open"] / close - 1)
+        cost["typical"] += w * ((nxt["High"] + nxt["Low"] + nxt["Close"]) / 3 / close - 1)
+        tot += abs(w)
+    if not tot:
+        return {"open": None, "typical": None, "value": 0.0}
+    return {"open": cost["open"] / tot, "typical": cost["typical"] / tot, "value": tot}
 
 
 def record_memory(ledger_path: Path) -> str:
@@ -385,6 +419,17 @@ def report(ledger: dict) -> str:
                      + " | ".join(idx) + f" | {mixed} | {m['turnover']:.0%} | Rs {m['costs']:,.0f} |")
     last = months[-1]
     lines += ["", f"Worst fall from a peak so far: {worst:.1%}.", "",
+              "## Fills at the next session instead of the close", "",
+              "Positive is a cost per rupee traded, on top of the 0.20% a side already charged. Judged after "
+              "three rebalances: an average above 0.25% means the backtest's costs were too low.", "",
+              "| Month-end | Next open | Next typical price | Traded |", "|---|---|---|---|"]
+    for m in months:
+        s = m.get("shortfall")
+        if not s or s["open"] is None:
+            lines.append(f"| {m['date']} | pending | pending | |" if not s else f"| {m['date']} | n/a | n/a | |")
+            continue
+        lines.append(f"| {m['date']} | {s['open']:+.2%} | {s['typical']:+.2%} | Rs {s['value']:,.0f} |")
+    lines += ["",
               f"## Holdings from {last['date']} ({len(last['holdings'])} stocks, cash Rs {last['cash']:,.0f})", "",
               "| Stock | Shares | Price | Value |", "|---|---|---|---|"]
     for sym, h in sorted(last["holdings"].items()):
@@ -448,11 +493,31 @@ def same_day_picks(data: Path, bhav_dir: Path, calendar: NSECalendar, month: str
     return entry
 
 
-def pull(data: Path) -> None:
-    """Bring a shallow eod2_data clone up to date (the folder holding `daily/`)."""
-    repo = data.parent
-    subprocess.run(["git", "-C", str(repo), "fetch", "--depth", "1", "origin"], check=True)
-    subprocess.run(["git", "-C", str(repo), "reset", "--hard", "--quiet", "FETCH_HEAD"], check=True)
+def notify(text: str, run=subprocess.run) -> None:
+    """Print, and on a Mac show a notification: the nightly launchd job otherwise fails only into its log."""
+    print(text, file=sys.stderr)
+    if shutil.which("osascript"):
+        run(["osascript", "-e", f'display notification "{text}" with title "swingbot"'], check=False)
+
+
+def pull(data: Path, tries: int = 3, run=subprocess.run, sleep=time.sleep) -> None:
+    """Bring a shallow eod2_data clone up to date (the folder holding `daily/`).
+
+    Retries network blips: the clone is blob-less, so the reset downloads the day's files and has timed out.
+    The last failure also raises a macOS notification, since the nightly launchd job otherwise fails only
+    into its log."""
+    repo = str(data.parent)
+    for attempt in range(tries):
+        try:
+            run(["git", "-C", repo, "fetch", "--depth", "1", "origin"], check=True)
+            run(["git", "-C", repo, "reset", "--hard", "--quiet", "FETCH_HEAD"], check=True)
+            return
+        except subprocess.CalledProcessError as e:
+            if attempt == tries - 1:
+                notify("eod2_data pull failed: see ~/Library/Logs/swingbot/momentum.log", run)
+                raise
+            print(f"pull failed ({e}); retrying", file=sys.stderr)
+            sleep(60 * (attempt + 1))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -490,8 +555,10 @@ def main(argv: list[str] | None = None) -> int:
             webbrowser.open(out.resolve().as_uri())
         return 0
     if args.cmd == "update":
-        if args.pull:
+        if args.pull:  # the nightly job: also say when the data stops moving, since bookings wait for it
             pull(args.data)
+            if (lag := (date.today() - last_date(args.data)).days) > STALE_DAYS:
+                notify(f"eod2_data is {lag} days old: month-end bookings wait until it catches up")
         done = update(args.data, args.ledger, NSECalendar.load(args.holidays))
         if not done:
             print("nothing to book: no new month-end in the data yet")

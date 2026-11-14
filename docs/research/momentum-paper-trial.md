@@ -80,10 +80,42 @@ holdout already covered:
   t-stat of 2. The year is a check that the rule still behaves as tested, not
   proof that it works.
 
+## Real-money limits (Harsha's written plan, 2026-11-14)
+
+This is the plan review gate 3 asks for. It was written after
+[passive-twin-prereg.md](passive-twin-prereg.md) sent any real money to the
+passive fund rather than M6.
+
+- **When:** no real money goes in before the October 2027 review. The paper
+  trial and the G30 shadow ledger run as booked until then.
+- **Cap:** ₹2.5 lakh at most, ever, across the whole position. It is never
+  money needed to live on if the job goes.
+- **Review point:** at a fall of 25% from the position's peak, stop adding
+  money and review. 25% is about what the Momentum 50 fund lost from Sep 2024
+  to Mar 2025.
+- **A fall of about 60%:** hold what is invested and add nothing new until
+  the value recovers above the -25% review point. No selling in the fall.
+- **Changing these:** only in writing, dated, before the October 2027
+  review. Never during a fall.
+
+What the money would go into is decided at the review. By build 2's rule
+it is the Momentum 50 fund, optionally 70/30 with a gold ETF, unless the
+trial and a new pre-registered comparison say otherwise.
+
 ## Known gaps against real trading
 
 - **Fills at the month-end close.** Real orders would go in at the close or the
-  next morning, at slightly different prices.
+  next morning, at slightly different prices. Since 2026-11-14 each booked
+  month also records what filling at the next session would have cost
+  against the close, weighted by order value. It uses the next open and the
+  next (high + low + close) / 3 as a VWAP stand-in (`shortfall` in the ledger,
+  "Fills at the next session" in the report). October 2026: next open -0.26%,
+  typical +0.30%. **Rule, fixed before the November booking:** after the
+  January 2027 booking (three measured rebalances), if the average of the two
+  measures across those months is above +0.25% per rupee traded, the
+  backtest's 0.20% a side was too low. M6 is then re-run at 0.20% plus the
+  observed figure before any real-money discussion. This is information for
+  the October 2027 review, not a stop rule for the trial.
 - **Data lag.** eod2_data syncs about once a week, so a month is booked a few
   days late, still from that day's closes and nothing later. Real trading
   would need same-day data (Dhan's API or NSE's daily bhavcopy).
