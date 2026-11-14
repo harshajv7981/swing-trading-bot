@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass
 
 import pandas as pd
 
-from ..technicals import _wilder
+from ..technicals import _wilder, true_range
 from .config import RiskConfig
 
 
@@ -89,9 +89,7 @@ def round_up(price: float, tick: float) -> float:
 def atr(bars: pd.DataFrame, n: int = 14) -> float | None:
     if len(bars) <= n:
         return None
-    high, low, close = bars["high"], bars["low"], bars["close"]
-    tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
-    value = _wilder(tr, n).iloc[-1]
+    value = _wilder(true_range(bars), n).iloc[-1]
     return None if pd.isna(value) else float(value)
 
 

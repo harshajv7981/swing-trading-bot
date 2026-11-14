@@ -53,15 +53,3 @@ def load_events(path: str | Path) -> list[NewsEvent]:
     ]
     return sorted(events, key=lambda e: e.published_at)
 
-
-def apply_cutoff(events: list[NewsEvent], cutoff: str | None) -> tuple[list[NewsEvent], int]:
-    """Drop events published before `cutoff` (a date, read as IST midnight).
-
-    Synthetic events are kept: made-up news can't be remembered. Returns the
-    kept events and how many were dropped.
-    """
-    if not cutoff or cutoff.lower() == "none":
-        return events, 0
-    start = _parse_ts(cutoff)
-    kept = [e for e in events if e.source == "synthetic" or e.published_at >= start]
-    return kept, len(events) - len(kept)

@@ -31,6 +31,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 import pandas as pd
 
+from ..technicals import _wilder, true_range
 from .exits import ExitPlan
 
 MIN_SESSIONS = 120
@@ -176,9 +177,7 @@ def base_rate(plan: ExitPlan, bars: pd.DataFrame, hold: int, atr_period: int = 1
     k = plan.risk_per_share / plan.atr if plan.atr else None
     if not k:
         return None
-    high, low, close = bars["high"], bars["low"], bars["close"]
-    tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
-    atr_series = tr.ewm(alpha=1 / atr_period, adjust=False, min_periods=atr_period).mean().to_numpy()
+    atr_series = _wilder(true_range(bars), atr_period).to_numpy()
     arr = bars[["open", "high", "low", "close"]].to_numpy()
     starts = [i for i in range(atr_period, len(bars) - hold) if not np.isnan(atr_series[i])]
     if len(starts) < 20:
