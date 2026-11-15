@@ -20,8 +20,12 @@ history: candidate -> shadow -> approved -> retired (or rejected).
 - **People decide:** every status change needs a named person. Approving a new
   version retires the old one. Nothing here changes a running pre-registered
   trial: putting an approved version to work needs its own pre-registration.
-- NSE replay is not supported yet: the NSE panel lives only on the Mac and its
-  universe rule (liquidity ranks 101-250) is not wired into the replay.
+- **Replay gate (NSE):** the same gate, on eod2_data from Jan 2010, with the
+  trial's point-in-time universe (liquidity ranks 101-250 at each month-end,
+  `NseMembers`) and its 0.20%-a-side cost. The panel id is eod2_data's commit.
+  There is no NSE trend gate yet, so NSE candidates can't ask for one.
+- **NSE shadow:** each month-end booking picks for every skill in shadow
+  (`nse_shadow`) and settles last month's, scored like the trial's own picks.
 """
 
 from __future__ import annotations
@@ -117,6 +121,8 @@ class Skills:
         unknown = set(params) - set(DEFAULTS[market])
         if unknown:
             raise SkillRefused(f"unknown setting(s) {', '.join(sorted(unknown))}; known: {', '.join(DEFAULTS[market])}")
+        if market == "nse" and params.get("trend_gate"):
+            raise SkillRefused("NSE has no trend gate yet: there is no tested NSE market filter to use")
         if not evidence:
             raise SkillRefused("a candidate needs evidence: a study, a lesson or an episode")
         full = {**DEFAULTS[market], **params}
@@ -150,8 +156,8 @@ class Skills:
         return made
 
     def replay(self, market: str, key: str, daily: pd.DataFrame, membership, panel_id: str) -> dict:
-        if market != "us":
-            raise SkillRefused("NSE replay is not supported yet: its panel and universe rule are not wired in")
+        """`daily` is close prices (NSE: `momentum.load`'s closes); `membership.at(date)` the universe then."""
+        from ..us_momentum import COST as US_COST
         from ..us_momentum import month_ends, replay
         from ..us_research import summary, trend_gate
 
@@ -160,17 +166,22 @@ class Skills:
         cur_key = self.approved(market, cand["name"])
         if cur_key is None:
             raise SkillRefused(f"no approved {cand['name']} to compare with")
-        m = month_ends(daily)
+        start = max(cand["params"]["lookback"], skills[cur_key]["params"]["lookback"], 12)
+        if market == "nse":
+            from ..momentum import COST_SIDE as cost
+            m = nse_month_ends(daily)
+            start = max(start, int(m.index.searchsorted(pd.Timestamp(NSE_FROM))))
+        else:
+            cost, m = US_COST, month_ends(daily)
 
         def members(d):
             return membership.at(d.date())
 
-        first = m.index[max(cand["params"]["lookback"], skills[cur_key]["params"]["lookback"], 12)]
-        last = m.index[-2]
+        first, last = m.index[start], m.index[-2]
 
         def run(p: dict) -> pd.Series:
             g = trend_gate(m["SPY"]) if p["trend_gate"] else None
-            rows = replay(m, members, first, last, n=p["n"], band=p["band"], lookback=p["lookback"],
+            rows = replay(m, members, first, last, n=p["n"], cost=cost, band=p["band"], lookback=p["lookback"],
                           skip=p["skip"], gate=g)
             return pd.Series({pd.Timestamp(r["held_to"]): r["ret"] for r in rows})
 
@@ -232,6 +243,61 @@ class Skills:
                     self._append(market, {"kind": "skill_status", "skill": other, "status": "retired", "by": by,
                                           "why": f"superseded by {key}"})
         self._append(market, {"kind": "skill_status", "skill": key, "status": new, "by": by, "why": why})
+
+
+NSE_FROM = "2010-01-01"  # the replay starts where every NSE study did
+
+
+def nse_month_ends(px: pd.DataFrame) -> pd.DataFrame:
+    """Month-end closes as the trial's `select` sees them (gaps of up to 5 days carried)."""
+    return px.ffill(limit=5).groupby(px.index.to_period("M")).tail(1)
+
+
+class NseMembers:
+    """The NSE trial's universe at each month-end, point in time: `momentum.select`'s bucket."""
+
+    def __init__(self, px: pd.DataFrame, val: pd.DataFrame):
+        from .. import momentum as mo  # read at call time, so the rule's settings are the trial's own
+        me = nse_month_ends(px)
+        hist = px.notna().cumsum().loc[me.index]
+        medval = val.rolling(60, min_periods=40).median().loc[me.index]
+        self.by = {}
+        for d in me.index:
+            ok = (hist.loc[d] >= mo.MIN_HISTORY) & (medval.loc[d] >= mo.MIN_VALUE) & me.loc[d].notna()
+            self.by[d.date()] = list(medval.loc[d][ok].sort_values(ascending=False).index[mo.RANKS[0]:mo.RANKS[1]])
+
+    def at(self, d) -> list[str]:
+        return self.by.get(d, [])
+
+
+def nse_shadow(skills: Skills, px: pd.DataFrame, val: pd.DataFrame, ledger: dict, month: dict) -> dict:
+    """Step 8 for NSE: settle last month's shadow picks, then pick this month's. No orders.
+
+    Shadow picks and the trial's own picks are scored the same way (equal weight,
+    close to close, before costs), so they compare like with like."""
+    from ..momentum import select
+    from ..us_momentum import rank
+
+    in_shadow = {k: v for k, v in skills.all("nse").items() if v["status"] == "shadow"}
+    m = nse_month_ends(px)
+    asof = pd.Timestamp(month["date"])
+    prev = [x for x in ledger["months"] if x["date"] < month["date"]]
+    if prev and prev[-1].get("shadow") and pd.Timestamp(prev[-1]["date"]) in m.index:
+        t0 = pd.Timestamp(prev[-1]["date"])
+
+        def ew(names: list[str]) -> float:
+            r = [m.at[asof, s] / m.at[t0, s] - 1 for s in names
+                 if s in m.columns and pd.notna(m.at[t0, s]) and pd.notna(m.at[asof, s])]
+            return float(sum(r) / len(r)) if r else 0.0
+
+        for key, names in prev[-1]["shadow"].items():
+            if key in in_shadow:
+                skills.record_shadow("nse", key, prev[-1]["date"][:7], ew(names), ew(prev[-1]["picks"]))
+    if not in_shadow:
+        return {}
+    bucket = select(px, val, asof)[0]
+    return {k: rank(m, asof, bucket, v["params"]["n"], v["params"]["lookback"], v["params"]["skip"])[0]
+            for k, v in in_shadow.items()}
 
 
 def show(skills: Skills, market: str) -> str:

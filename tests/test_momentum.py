@@ -167,10 +167,13 @@ def test_pull_retries_a_network_blip_then_notifies_and_raises(tmp_path, monkeypa
     def flaky(fails):
         calls = []
 
-        def run(cmd, check):
-            calls.append(cmd[0] if cmd[0] == "osascript" else cmd[3])
-            if cmd[0] != "osascript" and len(calls) <= fails:
-                raise subprocess.CalledProcessError(128, cmd)
+        def run(cmd, check, timeout=None):
+            calls.append("osascript" if cmd[0] == "osascript" else next(x for x in cmd if x in ("fetch", "reset")))
+            if cmd[0] != "osascript":
+                assert timeout and "http.lowSpeedTime=60" in cmd  # a stalled transfer can't hang the job
+                if len(calls) <= fails:
+                    raise (subprocess.TimeoutExpired(cmd, timeout) if len(calls) == 1 else
+                           subprocess.CalledProcessError(128, cmd))
         return run, calls
 
     sleeps = []

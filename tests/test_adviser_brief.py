@@ -107,3 +107,39 @@ def test_a_brief_that_is_not_cleared_has_no_actions(booked):
     px, val = momentum.load(data, since="2023-01-01")
     text = adviser_brief.brief(ledger, px, val, ledger["months"][1], {}, data)
     assert "PAPER ONLY" in text and "| BUY |" not in text and "| paper |" in text
+
+
+def test_the_brief_reports_the_learning_loop(booked):
+    from swingbot.markets.memory import Memory
+    from swingbot.markets.skills import Skills
+
+    data, ledger_path = booked
+    state = ledger_path.parent
+    momentum.record_memory(ledger_path)  # July settles when August books
+    sk = Skills(state)
+    key = sk.propose("nse", "nse-momentum", {"lookback": 3}, "a repeated mistake", ["episode"], owner="Harsha")
+    july = next(k for k in Memory(state).episodes("nse") if k.endswith("2025-07"))
+    lesson = Memory(state).propose("nse", "strategy", "Mid-cap momentum lags in sharp reversals", [july],
+                                   "low", by="Harsha")
+    Memory(state).decide("nse", lesson, "approve", by="Harsha", why="seen twice")
+    path = adviser_brief.write(data, "2025-08", ledger_path, state / "out")
+    text = path.read_text()
+    assert "## How the system is learning" in text and "`nse-momentum@v1`" in text
+    assert "1 settled month" in text and "Lessons approved:** 1" in text and "sharp reversals" in text
+    assert f"Candidate `{key}`" in text and "candidate, replay not replayed, 0 of 6 shadow months" in text
+    assert "your sign-off" in text
+
+
+def test_paper_only_briefs_show_stops_with_the_information_only_note(tmp_path):
+    def ohlc(df):
+        return df.assign(High=df["Close"] * 1.01, Low=df["Close"] * 0.99)
+
+    write_stocks(tmp_path / "d", extra={k: ohlc for k in range(10)})
+    ledger_path = tmp_path / "ledger.json"
+    momentum.update(tmp_path / "d", ledger_path, KNOWN_2025, start="2025-07-01")
+    ledger = json.loads(ledger_path.read_text())
+    px, val = momentum.load(tmp_path / "d", since="2023-01-01")
+    text = adviser_brief.brief(ledger, px, val, ledger["months"][1], {}, tmp_path / "d")
+    assert "PAPER ONLY" in text and "| BUY |" not in text and "information only" in text
+    row = next(line for line in text.splitlines() if "| paper | S5 |" in line)
+    assert "(-" in row.split("|")[12]  # a stop level below the close, not a dash

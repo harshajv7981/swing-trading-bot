@@ -54,6 +54,7 @@ RANKS = (100, 250)
 MIN_VALUE = 5e7  # Rs 5 crore
 MIN_HISTORY = 260
 LOOKBACK = 6
+PULL_TIMEOUT = 900  # seconds per git step; a normal reset downloads in about 90
 STALE_DAYS = 7  # eod2_data has synced as rarely as weekly; longer than that means something broke
 # Index series, ETFs and debt funds share the folder with the stocks.
 NOT_STOCK = re.compile(r"\s|etf|bees$|sensex|nifty|liquid|gilt|gsec")
@@ -310,6 +311,11 @@ def update(data: Path, ledger_path: Path = LEDGER, calendar: NSECalendar | None 
         asof = days.max()
         expected = month_end_session(y, m, calendar) if calendar.knows(y) else None
         done.append(book(ledger, px, val, prices, asof, index_closes(data, asof)))
+        try:  # step 8: settle and pick for skills in shadow; never fails the booking
+            from .markets.skills import Skills, nse_shadow
+            done[-1]["shadow"] = nse_shadow(Skills(Path(ledger_path).parent), px, val, ledger, done[-1])
+        except Exception as e:  # noqa: BLE001
+            done[-1]["notes"].append(f"shadow skills not run: {e}")
         if expected and asof.date() != expected:
             done[-1]["notes"].append(f"the data's last day in the month is {asof.date()}, "
                                      f"not {expected} as the holiday list has it")
@@ -507,12 +513,15 @@ def pull(data: Path, tries: int = 3, run=subprocess.run, sleep=time.sleep) -> No
     The last failure also raises a macOS notification, since the nightly launchd job otherwise fails only
     into its log."""
     repo = str(data.parent)
+    # A stalled download once hung the reset for 5 hours: git aborts below 1 KB/s for a minute (also in the
+    # blob fetch the reset runs), and a hard timeout backs that up.
+    git = ["git", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "-C", repo]
     for attempt in range(tries):
         try:
-            run(["git", "-C", repo, "fetch", "--depth", "1", "origin"], check=True)
-            run(["git", "-C", repo, "reset", "--hard", "--quiet", "FETCH_HEAD"], check=True)
+            run([*git, "fetch", "--depth", "1", "origin"], check=True, timeout=PULL_TIMEOUT)
+            run([*git, "reset", "--hard", "--quiet", "FETCH_HEAD"], check=True, timeout=PULL_TIMEOUT)
             return
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             if attempt == tries - 1:
                 notify("eod2_data pull failed: see ~/Library/Logs/swingbot/momentum.log", run)
                 raise

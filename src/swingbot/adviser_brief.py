@@ -106,7 +106,10 @@ def stop_levels(data: Path, asof: pd.Timestamp, picks: list[str]) -> pd.Series:
         p = data / f"{sym.lower()}.csv"
         if not p.exists():
             continue
-        df = pd.read_csv(p, usecols=["Date", "High", "Low", "Close", "Series"], parse_dates=["Date"], index_col="Date")
+        try:
+            df = pd.read_csv(p, usecols=["Date", "High", "Low", "Close", "Series"], parse_dates=["Date"], index_col="Date")
+        except ValueError:
+            continue
         df = df[(df["Series"].fillna("EQ") == "EQ") & (df.index <= asof)]
         df = df[~df.index.duplicated()].sort_index().tail(120).rename(columns=str.lower)
         atr = _wilder(true_range(df), ATR_DAYS).iloc[-1]
@@ -126,7 +129,7 @@ def streak(ledger: dict, upto: str, sym: str) -> int:
 
 
 def brief(ledger: dict, px: pd.DataFrame, val: pd.DataFrame, month: dict, sectors: dict[str, str],
-          data: Path | None = None, cap: float = CAP) -> str:
+          data: Path | None = None, cap: float = CAP, state_root: Path | None = None) -> str:
     asof = pd.Timestamp(month["date"])
     bucket, picks = select(px, val, asof)
     if sorted(picks) != sorted(month["picks"]):
@@ -135,7 +138,7 @@ def brief(ledger: dict, px: pd.DataFrame, val: pd.DataFrame, month: dict, sector
     before = set(prev[-1]["picks"]) if prev else set()
     t = rows(px, val, asof, picks)
     cleared, checks = gate(ledger, month)
-    stops = stop_levels(data, asof, picks) if cleared and data is not None else pd.Series(dtype=float)
+    stops = stop_levels(data, asof, picks) if data is not None else pd.Series(dtype=float)
     slice_ = cap / len(picks)
     lines = [
         f"# Monthly stock list for adviser review: {asof:%B %Y}",
@@ -152,8 +155,8 @@ def brief(ledger: dict, px: pd.DataFrame, val: pd.DataFrame, month: dict, sector
         "",
         ("The paper record clears the bar: actions, stop levels and sizes are filled in below for the adviser "
          "to confirm or reject." if cleared else
-         "The paper record doesn't clear the bar yet, so there are no buy/sell actions, stops or sizes. "
-         "The list below is what the rule holds on paper."),
+         "The paper record doesn't clear the bar yet, so there are no buy/sell actions or sizes. "
+         "The list below is what the rule holds on paper; stop levels are shown for information."),
         "",
         "## The list",
         "",
@@ -182,7 +185,7 @@ def brief(ledger: dict, px: pd.DataFrame, val: pd.DataFrame, month: dict, sector
             last = px[px.index <= asof].iloc[-1]
             lines += ["", "**SELL (dropped from the list):** " + ", ".join(
                 f"{s} at about {last[s]:,.2f}" if s in last.index and pd.notna(last[s]) else s for s in dropped)]
-    if cleared:
+    if len(stops):
         lines += ["", f"Stop levels are {STOP_ATRS:g} x the {ATR_DAYS}-day average true range below the close. "
                       "They are **information only**: the tested rule has no stop-loss and exits only at the month-end "
                       "re-rank. Stops were never tested on this rule, and using them would change its results."]
@@ -206,8 +209,60 @@ def brief(ledger: dict, px: pd.DataFrame, val: pd.DataFrame, month: dict, sector
         lines += [f"- **Forward paper trial:** started {first['date']}. As of {last['date']}, "
                   f"{last['value'] / ledger['capital'] - 1:+.1%} since the start, against "
                   f"{last['ew']['level'] - 1:+.1%} for the equal-weight mid-cap bucket. Judged in October 2027."]
+    if state_root is not None:
+        lines += ["", "## How the system is learning", "", *learning(state_root)]
     lines += ["", "## Questions to ask the adviser", "", QUESTIONS, ""]
     return "\n".join(lines)
+
+
+TRIAL_SKILL = "nse-momentum@v1"  # the rule the running paper trial books; changing it needs a new pre-registration
+
+
+def learning(state_root: Path) -> list[str]:
+    """The closed loop's record (episodes, mistakes, lessons, skills), read-only, for the brief."""
+    from collections import Counter
+
+    from .markets.memory import Memory
+    from .markets.skills import Skills
+
+    mem, sk = Memory(state_root), Skills(state_root)
+    skills = sk.all("nse")
+    rule = skills.get(TRIAL_SKILL, {})
+    p = rule.get("params", {})
+    out = [f"- **Made by:** `{TRIAL_SKILL}`, the trial's rule ({p.get('lookback')}-{p.get('skip')} month momentum, "
+           f"top {p.get('n')}), approved by {rule.get('approved_by', 'its pre-registration')}."]
+    newer = sk.approved("nse", "nse-momentum")
+    if newer and newer != TRIAL_SKILL:
+        out.append(f"- **Newer approved version:** `{newer}`. It isn't making this list yet: putting it to work "
+                   "needs its own pre-registration.")
+    settled = [e for e in mem.episodes("nse").values() if e.get("status") == "settled"]
+    mistakes = Counter(m for e in settled for m in e["mistakes"])
+    out.append(f"- **Experience:** {len(settled)} settled month(s)"
+               + (f"; mistakes found: {', '.join(f'{k} ({n})' for k, n in mistakes.most_common())}" if mistakes
+                  else "; no mistakes recorded yet") + ".")
+    lessons = mem.lessons("nse").values()
+    approved = [x for x in lessons if x["status"] == "approved"]
+    waiting = sum(1 for x in lessons if x["status"] == "proposed")
+    out.append(f"- **Lessons approved:** {len(approved)}" + "".join(f"\n  - {x['text']}" for x in approved)
+               + (f"\n- **Lessons waiting for your decision:** {waiting}" if waiting else ""))
+    trying = {k: v for k, v in skills.items() if v["status"] in ("candidate", "shadow")}
+    if not trying:
+        out.append("- **Candidates being tested:** none.")
+    for k, v in sorted(trying.items()):
+        r = v["replays"][-1]["verdict"] if v["replays"] else "not replayed"
+        sh = v["shadow"]
+        rec = ""
+        if sh:
+            a = b = 1.0
+            for x in sh.values():
+                a, b = a * (1 + x["ret"]), b * (1 + x["current"])
+            rec = f"; shadow {a - 1:+.1%} against {b - 1:+.1%} for the running rule"
+        q = v["params"]
+        out.append(f"- **Candidate `{k}`** ({q['lookback']}-{q['skip']}, top {q['n']}, band {q['band']:g}): "
+                   f"{v['status']}, replay {r}, {len(sh)} of 6 shadow months{rec}. Reason: {v['reason']}.")
+    out.append("- **The rule:** nothing changes this list on its own. A candidate needs a passing replay on 16 years "
+               "of data, 6 forward months in shadow, and your sign-off.")
+    return out
 
 
 def _cap() -> float:
@@ -227,5 +282,5 @@ def write(data: Path, month: str | None = None, ledger_path: Path = LEDGER, out:
     px, val = load(data, since=str((asof.date().replace(day=1) - timedelta(days=800))))
     path = out / f"brief-{m['date'][:7]}.md"
     out.mkdir(parents=True, exist_ok=True)
-    path.write_text(brief(ledger, px, val, m, load_sectors(), data, _cap()))
+    path.write_text(brief(ledger, px, val, m, load_sectors(), data, _cap(), Path(ledger_path).parent))
     return path
