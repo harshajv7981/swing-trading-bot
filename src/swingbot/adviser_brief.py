@@ -188,7 +188,9 @@ def brief(ledger: dict, px: pd.DataFrame, val: pd.DataFrame, month: dict, sector
     if len(stops):
         lines += ["", f"Stop levels are {STOP_ATRS:g} x the {ATR_DAYS}-day average true range below the close. "
                       "They are **information only**: the tested rule has no stop-loss and exits only at the month-end "
-                      "re-rank. Stops were never tested on this rule, and using them would change its results."]
+                      "re-rank. Stops of 2x and 3x ATR were tested on M6 over Nov 2021 - Oct 2026 and failed: they cut the "
+                      "after-tax return by 11-13 points a year and did not make the worst fall shallower "
+                      "(docs/research/m6-stop-loss-prereg.md)."]
     lines += [
         "",
         "## How the list is made",

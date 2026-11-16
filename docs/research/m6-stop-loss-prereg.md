@@ -86,6 +86,28 @@ tried.
 - The worst single month for each arm.
 - Each arm against the Midcap150 Momentum 50 index over the same 60 months.
 
-## Results
+## Results (run 2026-11-17)
 
-Not run yet.
+`scripts/research/m6_stop_loss_study.py data/raw/eod2_data/daily`, eod2_data to
+13 Nov 2026. The window is the 60 months ending 30 Nov 2021 – 30 Oct 2026. Its
+self-check passed: with no stop, the arm reproduces `m6_and_ew`'s monthly
+returns exactly.
+
+| Arm | CAGR | After tax | Worst drawdown | Worst month | Holdings stopped/month | Gaps through stop | Stopped name, fill to month-end |
+|---|---|---|---|---|---|---|---|
+| A, M6 (no stop) | +25.0% | +20.1% | -24.9% | -13.4% | – | – | – |
+| S2 (2× ATR) | +9.2% | +7.2% | -33.0% | -11.4% | 46% | 52 of 556 | +2.2% (median +1.3%) |
+| S3 (3× ATR) | +11.1% | +8.7% | -28.7% | -14.1% | 27% | 34 of 324 | +3.7% (median +2.3%) |
+| Momentum 50 fund (info) | +13.9% | +12.4% (held, long-term tax) | -24.2% | -11.8% | – | – | – |
+
+**Verdict: FAIL for both stops.**
+- **Drawdown:** S2's worst fall was 8.1 points deeper than M6's, and S3's was
+  3.8 points deeper. Each needed to be 5 points shallower.
+- **Cost:** after tax, S2 gave up 12.9 points a year and S3 gave up 11.4. The
+  cap was 1.0.
+
+The stops sold too often: almost half of S2's holdings were stopped each month.
+On average, a stopped name then rose a further 2–4% by the month-end, so the
+stop sold before the recovery. Selling also paid costs, and the money sat in
+cash. Stops stay information only in the adviser brief, and no other stop will
+be tried. The paper trial is unchanged.
