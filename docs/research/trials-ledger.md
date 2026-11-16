@@ -41,6 +41,7 @@ replays use **the last 5 years only**, not 2010 onward.
 | 2026-11-14 | [M6 and G30 against their passive twins, after tax](passive-twin-prereg.md) | Twin wins both by the rule (M6 -8.0 pts full, +10.7 live; full window rests on back-calculated index) (adds 0 rules) |
 | 2026-11-14 | [Rank-buffer M6 (R40)](rank-buffer-prereg.md) | Fail (2010–19 after tax -0.6 pt vs M6, t 1.6); adds 1 momentum trial, N 87 → 88 |
 | 2026-11-16 | [Momentum across the whole NSE market](momentum-whole-market-prereg.md) | Fail (W1 and W2 M6 discovery t 1.1 and 1.2); mid M6 reference t slipped to 1.7 on revised data; adds 4 momentum trials, N 88 → 92 |
+| 2026-11-17 | [Stop-losses on M6 (2× and 3× ATR)](m6-stop-loss-prereg.md) | Fail (S2 and S3 deepen the drawdown and cost 11–13 pts a year after tax); adds 2 momentum trials, N 92 → 94 |
 | 2026-11-14 | [Survivorship-free M6](survivorship-free-m6-prereg.md) | Judged test not run (NSE bulk data declined); IIMA cross-check: momentum survives survivorship, weak link to M6 (adds 0 rules) |
 
 Running paper tests with their own rules docs, not counted above:
