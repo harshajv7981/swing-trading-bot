@@ -1,0 +1,30 @@
+# Milestone reminders. The nightly job (com.swingbot.momentum) shows each one as a Mac
+# notification every night for a week from its date. Keep double quotes out of the text.
+
+[[reminder]]
+date = 2026-11-24
+text = "No data-vendor reply? Call TrueData +91 7304224466, Global Datafeeds +91 7721080002, NSE +91 22 26598385."
+
+[[reminder]]
+date = 2027-01-04
+text = "Choose the momentum fund (TER, tracking error, size) and shortlist fee-only SEBI advisers who charge a percent of assets."
+
+[[reminder]]
+date = 2027-02-05
+text = "Mid-cap TradingAgents test: 13 scored weeks are due. Judge it and stop it if it fails."
+
+[[reminder]]
+date = 2027-05-10
+text = "Paper gate: the April booking is in. Check M6 against the Momentum 50 index (momentum-paper-trial.md)."
+
+[[reminder]]
+date = 2027-06-04
+text = "Large-cap TradingAgents test: judgement day (first Friday after 31 May 2027)."
+
+[[reminder]]
+date = 2027-09-01
+text = "Book the SEBI adviser meeting: risk profile, fee model, written drawdown plan before the 31 Oct real-money start."
+
+[[reminder]]
+date = 2027-10-31
+text = "Real-money start date (cap Rs 2.5 lakh), only if the adviser agreed. Record buys with swingbot-real."
