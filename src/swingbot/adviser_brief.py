@@ -260,7 +260,7 @@ def learning(state_root: Path) -> list[str]:
         q = v["params"]
         out.append(f"- **Candidate `{k}`** ({q['lookback']}-{q['skip']}, top {q['n']}, band {q['band']:g}): "
                    f"{v['status']}, replay {r}, {len(sh)} of 6 shadow months{rec}. Reason: {v['reason']}.")
-    out.append("- **The rule:** nothing changes this list on its own. A candidate needs a passing replay on 16 years "
+    out.append("- **The rule:** nothing changes this list on its own. A candidate needs a passing replay on the last 5 years "
                "of data, 6 forward months in shadow, and your sign-off.")
     return out
 

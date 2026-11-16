@@ -24,7 +24,9 @@ column per stock and one row per day.
 
 1. **Write the pre-registration first,** before running anything:
    `docs/research/<name>-prereg.md`. It sets out the data, the rule, the
-   baseline, the periods (discovery and holdout) and a pass bar.
+   baseline, the period and a pass bar. Since 2026-11-16, NSE studies use the
+   last 5 years only; the forward shadow or paper record is the holdout
+   (see the note in the trials ledger).
    [passive-twin-prereg.md](research/passive-twin-prereg.md) is a short
    example.
 2. **Add its row to [trials-ledger.md](research/trials-ledger.md).** A test
