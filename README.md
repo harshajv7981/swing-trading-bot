@@ -1,5 +1,83 @@
 # swing-trading-bot
 
+## In plain words
+
+**What this is.** A personal research and paper-trading system for Indian
+stocks (NSE). It exists to answer one question honestly: is there a simple,
+rules-based way to invest my own money that beats just buying an index fund,
+after costs and tax? It never places a real order. Real money moves only after
+a SEBI-registered adviser agrees, and only within the limits written in
+[config/real_money.toml](config/real_money.toml).
+
+**What it does every day, on its own**
+
+1. At 20:00 a scheduled Mac job downloads the day's NSE prices.
+2. After each month-end it books the paper portfolio, called **M6**: the 20
+   mid-cap stocks with the strongest 6-month price momentum, held in equal
+   amounts. It started with ₹10 lakh of paper money on 30 Oct 2026.
+3. It compares M6 with the Nifty Midcap150 Momentum 50 index fund, mid caps
+   held equally, and gold, then writes a report, an HTML scorecard and a
+   monthly stock list for the adviser.
+4. On Fridays it runs two TradingAgents tests, where AI analysts rate stocks.
+   Their calls are logged and scored later.
+
+**How an idea gets tested**
+
+```text
+idea → write the rules and the pass bar first → test on the last 5 years of NSE data
+     → record the result in the trials ledger, pass or fail
+     → passed? paper-trade it forward for 6+ months against the index fund
+     → still ahead? show it to a SEBI-registered adviser
+     → adviser agrees? real money, capped at ₹2.5 lakh
+```
+
+The pass bar is written before any result is seen, and every attempt is
+counted, so a lucky result can't hide among many tries. See the
+[trials ledger](docs/research/trials-ledger.md).
+
+**What we have learned so far**
+
+- 24 pre-registered studies, covering 94 versions of the momentum rule alone.
+  Almost everything failed: an ML stock ranker, the Kronos forecasting model,
+  stop-losses, trend filters, low-volatility mixes, price-pattern rules,
+  smart-money rules and an LLM news swarm.
+- M6 is the one rule that passed, and its evidence is weak (t 1.7).
+- Over the last 5 years M6 made +25.0% a year (+20.1% after tax), against
+  +13.9% (+12.4% after tax) for the Momentum 50 fund. Those years were one
+  long mid-cap boom, so they don't prove much.
+- Index funds pay no tax on their own trades. That makes the fund hard to beat
+  for a taxable investor, so it is the default plan, and M6 has to beat it on
+  paper first. The paper trial is judged after the April 2027 booking.
+
+**Ideas taken from GitHub repos (12 so far)**
+
+| Repo | What we did with it | Result |
+|---|---|---|
+| [TradingAgents](https://github.com/TauricResearch/TradingAgents) | Copied its data-layer design; runs two forward paper tests | Running: mid-cap verdict around Feb 2027, large-cap in Jun 2027 |
+| [Kronos](https://github.com/shiyu-coder/Kronos) | Tested as a price forecaster | Failed: -16.9% against M6's +22.9% |
+| [Chronos](https://github.com/amazon-science/chronos-forecasting) | Considered as a forecaster | Dropped before testing |
+| [Qlib](https://github.com/microsoft/qlib) | Used its Alpha158 feature list as a checklist | Ideas only |
+| [RD-Agent](https://github.com/microsoft/RD-Agent) | Reviewed | Not runnable without a paid API; gave us the trials ledger idea |
+| [AI-Trader](https://github.com/HKUDS/AI-Trader) | Reviewed | Skipped; borrowed comparing every run with the index |
+| [FINSABER](https://github.com/waylonli/FINSABER) | Reviewed | Skipped; borrowed its statistical checks |
+| [LangAlpha](https://github.com/ginlix-ai/LangAlpha) | Reviewed | Skipped: nothing to adopt |
+| [PKScreener](https://github.com/pkjmesra/PKScreener) | Tested two popular screener rules | Failed, with the other weekly rules |
+| [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) | Borrowed the exit planner, odds check, sizing and PASS/BLOCK gate | In use, as this repo's own code |
+| [AutoHedge](https://github.com/The-Swarm-Corporation/AutoHedge) | Borrowed the final order-ticket step | In use, as plain code |
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | Borrowed its learn-from-mistakes loop | Wired for NSE, running |
+
+Data and broker code also come from GitHub:
+[eod2_data](https://github.com/BennyThadikaran/eod2_data) for daily NSE prices,
+and [alpaca-py](https://github.com/alpacahq/alpaca-py) for the US paper broker.
+
+**Where to look**
+
+- The paper trial so far: `.venv/bin/swingbot-momentum report`
+- Its rules and pass bar: [docs/research/momentum-paper-trial.md](docs/research/momentum-paper-trial.md)
+- Every study tried: [docs/research/trials-ledger.md](docs/research/trials-ledger.md)
+
+## Technical reference
+
 Tools for swing trading Indian equities: market data, hard risk rules, a paper
 account and broker, a Dhan sandbox adapter, a dashboard, and the mid-cap
 momentum paper trial. Paper trading only: nothing here places a real order.
