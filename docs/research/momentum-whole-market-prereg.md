@@ -86,3 +86,31 @@ history (it is force-pushed upstream), and the original pass was close to
 the bar. The rule's evidence is weaker than first recorded, which fits the
 overfit study's warning (deflated Sharpe 0.78). The forward paper trial and
 its October 2027 review stay the real test.
+
+## Last-5-years view (asked for after the run; information only)
+
+After the results above, Harsha asked to see only the last five years. A
+window picked after seeing results can't pass a bar, so this is a view and not
+a test. It reuses the same arms, so it adds no trials.
+`scripts/research/momentum_whole_market_last5.py`, Nov 2021 – Oct 2026
+(60 months). The Nifty 50 made +5.5% a year in this data.
+
+| Group | Rule | CAGR | After 20.8% tax | Excess over own EW (t) | Years ahead | Worst fall |
+|---|---|---|---|---|---|---|
+| Mid (running rule) | M6 | +25.2% | +20.2% | +0.93%/month (t 2.0) | 5/6 | -25% |
+| Mid | M12 | +29.4% | +23.4% | +1.24%/month (t 2.7) | 6/6 | -25% |
+| Whole market | M6 | +13.1% | +10.4% | +0.22%/month (t 0.4) | 3/6 | -29% |
+| Whole market | M12 | +20.0% | +16.1% | +0.71%/month (t 1.3) | 5/6 | -40% |
+| Top 500 | M6 | +15.6% | +12.3% | +0.33%/month (t 0.6) | 4/6 | -33% |
+| Top 500 | M12 | +27.0% | +21.6% | +1.11%/month (t 2.0) | 5/6 | -34% |
+
+**What it shows:**
+- Over the last five years too, picking from the whole market or the top 500
+  with the running rule (M6) is clearly weaker than picking among mid-caps.
+  The conclusion doesn't change.
+- Every momentum arm did well because 2021–26 was a mid- and small-cap boom.
+  Mid-cap M12 looks best here. But M12 failed its 2010–19 test in the size
+  study, and switching to it on a window chosen afterwards would be exactly the
+  hindsight these rules exist to stop.
+- If M12 is ever to replace M6, it has to come through the learning loop:
+  proposed with evidence, replayed, run 6 months in shadow, then approved.
