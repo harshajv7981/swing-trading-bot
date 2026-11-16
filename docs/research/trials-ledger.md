@@ -8,6 +8,15 @@ any new result against the count here. (Idea from RD-Agent's hypothesis log.)
 missing from the table. Add the row when the prereg is written, and fill in the
 outcome when it is judged.
 
+**Method change, 2026-11-16 (Harsha's decision).** New NSE studies and skill
+replays use **the last 5 years only**, not 2010 onward.
+- The forward record is the out-of-sample test: 6 shadow months for a new
+  skill, and the paper gate's 6 months for the adviser list.
+- What this gives up: 2010–19, a decade when mid-caps were flat and momentum
+  barely beat them, is no longer checked. Every past result rests on one
+  regime, the 2021–26 boom.
+- Rows written before this date keep the windows they were judged on.
+
 | Written | Study | Outcome |
 |---|---|---|
 | 2026-10-28 | [Price rules](price-rules-prereg.md) | No rule passes |

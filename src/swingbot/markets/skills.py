@@ -20,7 +20,8 @@ history: candidate -> shadow -> approved -> retired (or rejected).
 - **People decide:** every status change needs a named person. Approving a new
   version retires the old one. Nothing here changes a running pre-registered
   trial: putting an approved version to work needs its own pre-registration.
-- **Replay gate (NSE):** the same gate, on eod2_data from Jan 2010, with the
+- **Replay gate (NSE):** the same gate, on the last 5 years of eod2_data (Harsha's
+  decision, 2026-11-16; the forward shadow is the out-of-sample check), with the
   trial's point-in-time universe (liquidity ranks 101-250 at each month-end,
   `NseMembers`) and its 0.20%-a-side cost. The panel id is eod2_data's commit.
   There is no NSE trend gate yet, so NSE candidates can't ask for one.
@@ -170,7 +171,7 @@ class Skills:
         if market == "nse":
             from ..momentum import COST_SIDE as cost
             m = nse_month_ends(daily)
-            start = max(start, int(m.index.searchsorted(pd.Timestamp(NSE_FROM))))
+            start = max(start, len(m) - 1 - 12 * NSE_YEARS)  # the last NSE_YEARS of booked months
         else:
             cost, m = US_COST, month_ends(daily)
 
@@ -245,7 +246,8 @@ class Skills:
         self._append(market, {"kind": "skill_status", "skill": key, "status": new, "by": by, "why": why})
 
 
-NSE_FROM = "2010-01-01"  # the replay starts where every NSE study did
+# Harsha's decision, 2026-11-16: NSE replays use the last 5 years only. The 6-month forward shadow is the holdout.
+NSE_YEARS = 5
 
 
 def nse_month_ends(px: pd.DataFrame) -> pd.DataFrame:
